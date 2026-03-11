@@ -4,11 +4,25 @@ A Claude Code skill that picks up Jira issues labeled `llm-candidate`, implement
 
 ## How it works
 
-1. Queries Jira for issues labeled `llm-candidate`
-2. Reads the issue details and maps it to the correct repository
-3. Creates a branch, generates an implementation plan (`prd.json`)
-4. Executes the plan autonomously, one entry at a time
-5. Commits, pushes, opens a PR, and updates the Jira issue
+Unshift uses a three-phase architecture orchestrated by `unshift.sh`:
+
+1. **Phase 1 (Planning)** — A `claude -p` session queries Jira for `llm-candidate` issues, reads the issue details, maps it to the correct repository, creates a branch, and generates an implementation plan (`prd.json`).
+2. **Phase 2 (Implementation)** — `ralph.sh --auto <N>` executes the plan one entry at a time, each in an isolated `claude -p` session.
+3. **Phase 3 (Delivery)** — A `claude -p` session verifies all work is complete, commits, pushes, opens a PR, updates the Jira issue, and cleans up.
+
+Each phase runs in a separate Claude session with minimal context, keeping token usage low and focus tight.
+
+## Ralph loops and context minimization
+
+The implementation phase uses `ralph.sh` to run one `claude -p` invocation per `prd.json` entry. Each iteration:
+
+- Picks the next incomplete entry
+- Implements only that single entry
+- Runs validation commands from the entry
+- Records status in `progress.txt`
+- Marks the entry as completed (or logs failure)
+
+Because each iteration starts a fresh Claude session, there is no accumulated context from previous iterations. Token usage stays flat regardless of how many entries exist, and each entry gets the full context window for its implementation.
 
 ## Prerequisites
 
@@ -18,7 +32,7 @@ A Claude Code skill that picks up Jira issues labeled `llm-candidate`, implement
 | [Jira CLI](https://github.com/ankitpokhrel/jira-cli) | Query and update Jira issues | See [Jira CLI Setup](#jira-cli-setup) below |
 | [gh](https://cli.github.com/) | Create GitHub PRs | `dnf install gh` / `brew install gh` |
 | [glab](https://gitlab.com/gitlab-org/cli) | Create GitLab MRs | `dnf install glab` / `brew install glab` |
-| [jq](https://jqlang.github.io/jq/) | Used by the installer to merge settings | `dnf install jq` / `brew install jq` |
+| [jq](https://jqlang.github.io/jq/) | Used by the installer and orchestrator | `dnf install jq` / `brew install jq` |
 | [Git](https://git-scm.com/) | Version control | Pre-installed on most systems |
 
 You only need `gh` or `glab` depending on which repositories you work with.
@@ -31,22 +45,25 @@ Run the init script from within any project repository:
 curl -sSL https://raw.githubusercontent.com/CryptoRodeo/unshift/refs/heads/main/init.sh | bash
 ```
 
-This does two things:
+This installs:
 
-1. Installs the `/unshift` skill to `~/.claude/skills/unshift/SKILL.md`
-2. Adds CLI permissions (`jira`, `gh`, `glab`) to `~/.claude/settings.json`
+1. The `/unshift` skill to `~/.claude/skills/unshift/SKILL.md`
+2. The orchestrator script `unshift.sh` to `~/.claude/skills/unshift/`
+3. The implementation loop `ralph.sh` to `~/.claude/skills/unshift/ralph/`
+4. Prompt templates (`phase1.md`, `phase3.md`) to `~/.claude/skills/unshift/prompts/`
+5. CLI permissions (`jira`, `gh`, `glab`) to `~/.claude/settings.json`
 
-Agent working files (`prd.json`, `progress.txt`) are created in the target repository at runtime and cleaned up after the PR is created.
+Agent working files (`prd.json`, `progress.txt`, `ralph.sh`) are created in the target repository at runtime and cleaned up after the PR is created.
 
 ## Usage
 
-Open Claude Code in any directory and run:
+The primary way to run unshift is directly via the shell script:
 
-```
-/unshift
+```bash
+~/.claude/skills/unshift/unshift.sh
 ```
 
-Claude will find the next `llm-candidate` issue, implement it, and open a PR.
+Alternatively, open Claude Code and run `/unshift` — this prints the command above for you to execute outside of Claude Code (since the orchestrator invokes `claude -p` itself).
 
 ## Jira CLI Setup
 
@@ -153,8 +170,11 @@ The next time you use this skill Claude will use the updated mapping.
 
 | File | Location | Purpose |
 |---|---|---|
-| `skills/unshift/SKILL.md` | This repo (source) / `~/.claude/skills/unshift/` (installed) | The Claude Code skill definition |
-| `init.sh` | This repo | Installer script (skill + settings only) |
+| `unshift.sh` | This repo (source) / `~/.claude/skills/unshift/` (installed) | Top-level orchestrator — drives all three phases |
+| `ralph/ralph.sh` | This repo (source) / `~/.claude/skills/unshift/ralph/` (installed) | Implementation loop — one `claude -p` per prd.json entry |
+| `prompts/phase1.md` | This repo (source) / `~/.claude/skills/unshift/prompts/` (installed) | Phase 1 prompt template for Jira discovery and planning |
+| `prompts/phase3.md` | This repo (source) / `~/.claude/skills/unshift/prompts/` (installed) | Phase 3 prompt template for PR creation and Jira update |
+| `skills/unshift/SKILL.md` | This repo (source) / `~/.claude/skills/unshift/` (installed) | Claude Code skill definition (convenience wrapper) |
+| `init.sh` | This repo | Installer script (skill, scripts, prompts, and settings) |
 | `prd.json` | Target repo root (at runtime) | Implementation plan, created per issue, cleaned up after |
 | `progress.txt` | Target repo root (at runtime) | Append-only execution log, cleaned up after |
-

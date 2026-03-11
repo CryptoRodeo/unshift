@@ -4,7 +4,13 @@
 
 An LLM agent that picks up Jira issues labeled `llm-candidate`, implements the work in the corresponding repository, and opens a pull request — fully autonomously with no manual intervention.
 
-The agent runs as a Claude Code skill (`/unshift`). The implementation loop is embedded directly in the skill — no external execution scripts are needed.
+The workflow is orchestrated by `unshift.sh`, a shell script that drives three phases:
+
+1. **Phase 1** — `claude -p` for Jira discovery, repo setup, branch creation, and `prd.json` generation (Steps 1-5)
+2. **Phase 2** — `ralph.sh --auto <N>` for implementation, executing one `prd.json` entry per iteration in isolated Claude sessions (Step 6)
+3. **Phase 3** — `claude -p` for verification, commit, push, PR creation, Jira update, and cleanup (Steps 7-10)
+
+Each phase runs in a separate Claude session with minimal context, keeping token usage low and focus tight. The `/unshift` skill acts as a convenience entry point that prints the command to run.
 
 ---
 
@@ -14,15 +20,15 @@ The agent runs as a Claude Code skill (`/unshift`). The implementation loop is e
 - `claude` CLI available on the host
 - `gh` CLI for GitHub repositories
 - `glab` CLI for GitLab repositories
-- `jq` for the installer to merge settings
+- `jq` for the installer to merge settings and for counting incomplete entries
 - Git credentials configured for push access to target repositories
-- The `/unshift` skill installed via `init.sh`
+- The skill and scripts installed via `init.sh`
 
 ---
 
 ## Workflow
 
-This is a full-send workflow. Once invoked, the agent executes all steps autonomously. It only stops on hard errors or repeated validation failures — never to ask for user input.
+This is a full-send workflow. Once invoked, the orchestrator executes all phases autonomously. It only stops on hard errors or repeated validation failures — never to ask for user input.
 
 ### Step 1: Pre-flight checks
 
@@ -127,18 +133,28 @@ Create `prd.json` in the repository root (or update it if one already exists). T
 
 Also create an empty `progress.txt` if it does not already exist.
 
-### Step 6: Execute the implementation loop
+Phase 1 also writes a context file (`/tmp/unshift_context.json`) consumed by later phases, containing: `issue_key`, `summary`, `description`, `issue_type`, `repo_path`, `branch_name`, `default_branch`, `host`, `commit_prefix`.
 
-The agent iterates through each incomplete entry in `prd.json` directly — no external script is needed.
+### Step 6: Execute the implementation loop (ralph.sh)
 
-#### Per-entry contract:
+Implementation is handled by `ralph.sh`, which runs in a loop — one `claude -p` invocation per `prd.json` entry. Each iteration is an isolated Claude session with a strict execution contract.
+
+`unshift.sh` copies `ralph.sh` into the target repo, counts incomplete entries via `jq`, and runs:
+
+```bash
+./ralph.sh --auto <N>
+```
+
+Where `<N>` is the number of incomplete `prd.json` entries. The `--auto` flag skips confirmation prompts between iterations.
+
+#### Per-entry contract (enforced by ralph.sh prompt):
 
 1. Select the highest-priority (lowest `id`) incomplete entry from `prd.json`.
 2. Implement ONLY that entry. Make only the minimal changes required.
-3. Run the validation commands from that entry.
+3. Run the validation commands from that entry. If validation fails, do NOT mark the entry as completed; append failure status to `progress.txt`.
 4. Append a concise status entry to `progress.txt` describing: the feature worked on, files changed, and current status.
 5. If validation passes, mark ONLY that entry as `"completed": true` in `prd.json`.
-6. Move to the next incomplete entry automatically — no confirmation needed.
+6. STOP — each ralph iteration handles exactly one entry.
 
 #### Constraints:
 
@@ -146,10 +162,12 @@ The agent iterates through each incomplete entry in `prd.json` directly — no e
 - Do NOT refactor, clean up, or improve unrelated code.
 - Do NOT add follow-up features, enhancements, or "while I'm here" changes.
 
-#### Failure handling:
+#### Context minimization:
 
-- If validation fails, do NOT mark the entry as completed. Retry the same entry.
-- If an entry fails validation 3 consecutive times, stop and report the failure. Do not continue to the next entry.
+Each ralph iteration starts a fresh `claude -p` session. This means:
+- No accumulated context from previous iterations
+- Token usage stays flat regardless of how many entries exist
+- Each entry gets the full context window for its implementation
 
 ### Step 7: Verify all work is complete
 
@@ -174,12 +192,12 @@ Format: `<prefix> <ISSUE_KEY> <short description>`
 Example: `feat: OCM-1234 add cluster validation for managed namespaces`
 
 ```bash
-git add -A -- ':!prd.json' ':!progress.txt'
+git add -A -- ':!prd.json' ':!progress.txt' ':!ralph.sh'
 git commit -m "<commit message>"
 git push origin <branch-name>
 ```
 
-> **Note:** `prd.json` and `progress.txt` are agent working files and must NOT be committed to the PR.
+> **Note:** `prd.json`, `progress.txt`, and `ralph.sh` are agent working files and must NOT be committed to the PR.
 
 **Create a pull request** using the appropriate CLI based on the repository host (see mapping table). Use non-interactive flags to avoid prompts:
 
@@ -243,8 +261,18 @@ $(cat progress.txt)
 Remove agent working files from the repo directory:
 
 ```bash
-rm -f prd.json progress.txt
+rm -f prd.json progress.txt ralph.sh
 ```
+
+---
+
+## Phase-to-Step Mapping
+
+| Phase | Script / Tool | Steps | Description |
+|---|---|---|---|
+| Phase 1 | `claude -p` with `prompts/phase1.md` | 1-5 | Jira discovery, repo setup, branch, prd.json |
+| Phase 2 | `ralph.sh --auto <N>` | 6 | Implementation loop (one claude -p per entry) |
+| Phase 3 | `claude -p` with `prompts/phase3.md` | 7-10 | Verify, commit, push, PR, Jira update, cleanup |
 
 ---
 
@@ -265,8 +293,9 @@ Use the validation commands from the project mapping table. If none are listed, 
 | No issues with `llm-candidate` label | Exit gracefully with message |
 | Cannot determine repository from issue | Fail with descriptive error |
 | `prd.json` already exists with completed work | Preserve completed entries, add/update incomplete ones |
-| Validation fails 3 times for same entry | Stop and report failure |
+| Validation fails for a ralph iteration | Do not mark entry as completed; append failure to progress.txt |
 | Git push or PR creation fails | Stop and report the error; do not retry |
+| Any phase fails | Stop immediately; do not continue to the next phase |
 
 ---
 
@@ -274,7 +303,11 @@ Use the validation commands from the project mapping table. If none are listed, 
 
 | File | Location | Purpose |
 |---|---|---|
-| `skills/unshift/SKILL.md` | This repo (source) / `~/.claude/skills/unshift/` (installed) | The Claude Code skill definition |
-| `init.sh` | This repo | Installer script (skill + settings only) |
+| `unshift.sh` | This repo (source) / `~/.claude/skills/unshift/` (installed) | Top-level orchestrator — drives all three phases |
+| `ralph/ralph.sh` | This repo (source) / `~/.claude/skills/unshift/ralph/` (installed) | Implementation loop — one `claude -p` per prd.json entry |
+| `prompts/phase1.md` | This repo (source) / `~/.claude/skills/unshift/prompts/` (installed) | Phase 1 prompt template for Jira discovery and planning |
+| `prompts/phase3.md` | This repo (source) / `~/.claude/skills/unshift/prompts/` (installed) | Phase 3 prompt template for PR creation and Jira update |
+| `skills/unshift/SKILL.md` | This repo (source) / `~/.claude/skills/unshift/` (installed) | Claude Code skill definition (convenience wrapper) |
+| `init.sh` | This repo | Installer script (skill, scripts, prompts, and settings) |
 | `prd.json` | Target repo root (at runtime) | Implementation plan, created per issue, cleaned up after |
 | `progress.txt` | Target repo root (at runtime) | Append-only execution log, cleaned up after |
