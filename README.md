@@ -141,6 +141,10 @@ Open `skills/unshift/SKILL.md` and add a row to the **Project-to-Repository Mapp
 | `MYPROJ` | None | `git@github.com:org/my-repo.git` | `~/work/my-repo` | `main` | GitHub | `npm test` |
 ```
 
+Use `None` for columns that don't apply to your repository:
+- **Component** — set to `None` when the Jira project doesn't use components to distinguish repositories.
+- **Validation commands** — set to `None` when there are no validation commands to run.
+
 Then copy the updated file:
 
 ```bash
