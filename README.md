@@ -33,7 +33,7 @@ curl -sSL https://raw.githubusercontent.com/CryptoRodeo/unshift/refs/heads/main/
 
 This does two things:
 
-1. Installs the `/unshift` skill to `~/.claude/skills/unshift.md`
+1. Installs the `/unshift` skill to `~/.claude/skills/unshift/SKILL.md`
 2. Adds CLI permissions (`jira`, `gh`, `glab`) to `~/.claude/settings.json`
 
 Ralph files (`ralph.sh`, `prd.json`, `progress.txt`) are bootstrapped automatically in the target repository when the skill runs.
@@ -124,18 +124,18 @@ To add or update a repository, see [Customizing the Skill](#customizing-the-skil
 
 ## Customizing the Skill
 
-The installed skill lives at `~/.claude/skills/unshift.md`, but you should treat `skills/unshift.md` in this repo as the source of truth. To make changes (e.g. adding a new Jira project-to-repository mapping):
+The installed skill lives at `~/.claude/skills/unshift/SKILL.md`, but you should treat `skills/unshift/SKILL.md` in this repo as the source of truth. To make changes (e.g. adding a new Jira project-to-repository mapping):
 
-1. Edit `skills/unshift.md` in this repo
+1. Edit `skills/unshift/SKILL.md` in this repo
 2. Copy it to the installed location:
 
 ```bash
-cp skills/unshift.md ~/.claude/skills/unshift.md
+cp skills/unshift/SKILL.md ~/.claude/skills/unshift/SKILL.md
 ```
 
 ### Example: Adding a new repository
 
-Open `skills/unshift.md` and add a row to the **Project-to-Repository Mapping** table:
+Open `skills/unshift/SKILL.md` and add a row to the **Project-to-Repository Mapping** table:
 
 ```markdown
 | `MYPROJ` | None | `git@github.com:org/my-repo.git` | `~/work/my-repo` | `main` | GitHub | `npm test` |
@@ -144,7 +144,7 @@ Open `skills/unshift.md` and add a row to the **Project-to-Repository Mapping** 
 Then copy the updated file:
 
 ```bash
-cp skills/unshift.md ~/.claude/skills/unshift.md
+cp skills/unshift/SKILL.md ~/.claude/skills/unshift/SKILL.md
 ```
 
 The next time you use this skill Claude will use the updated mapping.
@@ -153,7 +153,7 @@ The next time you use this skill Claude will use the updated mapping.
 
 | File | Location | Purpose |
 |---|---|---|
-| `skills/unshift.md` | This repo (source) / `~/.claude/skills/` (installed) | The Claude Code skill definition |
+| `skills/unshift/SKILL.md` | This repo (source) / `~/.claude/skills/unshift/` (installed) | The Claude Code skill definition |
 | `init.sh` | This repo | Installer script (skill + settings only) |
 | `ralph/ralph.sh` | This repo (source) / target repo root (at runtime) | Execution loop that implements one prd.json entry per iteration |
 | `ralph/prd.json` | This repo (source) / target repo root (at runtime) | Template implementation plan, overwritten per issue |

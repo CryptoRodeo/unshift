@@ -11,14 +11,14 @@ if [[ "${BASH_SOURCE[0]-}" == "bash" || ! -f "${BASH_SOURCE[0]-}" ]]; then
 fi
 
 UNSHIFT_REPO="https://raw.githubusercontent.com/CryptoRodeo/unshift/refs/heads/main"
-SKILL_DIR="${HOME}/.claude/skills"
+SKILL_DIR="${HOME}/.claude/skills/unshift"
 
 echo "Installing /unshift skill..."
 
 # Install the /unshift skill for Claude Code
 mkdir -p "${SKILL_DIR}"
-curl -fsSL -o "${SKILL_DIR}/unshift.md" "${UNSHIFT_REPO}/skills/unshift.md"
-echo "Skill installed to ${SKILL_DIR}/unshift.md"
+curl -fsSL -o "${SKILL_DIR}/SKILL.md" "${UNSHIFT_REPO}/skills/unshift/SKILL.md"
+echo "Skill installed to ${SKILL_DIR}/SKILL.md"
 
 # Install or update Claude Code settings.json with CLI permissions
 SETTINGS_FILE="${HOME}/.claude/settings.json"
