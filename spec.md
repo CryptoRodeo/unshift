@@ -41,7 +41,7 @@ jira issue list -l "llm-candidate" --plain --no-headers --columns KEY,SUMMARY,TY
 ```
 
 - If no issues are returned, exit gracefully with a message: "No llm-candidate issues found."
-- Process one issue at a time. If multiple issues are returned, select the first one.
+- Process ALL returned issues. The orchestrator (`unshift.sh`) collects all issue keys, then loops through each one, running Phase 1 → Phase 2 (ralph.sh) → Phase 3 per issue. If any phase fails for an issue, log the error and continue to the next issue. A summary of successes and failures is printed at the end.
 
 ### Step 3: Read the Jira issue details
 

@@ -1,6 +1,6 @@
 ---
 name: unshift
-description: Pick up a Jira issue labeled llm-candidate, implement it, and open a PR.
+description: Pick up all Jira issues labeled llm-candidate, implement them, and open PRs.
 user-invocable: true
 ---
 

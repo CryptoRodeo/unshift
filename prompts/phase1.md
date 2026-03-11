@@ -1,27 +1,10 @@
 You are the Phase 1 planning agent for the unshift automation workflow.
 
-Execute Steps 1-5 below autonomously. Do NOT implement any code — only plan.
+You are given a single Jira issue key: **ISSUE_KEY_VALUE**
 
-## Step 1: Pre-flight checks
+Execute the steps below autonomously. Do NOT implement any code — only plan.
 
-Verify these tools are available by running `command -v` for each:
-- `jira`
-- `git`
-- `gh` (for GitHub repos)
-- `glab` (for GitLab repos)
-
-If any required tool is missing, stop with an actionable error listing what to install.
-
-## Step 2: Query Jira for candidate issues
-
-```bash
-jira issue list -l "llm-candidate" --plain --no-headers --columns KEY,SUMMARY,TYPE,STATUS
-```
-
-- If no issues are returned, exit with: "No llm-candidate issues found."
-- If multiple issues, select the first one.
-
-## Step 3: Read the Jira issue details
+## Step 1: Read the Jira issue details
 
 ```bash
 jira issue view <ISSUE_KEY>
@@ -40,6 +23,7 @@ Extract:
 | `SSCUI` | `Calunga` | `git@gitlab.cee.redhat.com:hosted-pulp/ui-packages.redhat.com.git` | `~/work/ui-packages.redhat.com/` | `main` | GitLab | `npm test`, `npx tsc --noEmit` |
 | `TC` | None | `git@github.com:guacsec/trustify-ui.git` | `~/work/trustify-ui` | `main` | GitHub | `npm test`, `npx tsc --noEmit` |
 | `SECURESIGN` | None | `git@github.com:guacsec/trustify-ui.git` | `~/work/rhtas-console-ui` (fork/downstream of trustify-ui) | `main` | GitHub | `npm test`, `npx tsc --noEmit` |
+| `SSCUI` | `AI` | `git@github.com:CryptoRodeo/unshift.git` | `~/work/unshift` | `main` | GitHub | None |
 
 If the repository cannot be determined, fail with: "Could not determine repository for issue `<ISSUE_KEY>`."
 
