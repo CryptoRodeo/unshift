@@ -10,7 +10,7 @@ The workflow is orchestrated by `unshift.sh`, a shell script that drives three p
 2. **Phase 2** — `ralph.sh --auto <N>` for implementation, executing one `prd.json` entry per iteration in isolated Claude sessions (Step 6)
 3. **Phase 3** — `claude -p` for verification, commit, push, PR creation, Jira update, and cleanup (Steps 7-10)
 
-Each phase runs in a separate Claude session with minimal context, keeping token usage low and focus tight. The `/unshift` skill acts as a convenience entry point that prints the command to run.
+Each phase runs in a separate Claude session with minimal context, keeping token usage low and focus tight. The script is run directly from the command line.
 
 ---
 
@@ -22,7 +22,7 @@ Each phase runs in a separate Claude session with minimal context, keeping token
 - `glab` CLI for GitLab repositories
 - `jq` for the installer to merge settings and for counting incomplete entries
 - Git credentials configured for push access to target repositories
-- The skill and scripts installed via `init.sh`
+- The scripts installed via `init.sh`
 
 ---
 
@@ -303,11 +303,10 @@ Use the validation commands from the project mapping table. If none are listed, 
 
 | File | Location | Purpose |
 |---|---|---|
-| `unshift.sh` | This repo (source) / `~/.claude/skills/unshift/` (installed) | Top-level orchestrator — drives all three phases |
-| `ralph/ralph.sh` | This repo (source) / `~/.claude/skills/unshift/ralph/` (installed) | Implementation loop — one `claude -p` per prd.json entry |
-| `prompts/phase1.md` | This repo (source) / `~/.claude/skills/unshift/prompts/` (installed) | Phase 1 prompt template for Jira discovery and planning |
-| `prompts/phase3.md` | This repo (source) / `~/.claude/skills/unshift/prompts/` (installed) | Phase 3 prompt template for PR creation and Jira update |
-| `skills/unshift/SKILL.md` | This repo (source) / `~/.claude/skills/unshift/` (installed) | Claude Code skill definition (convenience wrapper) |
-| `init.sh` | This repo | Installer script (skill, scripts, prompts, and settings) |
+| `unshift.sh` | Repo root | Top-level orchestrator — drives all three phases |
+| `ralph/ralph.sh` | `ralph/` | Implementation loop — one `claude -p` per prd.json entry |
+| `prompts/phase1.md` | `prompts/` | Phase 1 prompt template for Jira discovery and planning |
+| `prompts/phase3.md` | `prompts/` | Phase 3 prompt template for PR creation and Jira update |
+| `init.sh` | This repo | Configures Claude Code CLI permissions |
 | `prd.json` | Target repo root (at runtime) | Implementation plan, created per issue, cleaned up after |
 | `progress.txt` | Target repo root (at runtime) | Append-only execution log, cleaned up after |
