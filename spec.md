@@ -10,6 +10,9 @@ An LLM agent that picks up Jira issues labeled `llm-candidate`, implements the w
 
 - `jira` CLI installed and configured (see `jira-cli-setup.md`)
 - `claude` CLI available on the host
+- `gh` CLI for GitHub repositories
+- `glab` CLI for GitLab repositories
+- `jq` for the installer to merge settings
 - Git credentials configured for push access to target repositories
 - The `/unshift` skill installed via `init.sh` (ralph files are bootstrapped automatically when the skill runs)
 
@@ -181,12 +184,12 @@ Format: `<prefix> <ISSUE_KEY> <short description>`
 Example: `feat: OCM-1234 add cluster validation for managed namespaces`
 
 ```bash
-git add -A -- ':!prd.json' ':!progress.txt'
+git add -A -- ':!prd.json' ':!progress.txt' ':!ralph.sh'
 git commit -m "<commit message>"
 git push origin <branch-name>
 ```
 
-> **Note:** `prd.json` and `progress.txt` are agent working files and must NOT be committed to the PR.
+> **Note:** `prd.json`, `progress.txt`, and `ralph.sh` are agent working files and must NOT be committed to the PR.
 
 **Create a pull request** using the appropriate CLI based on the repository host (see mapping table):
 
@@ -269,11 +272,19 @@ Use the validation commands from the project mapping table. If none are listed, 
 
 ---
 
+## Pre-flight checks
+
+Before starting, verify these tools are available: `jira`, `claude`, `git`, `gh` (for GitHub repos), `glab` (for GitLab repos). If any required tool is missing, stop and tell the user what to install.
+
+---
+
 ## File Reference
 
-| File | Purpose |
-|---|---|
-| `prd.json` | Implementation plan — array of feature units with steps and validation |
-| `progress.txt` | Append-only log of what was done each ralph iteration |
-| `ralph.sh` | Execution loop — invokes `claude` CLI once per feature in `prd.json` |
+| File | Location | Purpose |
+|---|---|---|
+| `skills/unshift/SKILL.md` | This repo (source) / `~/.claude/skills/unshift/` (installed) | The Claude Code skill definition |
+| `init.sh` | This repo | Installer script (skill + settings only) |
+| `ralph/ralph.sh` | This repo (source) / target repo root (at runtime) | Execution loop that implements one prd.json entry per iteration |
+| `ralph/prd.json` | This repo (source) / target repo root (at runtime) | Template implementation plan, overwritten per issue |
+| `ralph/progress.txt` | This repo (source) / target repo root (at runtime) | Append-only execution log |
 

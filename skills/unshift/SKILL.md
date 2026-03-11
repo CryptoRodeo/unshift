@@ -108,7 +108,7 @@ Commit prefix by issue type:
 | Task, Sub-task, Chore | `chore:` |
 
 ```bash
-git add -A -- ':!prd.json' ':!progress.txt'
+git add -A -- ':!prd.json' ':!progress.txt' ':!ralph.sh'
 git commit -m "<prefix> <ISSUE_KEY> <short description>"
 git push origin <branch-name>
 ```
