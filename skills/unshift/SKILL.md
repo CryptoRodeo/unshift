@@ -6,6 +6,8 @@ user-invocable: true
 
 You are an automation agent that picks up Jira issues labeled `llm-candidate`, implements the work in the corresponding repository, and opens a pull request.
 
+This is a FULL-SEND workflow. Execute all steps autonomously without prompting the user for input. Only stop on hard errors or repeated validation failures.
+
 ## Project-to-Repository Mapping
 
 | Jira Project | Component | Repository URL | Local directory | Default branch | Host | Validation commands |
@@ -18,7 +20,11 @@ You are an automation agent that picks up Jira issues labeled `llm-candidate`, i
 
 Execute these steps in order. Stop and report if any step fails.
 
-### Step 1: Query Jira for candidate issues
+### Step 1: Pre-flight checks
+
+Verify these tools are available: `jira`, `git`, `gh` (for GitHub repos), `glab` (for GitLab repos). If any required tool is missing, stop with an error listing what to install.
+
+### Step 2: Query Jira for candidate issues
 
 Run:
 ```bash
@@ -28,7 +34,7 @@ jira issue list -l "llm-candidate" --plain --no-headers --columns KEY,SUMMARY,TY
 - If no issues are returned, stop with: "No llm-candidate issues found."
 - If multiple issues are returned, select the first one.
 
-### Step 2: Read the Jira issue details
+### Step 3: Read the Jira issue details
 
 Run:
 ```bash
@@ -41,30 +47,20 @@ Extract:
 - **Issue Type** - Story/Feature/Enhancement, Bug, or Task/Sub-task/Chore
 - **Repository** - determine from: (1) a custom field/label on the issue, (2) the project-to-repo mapping above, (3) fail if neither works
 
-### Step 3: Navigate to the repository and create a branch
+### Step 4: Navigate to the repository and create a branch
 
 1. `cd` into the local directory from the mapping table. If it doesn't exist, clone the repo first.
 2. Run `git status --porcelain` to check for uncommitted changes.
-   - If dirty, ask the user: "Working tree is dirty in `<dir>`. Stash changes and continue?"
-   - If approved, stash with: `git stash push -m "auto-stash before <ISSUE_KEY>: <branch-name> on <current-branch> (<date>)"`
-   - If declined, stop.
+   - If dirty, auto-stash without prompting: `git stash push -m "auto-stash before <ISSUE_KEY>: <branch-name> on <current-branch> (<date>)"`
 3. Run `git checkout <default-branch> && git pull`
-4. If any of `ralph.sh`, `prd.json`, or `progress.txt` are missing from the repo root, bootstrap them:
-   ```bash
-   UNSHIFT_REPO="https://raw.githubusercontent.com/CryptoRodeo/unshift/refs/heads/main/ralph"
-   [ -f ralph.sh ] || curl -fsSL -o ralph.sh "${UNSHIFT_REPO}/ralph.sh" && chmod +x ralph.sh
-   [ -f prd.json ] || curl -fsSL -o prd.json "${UNSHIFT_REPO}/prd.json"
-   [ -f progress.txt ] || touch progress.txt
-   ```
-   Step 4 will overwrite `prd.json` with the real implementation plan.
-5. Create a branch using the naming convention:
+4. Create a branch using the naming convention:
    - `feat/<ISSUE_KEY>-<short-slug>` for Stories/Features
    - `fix/<ISSUE_KEY>-<short-slug>` for Bugs
    - `chore/<ISSUE_KEY>-<short-slug>` for Tasks/Chores
 
-### Step 4: Generate prd.json
+### Step 5: Generate prd.json
 
-Create `prd.json` in the repo root with an implementation plan based on the Jira issue. Each entry must have:
+Create `prd.json` in the repo root with an implementation plan based on the Jira issue. Also create an empty `progress.txt` if it doesn't exist. Each entry must have:
 
 ```json
 {
@@ -80,25 +76,35 @@ Create `prd.json` in the repo root with an implementation plan based on the Jira
 Rules:
 - If `prd.json` already exists, preserve completed entries; only add/modify incomplete ones.
 - Use the validation commands from the mapping table.
-- Create an empty `progress.txt` if it doesn't exist.
 
-### Step 5: Execute implementation via ralph.sh
+### Step 6: Execute the implementation loop
 
-Count incomplete entries in `prd.json` and run:
-```bash
-./ralph.sh <N>
-```
+Iterate through each incomplete entry in `prd.json`, one at a time, following this contract:
 
-- If `ralph.sh` exits non-zero, stop and report the error.
-- If a feature fails validation 3 consecutive times, stop and report.
+#### Per-entry contract:
+1. Select the highest-priority (lowest `id`) incomplete entry from `prd.json`.
+2. Implement ONLY that entry. Make only the minimal changes required.
+3. Run the validation commands from that entry.
+4. Append a concise status entry to `progress.txt` describing: the feature worked on, files changed, and current status.
+5. If validation passes, mark ONLY that entry as `"completed": true` in `prd.json`.
+6. Move to the next incomplete entry automatically.
 
-### Step 6: Verify all work is complete
+#### Do NOT:
+- Work on more than one entry at a time.
+- Refactor, clean up, or improve unrelated code.
+- Add follow-up features, enhancements, or "while I'm here" changes.
+
+#### Failure handling:
+- If validation fails, do NOT mark the entry as completed. Retry the same entry.
+- If an entry fails validation 3 consecutive times, stop and report the failure. Do not continue to the next entry.
+
+### Step 7: Verify all work is complete
 
 - Confirm all entries in `prd.json` have `"completed": true`.
 - Run all validation commands from all entries as a final pass.
 - If anything is incomplete or fails, report which ones and stop.
 
-### Step 7: Commit, push, and create a PR
+### Step 8: Commit, push, and create a PR
 
 Commit prefix by issue type:
 | Jira Issue Type | Prefix |
@@ -108,12 +114,12 @@ Commit prefix by issue type:
 | Task, Sub-task, Chore | `chore:` |
 
 ```bash
-git add -A -- ':!prd.json' ':!progress.txt' ':!ralph.sh'
+git add -A -- ':!prd.json' ':!progress.txt'
 git commit -m "<prefix> <ISSUE_KEY> <short description>"
 git push origin <branch-name>
 ```
 
-Create the PR/MR based on the host:
+Create the PR/MR based on the host (non-interactive flags required):
 
 **GitHub** (`gh`):
 ```bash
@@ -126,7 +132,8 @@ gh pr create \
 
 ## Changes
 <Bulleted list of changes from progress.txt>" \
-  --base <default-branch>
+  --base <default-branch> \
+  --head <branch-name>
 ```
 
 **GitLab** (`glab`):
@@ -140,10 +147,11 @@ glab mr create \
 
 ## Changes
 <Bulleted list of changes from progress.txt>" \
-  --target-branch <default-branch>
+  --target-branch <default-branch> \
+  --yes
 ```
 
-### Step 8: Update the Jira issue
+### Step 9: Update the Jira issue
 
 ```bash
 jira issue move <ISSUE_KEY> "In Review"
@@ -152,6 +160,13 @@ jira issue comment add <ISSUE_KEY> "PR created: <PR_URL>"
 
 Post `prd.json` and `progress.txt` contents as separate Jira comments so reviewers can see the plan and execution log.
 
+### Step 10: Cleanup
+
+Remove the agent working files from the repo directory:
+```bash
+rm -f prd.json progress.txt
+```
+
 ## Error Handling
 
 | Scenario | Behavior |
@@ -159,10 +174,5 @@ Post `prd.json` and `progress.txt` contents as separate Jira comments so reviewe
 | No issues with `llm-candidate` label | Exit gracefully with message |
 | Cannot determine repository | Fail with descriptive error |
 | `prd.json` already exists with completed work | Preserve completed entries |
-| Validation fails 3 times for same feature | Stop and report failure |
-| `ralph.sh` exits non-zero | Stop and report error |
+| Validation fails 3 times for same entry | Stop and report failure |
 | Git push or PR creation fails | Stop and report; do not retry |
-
-## Pre-flight checks
-
-Before starting, verify these tools are available: `jira`, `claude`, `git`, `gh` (for GitHub repos), `glab` (for GitLab repos). If any required tool is missing, stop and tell the user what to install.

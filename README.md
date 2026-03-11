@@ -7,7 +7,7 @@ A Claude Code skill that picks up Jira issues labeled `llm-candidate`, implement
 1. Queries Jira for issues labeled `llm-candidate`
 2. Reads the issue details and maps it to the correct repository
 3. Creates a branch, generates an implementation plan (`prd.json`)
-4. Executes the plan using the [ralph](https://github.com/CryptoRodeo/ralph) loop
+4. Executes the plan autonomously, one entry at a time
 5. Commits, pushes, opens a PR, and updates the Jira issue
 
 ## Prerequisites
@@ -36,7 +36,7 @@ This does two things:
 1. Installs the `/unshift` skill to `~/.claude/skills/unshift/SKILL.md`
 2. Adds CLI permissions (`jira`, `gh`, `glab`) to `~/.claude/settings.json`
 
-Ralph files (`ralph.sh`, `prd.json`, `progress.txt`) are bootstrapped automatically in the target repository when the skill runs.
+Agent working files (`prd.json`, `progress.txt`) are created in the target repository at runtime and cleaned up after the PR is created.
 
 ## Usage
 
@@ -155,7 +155,6 @@ The next time you use this skill Claude will use the updated mapping.
 |---|---|---|
 | `skills/unshift/SKILL.md` | This repo (source) / `~/.claude/skills/unshift/` (installed) | The Claude Code skill definition |
 | `init.sh` | This repo | Installer script (skill + settings only) |
-| `ralph/ralph.sh` | This repo (source) / target repo root (at runtime) | Execution loop that implements one prd.json entry per iteration |
-| `ralph/prd.json` | This repo (source) / target repo root (at runtime) | Template implementation plan, overwritten per issue |
-| `ralph/progress.txt` | This repo (source) / target repo root (at runtime) | Append-only execution log |
+| `prd.json` | Target repo root (at runtime) | Implementation plan, created per issue, cleaned up after |
+| `progress.txt` | Target repo root (at runtime) | Append-only execution log, cleaned up after |
 

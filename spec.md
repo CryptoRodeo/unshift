@@ -2,7 +2,9 @@
 
 ## Overview
 
-An LLM agent that picks up Jira issues labeled `llm-candidate`, implements the work in the corresponding repository, and opens a pull request — all driven by a structured `prd.json` plan and the `ralph.sh` execution loop.
+An LLM agent that picks up Jira issues labeled `llm-candidate`, implements the work in the corresponding repository, and opens a pull request — fully autonomously with no manual intervention.
+
+The agent runs as a Claude Code skill (`/unshift`). The implementation loop is embedded directly in the skill — no external execution scripts are needed.
 
 ---
 
@@ -14,13 +16,19 @@ An LLM agent that picks up Jira issues labeled `llm-candidate`, implements the w
 - `glab` CLI for GitLab repositories
 - `jq` for the installer to merge settings
 - Git credentials configured for push access to target repositories
-- The `/unshift` skill installed via `init.sh` (ralph files are bootstrapped automatically when the skill runs)
+- The `/unshift` skill installed via `init.sh`
 
 ---
 
 ## Workflow
 
-### Step 1: Query Jira for candidate issues
+This is a full-send workflow. Once invoked, the agent executes all steps autonomously. It only stops on hard errors or repeated validation failures — never to ask for user input.
+
+### Step 1: Pre-flight checks
+
+Before starting, verify these tools are available: `jira`, `git`, `gh` (for GitHub repos), `glab` (for GitLab repos). If any required tool is missing, stop with an actionable error listing what to install.
+
+### Step 2: Query Jira for candidate issues
 
 ```bash
 jira issue list -l "llm-candidate" --plain --no-headers --columns KEY,SUMMARY,TYPE,STATUS
@@ -29,7 +37,7 @@ jira issue list -l "llm-candidate" --plain --no-headers --columns KEY,SUMMARY,TY
 - If no issues are returned, exit gracefully with a message: "No llm-candidate issues found."
 - Process one issue at a time. If multiple issues are returned, select the first one.
 
-### Step 2: Read the Jira issue details
+### Step 3: Read the Jira issue details
 
 ```bash
 jira issue view <ISSUE_KEY>
@@ -38,7 +46,7 @@ jira issue view <ISSUE_KEY>
 Extract the following from the issue:
 - **Summary** — short description of the work
 - **Description** — full details, acceptance criteria
-- **Issue Type** — used to determine the commit prefix (see Step 7)
+- **Issue Type** — used to determine the commit prefix (see Step 8)
 - **Repository** — identified from one of these sources (in priority order):
   1. A custom field or label on the issue containing the repository URL or name
   2. The Jira project-to-repo mapping provided below
@@ -52,18 +60,12 @@ Extract the following from the issue:
 | `TC` | None | `git@github.com:guacsec/trustify-ui.git` | `~/work/trustify-ui` | `main` | GitHub | `npm test`, `npx tsc --noEmit` |
 | `SECURESIGN` | None | `git@github.com:guacsec/trustify-ui.git` | `~/work/rhtas-console-ui` (fork/downstream of trustify-ui) | `main` | GitHub | `npm test`, `npx tsc --noEmit` |
 
-### Step 3: Clone or navigate to the repository
+### Step 4: Navigate to the repository and create a branch
+
 - If the repo is already cloned locally, `cd` into it.
 - Otherwise, clone it into a working directory and `cd` into it.
 
-**Pre-flight check:** Before switching branches, verify the working tree is clean:
-
-```bash
-git status --porcelain
-```
-
-- If the output is empty, proceed.
-- If there are uncommitted changes, prompt the user: "Working tree is dirty in `<local-directory>`. Stash changes and continue?" If approved, stash with a descriptive name:
+**Auto-stash dirty working trees:** If `git status --porcelain` shows uncommitted changes, automatically stash them without prompting:
 
 ```bash
 git stash push -m "auto-stash before <ISSUE_KEY>: <branch-name> on <current-branch> ($(date +%Y-%m-%d-%H:%M))"
@@ -71,28 +73,13 @@ git stash push -m "auto-stash before <ISSUE_KEY>: <branch-name> on <current-bran
 
 Example stash name: `auto-stash before TC-456: feat/TC-456-add-search on main (2026-03-11-14:30)`
 
-If the user declines, stop and exit.
-
 Once the working tree is clean:
 
 ```bash
 git checkout <default-branch> && git pull
 ```
 
-**Bootstrap agent files:** If any of `ralph.sh`, `prd.json`, or `progress.txt` are missing from the repository root, download them from the unshift repo:
-
-```bash
-UNSHIFT_REPO="https://raw.githubusercontent.com/CryptoRodeo/unshift/refs/heads/main/ralph"
-[ -f ralph.sh ] || curl -fsSL -o ralph.sh "${UNSHIFT_REPO}/ralph.sh" && chmod +x ralph.sh
-[ -f prd.json ] || curl -fsSL -o prd.json "${UNSHIFT_REPO}/prd.json"
-[ -f progress.txt ] || touch progress.txt
-```
-
-Step 4 will overwrite `prd.json` with the real implementation plan.
-
-(Use the default branch from the mapping table.)
-
-- Create a new branch from the default branch:
+Create a new branch from the default branch:
 
 ```bash
 git checkout -b <branch-name>
@@ -105,7 +92,7 @@ git checkout -b <branch-name>
 
 Example: `feat/OCM-1234-add-cluster-validation`
 
-### Step 4: Generate or update `prd.json`
+### Step 5: Generate `prd.json`
 
 Create `prd.json` in the repository root (or update it if one already exists). The file must conform to this schema:
 
@@ -140,36 +127,39 @@ Create `prd.json` in the repository root (or update it if one already exists). T
 
 Also create an empty `progress.txt` if it does not already exist.
 
-### Step 5: Execute implementation via `ralph.sh`
+### Step 6: Execute the implementation loop
 
-Run the ralph loop to implement each feature in `prd.json`:
+The agent iterates through each incomplete entry in `prd.json` directly — no external script is needed.
 
-```bash
-./ralph.sh <N>
-```
+#### Per-entry contract:
 
-Where `<N>` is the number of incomplete entries in `prd.json`. The ralph loop will:
-1. Pick the highest-priority incomplete feature from `prd.json`
-2. Implement only that feature
-3. Run validation checks
-4. Update `progress.txt` with what was done
-5. Mark the feature as completed if validation passes
-6. Stop and prompt before the next iteration
+1. Select the highest-priority (lowest `id`) incomplete entry from `prd.json`.
+2. Implement ONLY that entry. Make only the minimal changes required.
+3. Run the validation commands from that entry.
+4. Append a concise status entry to `progress.txt` describing: the feature worked on, files changed, and current status.
+5. If validation passes, mark ONLY that entry as `"completed": true` in `prd.json`.
+6. Move to the next incomplete entry automatically — no confirmation needed.
 
-**If validation fails:**
-- Do NOT mark the feature as completed.
-- The next ralph iteration will retry the same feature.
-- If a feature fails validation 3 times consecutively, stop and report the failure. Do not continue to the next feature.
+#### Constraints:
 
-### Step 6: Verify all work is complete
+- Work on exactly one entry at a time.
+- Do NOT refactor, clean up, or improve unrelated code.
+- Do NOT add follow-up features, enhancements, or "while I'm here" changes.
 
-After `ralph.sh` finishes, confirm:
+#### Failure handling:
+
+- If validation fails, do NOT mark the entry as completed. Retry the same entry.
+- If an entry fails validation 3 consecutive times, stop and report the failure. Do not continue to the next entry.
+
+### Step 7: Verify all work is complete
+
+After the implementation loop finishes, confirm:
 - All entries in `prd.json` have `"completed": true`
 - A final full validation pass succeeds (run all validation commands from all entries)
 
 If any entry is still incomplete, report which ones failed and stop.
 
-### Step 7: Commit, push, and create a pull request
+### Step 8: Commit, push, and create a pull request
 
 **Commit message format** (conventional commits, derived from Jira issue type):
 
@@ -184,14 +174,14 @@ Format: `<prefix> <ISSUE_KEY> <short description>`
 Example: `feat: OCM-1234 add cluster validation for managed namespaces`
 
 ```bash
-git add -A -- ':!prd.json' ':!progress.txt' ':!ralph.sh'
+git add -A -- ':!prd.json' ':!progress.txt'
 git commit -m "<commit message>"
 git push origin <branch-name>
 ```
 
-> **Note:** `prd.json`, `progress.txt`, and `ralph.sh` are agent working files and must NOT be committed to the PR.
+> **Note:** `prd.json` and `progress.txt` are agent working files and must NOT be committed to the PR.
 
-**Create a pull request** using the appropriate CLI based on the repository host (see mapping table):
+**Create a pull request** using the appropriate CLI based on the repository host (see mapping table). Use non-interactive flags to avoid prompts:
 
 **GitHub repos** (use `gh`):
 ```bash
@@ -204,7 +194,8 @@ gh pr create \
 
 ## Changes
 <Bulleted list of changes from progress.txt>" \
-  --base <default-branch>
+  --base <default-branch> \
+  --head <branch-name>
 ```
 
 **GitLab repos** (use `glab`):
@@ -218,10 +209,11 @@ glab mr create \
 
 ## Changes
 <Bulleted list of changes from progress.txt>" \
-  --target-branch <default-branch>
+  --target-branch <default-branch> \
+  --yes
 ```
 
-### Step 8: Update the Jira issue
+### Step 9: Update the Jira issue
 
 Transition the issue and attach the implementation details:
 
@@ -246,6 +238,14 @@ $(cat progress.txt)
 \`\`\`"
 ```
 
+### Step 10: Cleanup
+
+Remove agent working files from the repo directory:
+
+```bash
+rm -f prd.json progress.txt
+```
+
 ---
 
 ## PR Creation tooling
@@ -265,16 +265,8 @@ Use the validation commands from the project mapping table. If none are listed, 
 | No issues with `llm-candidate` label | Exit gracefully with message |
 | Cannot determine repository from issue | Fail with descriptive error |
 | `prd.json` already exists with completed work | Preserve completed entries, add/update incomplete ones |
-| Validation fails 3 times for same feature | Stop and report failure |
-| `ralph.sh` exits with non-zero code | Stop and report the error |
+| Validation fails 3 times for same entry | Stop and report failure |
 | Git push or PR creation fails | Stop and report the error; do not retry |
-
-
----
-
-## Pre-flight checks
-
-Before starting, verify these tools are available: `jira`, `claude`, `git`, `gh` (for GitHub repos), `glab` (for GitLab repos). If any required tool is missing, stop and tell the user what to install.
 
 ---
 
@@ -284,7 +276,5 @@ Before starting, verify these tools are available: `jira`, `claude`, `git`, `gh`
 |---|---|---|
 | `skills/unshift/SKILL.md` | This repo (source) / `~/.claude/skills/unshift/` (installed) | The Claude Code skill definition |
 | `init.sh` | This repo | Installer script (skill + settings only) |
-| `ralph/ralph.sh` | This repo (source) / target repo root (at runtime) | Execution loop that implements one prd.json entry per iteration |
-| `ralph/prd.json` | This repo (source) / target repo root (at runtime) | Template implementation plan, overwritten per issue |
-| `ralph/progress.txt` | This repo (source) / target repo root (at runtime) | Append-only execution log |
-
+| `prd.json` | Target repo root (at runtime) | Implementation plan, created per issue, cleaned up after |
+| `progress.txt` | Target repo root (at runtime) | Append-only execution log, cleaned up after |

@@ -58,4 +58,3 @@ fi
 
 echo ""
 echo "Done! Open Claude Code in any repo and run /unshift to get started."
-echo "Ralph files (ralph.sh, prd.json, progress.txt) will be set up automatically when the skill runs."
