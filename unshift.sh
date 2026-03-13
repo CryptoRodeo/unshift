@@ -158,7 +158,7 @@ for ISSUE_KEY in "${ISSUE_KEYS[@]}"; do
   PHASE3_PROMPT="${PHASE3_PROMPT//CONTEXT_FILE_PATH/$CONTEXT_FILE}"
 
   cd "$REPO_PATH"
-  if ! claude -p --permission-mode bypassPermissions --directory "$REPO_PATH" "$PHASE3_PROMPT"; then
+  if ! echo "$PHASE3_PROMPT" | claude -p --permission-mode bypassPermissions --add-dir "$REPO_PATH"; then
     echo "Error: Phase 3 failed for $ISSUE_KEY." >&2
     RESULTS["$ISSUE_KEY"]="FAILED (Phase 3)"
     continue

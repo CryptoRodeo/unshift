@@ -98,7 +98,7 @@ for ((i = 1; i <= iterations; i++)); do
   echo "=== Ralph iteration $i/$iterations ===" >&2
 
   # Run Claude
-  if ! claude -p --permission-mode acceptEdits "$PROMPT"; then
+  if ! claude -p --permission-mode bypassPermissions "$PROMPT"; then
     echo "Error: claude execution failed" >&2
     exit 1
   fi
