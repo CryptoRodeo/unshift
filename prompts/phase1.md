@@ -23,7 +23,7 @@ Extract:
 | `SSCUI` | `Calunga` | `git@gitlab.cee.redhat.com:hosted-pulp/ui-packages.redhat.com.git` | `~/work/ui-packages.redhat.com/` | `main` | GitLab | `npm test`, `npx tsc --noEmit` |
 | `TC` | None | `git@github.com:guacsec/trustify-ui.git` | `~/work/trustify-ui` | `main` | GitHub | `npm test`, `npx tsc --noEmit` |
 | `SECURESIGN` | None | `git@github.com:guacsec/trustify-ui.git` | `~/work/rhtas-console-ui` (fork/downstream of trustify-ui) | `main` | GitHub | `npm test`, `npx tsc --noEmit` |
-| `SSCUI` | `AI` | `git@github.com:CryptoRodeo/unshift.git` | `~/work/unshift` | `main` | GitHub | None |
+| `SSCUI` | `AI` | `git@github.com:CryptoRodeo/unshift.git` | `~/work/unshift` | `v2` | GitHub | None |
 
 If the repository cannot be determined, fail with: "Could not determine repository for issue `<ISSUE_KEY>`."
 
