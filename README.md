@@ -2,6 +2,8 @@
 
 A CLI tool that picks up Jira issues labeled `llm-candidate`, implements them using Claude, and opens a pull request.
 
+> This project uses [Claude Code](https://docs.anthropic.com/en/docs/claude-code) as its runtime. All phases are executed via `claude -p` sessions, so a working Claude Code installation is required.
+
 ## How it works
 
 Unshift uses a three-phase architecture orchestrated by `unshift.sh`:
@@ -28,7 +30,9 @@ Because each iteration starts a fresh Claude session, there is no accumulated co
 
 | Tool | Purpose | Install |
 |---|---|---|
+| [Node.js](https://nodejs.org/) (v18+) | Runtime for Claude Code and the dashboard | [Download](https://nodejs.org/) or `dnf install nodejs` / `brew install node` |
 | [Claude Code](https://docs.anthropic.com/en/docs/claude-code) | CLI agent that runs each phase | `npm install -g @anthropic-ai/claude-code` |
+| [Go](https://go.dev/) (1.21+) | Required to install the Jira CLI | [Download](https://go.dev/dl/) or `dnf install golang` / `brew install go` |
 | [Jira CLI](https://github.com/ankitpokhrel/jira-cli) | Query and update Jira issues | See [Jira CLI Setup](#jira-cli-setup) below |
 | [gh](https://cli.github.com/) | Create GitHub PRs | `dnf install gh` / `brew install gh` |
 | [glab](https://gitlab.com/gitlab-org/cli) | Create GitLab MRs | `dnf install glab` / `brew install glab` |
@@ -36,6 +40,8 @@ Because each iteration starts a fresh Claude session, there is no accumulated co
 | [Git](https://git-scm.com/) | Version control | Pre-installed on most systems |
 
 You only need `gh` or `glab` depending on which repositories you work with.
+
+Git must be configured with push access to your target repositories (e.g. via SSH keys or a credential helper).
 
 ## Installation
 
@@ -47,9 +53,40 @@ cd unshift
 ./init.sh
 ```
 
-This adds CLI permissions (`jira`, `gh`, `glab`) to `~/.claude/settings.json`.
+This creates or updates `~/.claude/settings.json` to allow the following CLI tools to run without interactive prompts during `claude -p` sessions:
+
+- `Bash(jira *)` — query and update Jira issues
+- `Bash(gh *)` — create GitHub pull requests
+- `Bash(glab *)` — create GitLab merge requests
+
+If the settings file already exists, `init.sh` merges the permissions into it (requires `jq`). If `jq` is not installed, it prints the permissions for you to add manually.
 
 Agent working files (`prd.json`, `progress.txt`, `ralph.sh`) are created in the target repository at runtime and cleaned up after the PR is created.
+
+## Quickstart
+
+```bash
+# 1. Install prerequisites (Node.js, Go, jq, gh/glab, Claude Code)
+npm install -g @anthropic-ai/claude-code
+go install github.com/ankitpokhrel/jira-cli/cmd/jira@latest
+
+# 2. Clone and initialize
+git clone https://github.com/CryptoRodeo/unshift.git
+cd unshift
+./init.sh
+
+# 3. Configure Jira CLI (see "Jira CLI Setup" below)
+jira init
+
+# 4. Edit prompts/phase1.md — replace the example Project-to-Repository
+#    Mapping table with your own Jira projects and local repo paths.
+
+# 5. Label a Jira issue with "llm-candidate" and run
+./unshift.sh
+
+# Or start a run from the dashboard instead (see "Dashboard" below)
+cd dashboard && npm install && npm run dev
+```
 
 ## Usage
 
@@ -124,11 +161,43 @@ jira issue list
 ```
 
 ## Project to Repository Mapping
-Each Jira project should have some repository where the pull requests will be created.
 
-The **Project-to-Repository Mapping** table in `prompts/phase1.md` includes a **Local directory** column that defaults to example paths (e.g. `~/work/trustify-ui`). Update these values to match the actual directory paths where you have each project cloned on your machine.
+The **Project-to-Repository Mapping** table in `prompts/phase1.md` tells the agent which repository to use for each Jira project. The table shipped with this repo contains example entries — **you must replace them with your own projects** before running unshift.
 
-To add a new repository, add a row to the same table.
+Each row has the following columns:
+
+| Column | Description |
+|---|---|
+| Jira Project | The Jira project key (e.g. `MYPROJ`) |
+| Component | Optional Jira component to disambiguate projects that map to multiple repos |
+| Repository URL | The git remote URL |
+| Local directory | Absolute path where the repo is cloned on your machine |
+| Default branch | Branch to base new work on (e.g. `main`) |
+| Host | `GitHub` or `GitLab` — determines whether `gh` or `glab` is used for PRs |
+| Validation commands | Shell commands to verify correctness (e.g. `npm test`, `npx tsc --noEmit`) |
+
+To get started, open `prompts/phase1.md`, clear the example rows, and add one row per repository you want unshift to work with. The same table appears in `spec.md` for reference, but only `prompts/phase1.md` is read at runtime.
+
+## Dashboard (optional)
+
+The `dashboard/` directory contains a web UI for monitoring unshift runs in real time. It is not required to use unshift — the CLI works on its own.
+
+### Setup
+
+```bash
+cd dashboard
+npm install
+```
+
+### Run in development mode
+
+```bash
+npm run dev
+```
+
+This starts both the Express/WebSocket server and the Vite dev server using `concurrently`. The client is available at `http://localhost:5173` and the API server runs on `http://localhost:3000`.
+
+From the dashboard you can start and stop runs, view per-phase progress, and stream logs.
 
 ## File Reference
 
