@@ -114,16 +114,15 @@ for ISSUE_KEY in "${ISSUE_KEYS[@]}"; do
   echo "--- Phase 2: Implementation for $ISSUE_KEY ---" >&2
 
   RALPH_SRC="${SCRIPT_DIR}/ralph/ralph.sh"
-  if [[ ! -f "$RALPH_SRC" ]]; then
-    RALPH_SRC="${SCRIPT_DIR}/ralph.sh"
-  fi
 
   if [[ ! -f "$RALPH_SRC" ]]; then
-    echo "Error: Cannot find ralph.sh. Skipping $ISSUE_KEY." >&2
+    echo "Error: Cannot find ralph/ralph.sh. Skipping $ISSUE_KEY." >&2
     RESULTS["$ISSUE_KEY"]="FAILED (Phase 2 — ralph.sh not found)"
     continue
   fi
 
+  # Copy ralph.sh to the repository where the changes
+  # will take place.
   cp "$RALPH_SRC" "${REPO_PATH}/ralph.sh"
   chmod +x "${REPO_PATH}/ralph.sh"
 

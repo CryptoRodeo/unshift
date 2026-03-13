@@ -5,6 +5,7 @@
 set -euo pipefail
 
 AUTO=false
+
 if [[ "${1:-}" == "--auto" ]]; then
   AUTO=true
   shift
