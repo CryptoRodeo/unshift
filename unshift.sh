@@ -8,7 +8,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-CONTEXT_FILE="${SCRIPT_DIR}/unshift_context.json"
+CONTEXT_FILE="/tmp/unshift_context.json"
 
 usage() {
   echo "Usage: $0" >&2
@@ -158,7 +158,7 @@ for ISSUE_KEY in "${ISSUE_KEYS[@]}"; do
   PHASE3_PROMPT="${PHASE3_PROMPT//CONTEXT_FILE_PATH/$CONTEXT_FILE}"
 
   cd "$REPO_PATH"
-  if ! echo "$PHASE3_PROMPT" | claude -p --permission-mode bypassPermissions --add-dir "$REPO_PATH"; then
+  if ! claude -p --permission-mode bypassPermissions --add-dir="$REPO_PATH" "$PHASE3_PROMPT"; then
     echo "Error: Phase 3 failed for $ISSUE_KEY." >&2
     RESULTS["$ISSUE_KEY"]="FAILED (Phase 3)"
     continue
