@@ -2,15 +2,16 @@
 
 ## Overview
 
-An LLM agent that picks up Jira issues labeled `llm-candidate`, implements the work in the corresponding repository, and opens a pull request — fully autonomously with no manual intervention.
+An LLM agent that picks up Jira issues labeled `llm-candidate`, implements the work in the corresponding repository, and opens a pull request, fully autonomously with no manual intervention.
 
-The workflow is orchestrated by `unshift.sh`, a shell script that drives three phases:
+The workflow is orchestrated by `unshift.sh`, a shell script that drives four phases:
 
-1. **Phase 1** — `claude -p` for Jira discovery, repo setup, branch creation, and `prd.json` generation (Steps 1-5)
-2. **Phase 2** — `ralph.sh --auto <N>` for implementation, executing one `prd.json` entry per iteration in isolated Claude sessions (Step 6)
-3. **Phase 3** — `claude -p` for verification, commit, push, PR creation, Jira update, and cleanup (Steps 7-10)
+1. **Phase 0** - Pre-flight checks and Jira discovery, handled directly by `unshift.sh` in bash (Steps 1-2)
+2. **Phase 1** - `claude -p` for reading the issue, repo setup, branch creation, and `prd.json` generation (Steps 3-5)
+3. **Phase 2** - `ralph.sh --auto <N>` for implementation, executing one `prd.json` entry per iteration in isolated Claude sessions (Step 6)
+4. **Phase 3** - `claude -p` for verification, commit, push, PR creation, Jira update, and cleanup (Steps 7-10)
 
-Each phase runs in a separate Claude session with minimal context, keeping token usage low and focus tight. The script is run directly from the command line.
+Phase 0 runs once at startup. Phases 1-3 run per issue in a loop. Each `claude -p` invocation runs in a separate session with minimal context, keeping token usage low and focus tight. All `claude -p` calls use the `--permission-mode bypassPermissions` flag to run non-interactively. The script is run directly from the command line.
 
 ---
 
@@ -28,13 +29,13 @@ Each phase runs in a separate Claude session with minimal context, keeping token
 
 ## Workflow
 
-This is a full-send workflow. Once invoked, the orchestrator executes all phases autonomously. It only stops on hard errors or repeated validation failures — never to ask for user input.
+This is a full-send workflow. Once invoked, the orchestrator executes all phases autonomously. It only stops on hard errors or repeated validation failures, never to ask for user input.
 
-### Step 1: Pre-flight checks
+### Step 1: Pre-flight checks (Phase 0)
 
-Before starting, verify these tools are available: `jira`, `git`, `gh` (for GitHub repos), `glab` (for GitLab repos). If any required tool is missing, stop with an actionable error listing what to install.
+Before starting, verify these tools are available: `jira`, `git`, `gh` (for GitHub repos), `glab` (for GitLab repos), `jq`. If any required tool is missing, stop with an actionable error listing what to install.
 
-### Step 2: Query Jira for candidate issues
+### Step 2: Query Jira for candidate issues (Phase 0)
 
 ```bash
 jira issue list -l "llm-candidate" --plain --no-headers --columns KEY,SUMMARY,TYPE,STATUS
@@ -43,6 +44,8 @@ jira issue list -l "llm-candidate" --plain --no-headers --columns KEY,SUMMARY,TY
 - If no issues are returned, exit gracefully with a message: "No llm-candidate issues found."
 - Process ALL returned issues. The orchestrator (`unshift.sh`) collects all issue keys, then loops through each one, running Phase 1 → Phase 2 (ralph.sh) → Phase 3 per issue. If any phase fails for an issue, log the error and continue to the next issue. A summary of successes and failures is printed at the end.
 
+> **Note:** Steps 1 and 2 are handled directly by `unshift.sh` in bash. No `claude -p` session is used.
+
 ### Step 3: Read the Jira issue details
 
 ```bash
@@ -50,10 +53,10 @@ jira issue view <ISSUE_KEY>
 ```
 
 Extract the following from the issue:
-- **Summary** — short description of the work
-- **Description** — full details, acceptance criteria
-- **Issue Type** — used to determine the commit prefix (see Step 8)
-- **Repository** — identified from one of these sources (in priority order):
+- **Summary** - short description of the work
+- **Description** - full details, acceptance criteria
+- **Issue Type** - used to determine the commit prefix (see Step 8)
+- **Repository** - identified from one of these sources (in priority order):
   1. A custom field or label on the issue containing the repository URL or name
   2. The Jira project-to-repo mapping provided below
   3. If neither is available, fail with: "Could not determine repository for issue `<ISSUE_KEY>`."
@@ -65,6 +68,7 @@ Extract the following from the issue:
 | `SSCUI` | `Calunga` | `git@gitlab.cee.redhat.com:hosted-pulp/ui-packages.redhat.com.git` | `~/work/ui-packages.redhat.com/` | `main` | GitLab | `npm test`, `npx tsc --noEmit` |
 | `TC` | None | `git@github.com:guacsec/trustify-ui.git` | `~/work/trustify-ui` | `main` | GitHub | `npm test`, `npx tsc --noEmit` |
 | `SECURESIGN` | None | `git@github.com:guacsec/trustify-ui.git` | `~/work/rhtas-console-ui` (fork/downstream of trustify-ui) | `main` | GitHub | `npm test`, `npx tsc --noEmit` |
+| `SSCUI` | `AI` | `git@github.com:CryptoRodeo/unshift.git` | `~/work/unshift` | `v2` | GitHub | None |
 
 ### Step 4: Navigate to the repository and create a branch
 
@@ -120,12 +124,12 @@ Create `prd.json` in the repository root (or update it if one already exists). T
 ```
 
 **Schema rules:**
-- `id` — integer, unique, sequential starting at 1.
-- `category` — one of `feature`, `bugfix`, or `chore`. Derived from the Jira issue type.
-- `description` — a short, specific summary of the implementation unit. Each entry should be a single, focused change.
-- `steps` — ordered list of concrete instructions. Each step should reference specific files, functions, or modules. Avoid vague steps like "implement the feature."
-- `validation` — list of commands to run to confirm the unit is correctly implemented. Must be runnable shell commands. Common examples: `go test ./...`, `npm test`, `make build`, `npx tsc --noEmit`.
-- `completed` — boolean, starts as `false`. Set to `true` only after all validation commands pass.
+- `id` - integer, unique, sequential starting at 1.
+- `category` - one of `feature`, `bugfix`, or `chore`. Derived from the Jira issue type.
+- `description` - a short, specific summary of the implementation unit. Each entry should be a single, focused change.
+- `steps` - ordered list of concrete instructions. Each step should reference specific files, functions, or modules. Avoid vague steps like "implement the feature."
+- `validation` - list of commands to run to confirm the unit is correctly implemented. Must be runnable shell commands. Common examples: `go test ./...`, `npm test`, `make build`, `npx tsc --noEmit`.
+- `completed` - boolean, starts as `false`. Set to `true` only after all validation commands pass.
 
 **When updating an existing `prd.json`:**
 - Do NOT overwrite completed entries.
@@ -135,9 +139,11 @@ Also create an empty `progress.txt` if it does not already exist.
 
 Phase 1 also writes a context file (`/tmp/unshift_context.json`) consumed by later phases, containing: `issue_key`, `summary`, `description`, `issue_type`, `repo_path`, `branch_name`, `default_branch`, `host`, `commit_prefix`.
 
+> **Note:** Phase 3's `claude -p` invocation additionally uses `--add-dir="$REPO_PATH"` so the agent can access the target repository's files.
+
 ### Step 6: Execute the implementation loop (ralph.sh)
 
-Implementation is handled by `ralph.sh`, which runs in a loop — one `claude -p` invocation per `prd.json` entry. Each iteration is an isolated Claude session with a strict execution contract.
+Implementation is handled by `ralph.sh`, which runs in a loop, one `claude -p` invocation per `prd.json` entry. Each iteration is an isolated Claude session with a strict execution contract.
 
 `unshift.sh` copies `ralph.sh` into the target repo, counts incomplete entries via `jq`, and runs:
 
@@ -154,7 +160,7 @@ Where `<N>` is the number of incomplete `prd.json` entries. The `--auto` flag sk
 3. Run the validation commands from that entry. If validation fails, do NOT mark the entry as completed; append failure status to `progress.txt`.
 4. Append a concise status entry to `progress.txt` describing: the feature worked on, files changed, and current status.
 5. If validation passes, mark ONLY that entry as `"completed": true` in `prd.json`.
-6. STOP — each ralph iteration handles exactly one entry.
+6. STOP. Each ralph iteration handles exactly one entry.
 
 #### Constraints:
 
@@ -270,7 +276,8 @@ rm -f prd.json progress.txt ralph.sh
 
 | Phase | Script / Tool | Steps | Description |
 |---|---|---|---|
-| Phase 1 | `claude -p` with `prompts/phase1.md` | 1-5 | Jira discovery, repo setup, branch, prd.json |
+| Phase 0 | `unshift.sh` (bash directly) | 1-2 | Pre-flight checks, Jira discovery |
+| Phase 1 | `claude -p` with `prompts/phase1.md` | 3-5 | Read issue, repo setup, branch, prd.json |
 | Phase 2 | `ralph.sh --auto <N>` | 6 | Implementation loop (one claude -p per entry) |
 | Phase 3 | `claude -p` with `prompts/phase3.md` | 7-10 | Verify, commit, push, PR, Jira update, cleanup |
 
@@ -295,7 +302,34 @@ Use the validation commands from the project mapping table. If none are listed, 
 | `prd.json` already exists with completed work | Preserve completed entries, add/update incomplete ones |
 | Validation fails for a ralph iteration | Do not mark entry as completed; append failure to progress.txt |
 | Git push or PR creation fails | Stop and report the error; do not retry |
-| Any phase fails | Stop immediately; do not continue to the next phase |
+| Any phase fails for an issue | Log the error, skip remaining phases for that issue, continue to the next issue |
+
+---
+
+## Dashboard
+
+The `dashboard/` directory contains a web UI for monitoring unshift runs in real time. It is a monorepo with two workspaces:
+
+- **`dashboard/server/`** - Express + WebSocket backend. Spawns `unshift.sh` as a subprocess, parses its stderr output to detect phase transitions and metadata (issue key, repo path, branch name), and broadcasts events to connected clients over WebSocket.
+- **`dashboard/client/`** - React + Vite + PatternFly frontend. Displays a list of runs, per-run phase progress, PRD checklist, and streaming logs. Supports starting and stopping runs from the UI.
+
+### WebSocket events
+
+| Event | Payload | Description |
+|---|---|---|
+| `run:created` | `Run` object | New run started |
+| `run:phase` | `runId`, `phase` | Phase transition (phase0 → phase1 → phase2 → phase3) |
+| `run:log` | `runId`, `line`, `phase` | Log line emitted |
+| `run:prd` | `runId`, `prd` | PRD checklist updated |
+| `run:complete` | `runId`, `status` | Run finished (`success` or `failed`) |
+
+### REST endpoints
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/api/runs` | List all runs |
+| `POST` | `/api/runs` | Start a new run |
+| `POST` | `/api/runs/:id/stop` | Stop an active run |
 
 ---
 
@@ -303,10 +337,13 @@ Use the validation commands from the project mapping table. If none are listed, 
 
 | File | Location | Purpose |
 |---|---|---|
-| `unshift.sh` | Repo root | Top-level orchestrator — drives all three phases |
-| `ralph/ralph.sh` | `ralph/` | Implementation loop — one `claude -p` per prd.json entry |
-| `prompts/phase1.md` | `prompts/` | Phase 1 prompt template for Jira discovery and planning |
+| `unshift.sh` | Repo root | Top-level orchestrator, drives all four phases |
+| `ralph/ralph.sh` | `ralph/` | Implementation loop, one `claude -p` per prd.json entry |
+| `prompts/phase1.md` | `prompts/` | Phase 1 prompt template for reading the issue and planning |
 | `prompts/phase3.md` | `prompts/` | Phase 3 prompt template for PR creation and Jira update |
-| `init.sh` | This repo | Configures Claude Code CLI permissions |
+| `init.sh` | Repo root | Configures Claude Code CLI permissions |
+| `dashboard/server/src/index.ts` | `dashboard/server/` | Express + WebSocket server |
+| `dashboard/server/src/unshift.ts` | `dashboard/server/` | UnshiftRunner, spawns and parses unshift.sh |
+| `dashboard/client/src/` | `dashboard/client/` | React frontend (components, hooks, types) |
 | `prd.json` | Target repo root (at runtime) | Implementation plan, created per issue, cleaned up after |
 | `progress.txt` | Target repo root (at runtime) | Append-only execution log, cleaned up after |
