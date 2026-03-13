@@ -128,7 +128,7 @@ Each Jira project should have some repository where the pull requests will be cr
 
 The **Project-to-Repository Mapping** table in `prompts/phase1.md` includes a **Local directory** column that defaults to example paths (e.g. `~/work/trustify-ui`). Update these values to match the actual directory paths where you have each project cloned on your machine.
 
-To add a new repository, add a row to the same table.
+To add a new repository, add a row to the same table. Use `None` for the **Component** column if the project does not use components, and for the **Validation commands** column if the repository has no validation commands to run.
 
 ## File Reference
 

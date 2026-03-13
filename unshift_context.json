@@ -1,0 +1,11 @@
+{
+  "issue_key": "SSCUI-81",
+  "summary": "Use this as a test issue for the LLM workflow",
+  "description": "The README.md file in the repository needs to specify that 'None' can be used when updating the skill. For example in the 'Adding a new repository' section.",
+  "issue_type": "Task",
+  "repo_path": "/home/bramos/work/unshift",
+  "branch_name": "chore/SSCUI-81-readme-none-documentation",
+  "default_branch": "v2",
+  "host": "github",
+  "commit_prefix": "chore:"
+}
