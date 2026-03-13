@@ -34,6 +34,17 @@ export interface Run {
   logs: LogEntry[];
 }
 
+export const PHASE_CONFIG: { key: RunPhase; label: string }[] = [
+  { key: "phase0", label: "Pre-flight" },
+  { key: "phase1", label: "Planning" },
+  { key: "phase2", label: "Implementation" },
+  { key: "phase3", label: "Delivery" },
+];
+
+export const PHASE_LABELS: Record<string, string> = Object.fromEntries(
+  PHASE_CONFIG.map((p) => [p.key, p.label])
+);
+
 /** Messages sent from the server over WebSocket */
 export type WsMessage =
   | { type: "run:created"; run: Run }

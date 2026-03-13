@@ -17,6 +17,7 @@ import {
 } from "@patternfly/react-core";
 import { useWebSocket } from "../hooks/useWebSocket";
 import { PhaseProgress } from "./PhaseProgress";
+import { StatusLabel } from "./StatusLabel";
 import type { Run } from "../types";
 
 export function DashboardPage() {
@@ -102,18 +103,4 @@ function RunCard({ run, onClick }: { run: Run; onClick: () => void }) {
       </CardBody>
     </Card>
   );
-}
-
-function StatusLabel({ status }: { status: string }) {
-  const colorMap: Record<string, "blue" | "green" | "red" | "grey" | "teal"> = {
-    pending: "grey",
-    phase0: "blue",
-    phase1: "blue",
-    phase2: "teal",
-    phase3: "blue",
-    success: "green",
-    failed: "red",
-  };
-
-  return <Label color={colorMap[status] ?? "grey"}>{status}</Label>;
 }
