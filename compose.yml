@@ -1,0 +1,25 @@
+services:
+  unshift:
+    build: .
+    env_file:
+      - path: .unshift.env
+        required: false
+    environment:
+      - UNSHIFT_SCRIPT_PATH=/opt/unshift/unshift.sh
+    stdin_open: true
+    tty: true
+    ports:
+      - "3000:3000"
+      - "5173:5173"
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:3000"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    volumes:
+      - ${UNSHIFT_WORK_DIR:-${HOME}/work}:/work
+      - ${HOME}/.ssh:/home/unshift/.ssh:ro
+      # Jira CLI config path may vary: ~/.config/jira (default) or ~/.config/.jira
+      - ${HOME}/.config/jira:/home/unshift/.config/jira:ro
+      - ${HOME}/.gitconfig:/home/unshift/.gitconfig:ro
+      # - ${HOME}/.config/gcloud:/home/unshift/.config/gcloud:ro  # Uncomment for Vertex AI

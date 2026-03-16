@@ -48,12 +48,12 @@ export class UnshiftRunner extends EventEmitter {
   private runs = new Map<string, Run>();
   private processes = new Map<string, ChildProcess>();
 
-  /** Path to unshift.sh — two directories up from server/src/ */
+  /** Path to unshift.sh - two directories up from server/src/ */
   private scriptPath: string;
 
   constructor() {
     super();
-    this.scriptPath = path.resolve(__dirname, "..", "..", "..", "unshift.sh");
+    this.scriptPath = process.env.UNSHIFT_SCRIPT_PATH ?? path.resolve(__dirname, "..", "..", "..", "unshift.sh");
   }
 
   listRuns(): Run[] {

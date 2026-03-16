@@ -1,4 +1,6 @@
+.unshift.env
 .env
 unshift_context.json
 node_modules/
 **/dist/
+

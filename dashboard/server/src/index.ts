@@ -48,7 +48,7 @@ app.post("/api/runs/:id/stop", (req, res) => {
   res.json({ ok: true });
 });
 
-const PORT = process.env.PORT ?? 3001;
+const PORT = process.env.SERVER_PORT ?? 3000;
 server.listen(PORT, () => {
   console.log(`Unshift server listening on http://localhost:${PORT}`);
 });

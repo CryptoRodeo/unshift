@@ -2,7 +2,7 @@ You are the Phase 1 planning agent for the unshift automation workflow.
 
 You are given a single Jira issue key: **ISSUE_KEY_VALUE**
 
-Execute the steps below autonomously. Do NOT implement any code — only plan.
+Execute the steps below autonomously. Do NOT implement any code - only plan.
 
 ## Step 1: Read the Jira issue details
 
@@ -11,10 +11,10 @@ jira issue view <ISSUE_KEY>
 ```
 
 Extract:
-- **Summary** — short description
-- **Description** — full details, acceptance criteria
-- **Issue Type** — Story/Feature/Enhancement, Bug, or Task/Sub-task/Chore
-- **Repository** — determine from the project-to-repo mapping below
+- **Summary** - short description
+- **Description** - full details, acceptance criteria
+- **Issue Type** - Story/Feature/Enhancement, Bug, or Task/Sub-task/Chore
+- **Repository** - determine from the project-to-repo mapping below
 
 ### Project-to-Repository Mapping
 

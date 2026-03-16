@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# unshift.sh — Outer orchestrator for the Jira-to-PR automation workflow
+# unshift.sh - Outer orchestrator for the Jira-to-PR automation workflow
 # Usage: ./unshift.sh
 #
 # Processes ALL llm-candidate Jira issues in a single run, looping
@@ -27,7 +27,7 @@ if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
 fi
 
 # ---------------------------------------------------------------------------
-# Phase 0 — Pre-flight checks and Jira discovery
+# Phase 0 - Pre-flight checks and Jira discovery
 # ---------------------------------------------------------------------------
 echo "=== Phase 0: Pre-flight checks and Jira discovery ===" >&2
 
@@ -75,7 +75,7 @@ for ISSUE_KEY in "${ISSUE_KEYS[@]}"; do
   rm -f "$CONTEXT_FILE"
 
   # -----------------------------------------------------------------------
-  # Phase 1 — Repo setup, branch creation, planning
+  # Phase 1 - Repo setup, branch creation, planning
   # -----------------------------------------------------------------------
   echo "" >&2
   echo "--- Phase 1: Planning for $ISSUE_KEY ---" >&2
@@ -92,7 +92,7 @@ for ISSUE_KEY in "${ISSUE_KEYS[@]}"; do
 
   if [[ ! -f "$CONTEXT_FILE" ]]; then
     echo "Error: Phase 1 did not produce context file for $ISSUE_KEY. Skipping." >&2
-    RESULTS["$ISSUE_KEY"]="FAILED (Phase 1 — no context file)"
+    RESULTS["$ISSUE_KEY"]="FAILED (Phase 1 - no context file)"
     continue
   fi
 
@@ -101,14 +101,14 @@ for ISSUE_KEY in "${ISSUE_KEYS[@]}"; do
 
   if [[ -z "$REPO_PATH" || "$REPO_PATH" == "null" ]]; then
     echo "Error: repo_path missing from context file for $ISSUE_KEY. Skipping." >&2
-    RESULTS["$ISSUE_KEY"]="FAILED (Phase 1 — no repo_path)"
+    RESULTS["$ISSUE_KEY"]="FAILED (Phase 1 - no repo_path)"
     continue
   fi
 
   echo "Phase 1 complete. Repo: $REPO_PATH, Branch: $BRANCH_NAME" >&2
 
   # -----------------------------------------------------------------------
-  # Phase 2 — Implementation via ralph.sh
+  # Phase 2 - Implementation via ralph.sh
   # -----------------------------------------------------------------------
   echo "" >&2
   echo "--- Phase 2: Implementation for $ISSUE_KEY ---" >&2
@@ -117,7 +117,7 @@ for ISSUE_KEY in "${ISSUE_KEYS[@]}"; do
 
   if [[ ! -f "$RALPH_SRC" ]]; then
     echo "Error: Cannot find ralph/ralph.sh. Skipping $ISSUE_KEY." >&2
-    RESULTS["$ISSUE_KEY"]="FAILED (Phase 2 — ralph.sh not found)"
+    RESULTS["$ISSUE_KEY"]="FAILED (Phase 2 - ralph.sh not found)"
     continue
   fi
 
@@ -128,7 +128,7 @@ for ISSUE_KEY in "${ISSUE_KEYS[@]}"; do
 
   if [[ ! -f "${REPO_PATH}/prd.json" ]]; then
     echo "Error: prd.json not found in ${REPO_PATH}. Skipping $ISSUE_KEY." >&2
-    RESULTS["$ISSUE_KEY"]="FAILED (Phase 2 — no prd.json)"
+    RESULTS["$ISSUE_KEY"]="FAILED (Phase 2 - no prd.json)"
     continue
   fi
 
@@ -141,7 +141,7 @@ for ISSUE_KEY in "${ISSUE_KEYS[@]}"; do
     cd "$REPO_PATH"
     if ! ./ralph.sh --auto "$INCOMPLETE_COUNT"; then
       echo "Error: Phase 2 (ralph.sh) failed for $ISSUE_KEY. Skipping to next issue." >&2
-      RESULTS["$ISSUE_KEY"]="FAILED (Phase 2 — ralph.sh)"
+      RESULTS["$ISSUE_KEY"]="FAILED (Phase 2 - ralph.sh)"
       continue
     fi
   fi
@@ -149,7 +149,7 @@ for ISSUE_KEY in "${ISSUE_KEYS[@]}"; do
   echo "Phase 2 complete." >&2
 
   # -----------------------------------------------------------------------
-  # Phase 3 — Verify, commit, push, PR, Jira update, cleanup
+  # Phase 3 - Verify, commit, push, PR, Jira update, cleanup
   # -----------------------------------------------------------------------
   echo "" >&2
   echo "--- Phase 3: PR creation for $ISSUE_KEY ---" >&2
