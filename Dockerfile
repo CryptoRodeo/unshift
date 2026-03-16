@@ -54,6 +54,9 @@ COPY init.sh unshift.sh ./
 COPY prompts/ prompts/
 COPY ralph/ ralph/
 
+# Fix ownership so the non-root user can write to node_modules (Vite cache)
+RUN chown -R unshift:unshift /opt/unshift
+
 # Switch to non-root user
 USER unshift
 
