@@ -88,7 +88,7 @@ When prompted, provide:
 ```
 Installation type: Local
 Authentication type: bearer
-Link to Jira server: https://issues.redhat.com
+Link to Jira server: https://issues.<company>.com
 Login username: <your-username>
 Default project: <your-project>
 Default board: <your-board or None>
@@ -229,21 +229,79 @@ cd jira-cli
 make install
 ```
 
-### 2. Create a Personal Access Token
+### 2. Create an API Token
 
-1. Go to [your Jira profile](https://issues.redhat.com/secure/ViewProfile.jspa)
+Choose the section that matches your Jira deployment.
+
+#### Local / Data Center instances
+
+1. Go to [your Jira profile](https://issues.<company>.com/secure/ViewProfile.jspa)
 2. Create a new Personal Access Token
 3. Copy the token value
 
-See the [Personal Access Token Usage](https://spaces.redhat.com/display/OMEGA/Personal+Access+Token+Usage) docs and the [API Script / Bot Policy](https://spaces.redhat.com/display/OMEGA/API%2C+Script%2C+and+Bot+Policy) for details.
+See your organization's internal docs on Personal Access Token usage and API/bot policies for details.
+
+#### Cloud instances
+
+1. Create a personal API token for Jira Cloud
+
+   Use this when you want a token tied to your own Atlassian user (same permissions as you in Jira).
+
+2. Open your Atlassian account security page
+
+   Go to:
+   https://id.atlassian.com/manage-profile/security
+   (Atlassian docs reference: https://support.atlassian.com/atlassian-account/docs/manage-api-tokens-for-your-atlassian-account/)
+
+3. Sign in (if prompted)
+
+   Use the same account you use for https://<company>.atlassian.net.
+
+4. Create an API token
+
+   - Scroll to "API tokens".
+   - Click "Create API token" (or "Create API token with scopes" if visible).
+   - Enter a label (for example, `Jira - CI script`, `Postman`, `Local tooling`).
+
+5. Set token expiration
+
+   - Choose an expiration between 1 and 365 days.
+   - By default, tokens expire in 1 year.
+   - Pick the shortest lifetime that still works for your use case.
+
+6. (If offered) Choose scopes
+
+   Depending on your UI you may see:
+
+   - **Token with scopes** – recommended:
+     - Select only what is needed, e.g.:
+       - `read:jira-work` to read issues
+       - `write:jira-work` to create/update issues
+   - **Token without scopes / classic token** – full access equivalent to your user permissions.
+
+7. Create and copy the token
+
+   - Click **Create**.
+   - Click **Copy to clipboard** and store it somewhere safe (e.g., a password manager or a secure secret store in your CI/CD).
+   - You cannot view it again after closing the dialog; if lost, you must create a new one.
 
 ### 3. Configure environment variables
 
 Add to your `~/.bashrc` or `~/.zshrc`:
 
+For **local / Data Center** instances:
+
 ```bash
 export JIRA_API_TOKEN="<your-personal-access-token>"
 export JIRA_AUTH_TYPE="bearer"
+```
+
+For **cloud** instances:
+
+```bash
+export JIRA_API_TOKEN="<your-api-token>"
+# Cloud supports bearer and basic auth
+export JIRA_AUTH_TYPE="bearer"   # or "basic"
 ```
 
 Then reload your shell:
@@ -254,7 +312,9 @@ source ~/.bashrc  # or source ~/.zshrc
 
 ### 4. Initialize
 
-Find your username at [issues.redhat.com](https://issues.redhat.com) (profile picture > Profile > Summary), then run:
+#### Local / Data Center
+
+Find your username at [issues.<company>.com](https://issues.<company>.com) (profile picture > Profile > Summary), then run:
 
 ```bash
 jira init
@@ -265,11 +325,31 @@ Provide the following when prompted:
 ```
 Installation type: Local
 Authentication type: bearer
-Link to Jira server: https://issues.redhat.com
+Link to Jira server: https://issues.<company>.com
 Login username: <your-username>
 Default project: <your-project>
 Default board: <your-board or None>
 ```
+
+#### Cloud
+
+```bash
+jira init
+```
+
+Provide the following when prompted (Cloud mode uses basic auth by default but also supports bearer auth):
+
+```
+Installation type: Cloud
+Link to Jira server: https://<company>.atlassian.net
+Login email: <your-email>
+Default project: <your-project>
+Default board: <your-board or None>
+```
+
+The config file is stored at `~/.config/.jira.yml`. To reconfigure, delete it and re-run `jira init`.
+
+> **Note:** If your on-premise Jira uses a non-English language, you may need to manually configure `epic.name`, `epic.link`, and `issue.types.*.handle` in the config file. See the [Jira CLI README](https://github.com/ankitpokhrel/jira-cli) for details.
 
 ### 5. Verify
 
