@@ -22,12 +22,15 @@ Extract:
 
 ### Project-to-Repository Mapping
 
-| Jira Project | Component | Repository URL | Local directory | Default branch | Host | Validation commands |
-|---|---|---|---|---|---|---|
-| `SSCUI` | `Calunga` | `git@gitlab.cee.redhat.com:hosted-pulp/ui-packages.redhat.com.git` | `/work/ui-packages.redhat.com/` | `main` | GitLab | `npm test`, `npx tsc --noEmit` |
-| `TC` | None | `git@github.com:guacsec/trustify-ui.git` | `/work/trustify-ui` | `main` | GitHub | `npm test`, `npx tsc --noEmit` |
-| `SECURESIGN` | None | `git@github.com:guacsec/trustify-ui.git` | `/work/rhtas-console-ui` (fork/downstream of trustify-ui) | `main` | GitHub | `npm test`, `npx tsc --noEmit` |
-| `SSCUI` | `AI` | `git@github.com:CryptoRodeo/unshift.git` | `/work/unshift` | `v2` | GitHub | None |
+Use the following repository mapping (provided as JSON):
+
+```json
+REPO_MAPPING_JSON
+```
+
+Each entry has: `jira_project`, `component` (nullable), `repo_url`, `local_dir`, `default_branch`, `host`, `validation` (array of command strings).
+
+Match the issue's Jira project key (and component, if present) to find the correct repository entry.
 
 If the repository cannot be determined, fail with: "Could not determine repository for issue `<ISSUE_KEY>`."
 

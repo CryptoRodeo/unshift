@@ -79,21 +79,21 @@ When using Vertex AI, also uncomment the gcloud volume mount in `compose.yml`:
 
 ### 3. Edit the project-to-repository mapping
 
-Open `prompts/phase1.md` and replace the example rows in the **Project-to-Repository Mapping** table with your own Jira projects and local repo paths.
+Open `repos.json` in the repo root and replace the example entries with your own Jira projects and local repo paths.
 
-Each row has the following columns:
+Each entry is a JSON object with the following fields:
 
-| Column | Description |
+| Field | Description |
 |---|---|
-| Jira Project | The Jira project key (e.g. `MYPROJ`) |
-| Component | Optional Jira component to disambiguate projects that map to multiple repos |
-| Repository URL | The git remote URL |
-| Local directory | Absolute path where the repo is cloned on your machine |
-| Default branch | Branch to base new work on (e.g. `main`) |
-| Host | `GitHub` or `GitLab` — determines whether `gh` or `glab` is used for PRs |
-| Validation commands | Shell commands to verify correctness (e.g. `npm test`, `npx tsc --noEmit`) |
+| `jira_project` | The Jira project key (e.g. `MYPROJ`) |
+| `component` | Optional Jira component to disambiguate projects that map to multiple repos (use `null` if not needed) |
+| `repo_url` | The git remote URL |
+| `local_dir` | Absolute path where the repo is cloned on your machine |
+| `default_branch` | Branch to base new work on (e.g. `main`) |
+| `host` | `GitHub` or `GitLab` — determines whether `gh` or `glab` is used for PRs |
+| `validation` | Array of shell commands to verify correctness (e.g. `["npm test", "npx tsc --noEmit"]`), or `[]` if none |
 
-> **Note:** Inside the container, your `~/work` directory is mounted at `/work`. Use `/work/...` paths in the mapping table when running via Docker Compose, or `~/work/...` paths when running locally.
+> **Note:** Inside the container, your `~/work` directory is mounted at `/work`. Use `/work/...` paths in the mapping when running via Docker Compose, or `~/work/...` paths when running locally.
 
 ### 4. Run
 
@@ -178,8 +178,8 @@ cd unshift
 # 3. Set Jira environment variables (see "Jira Integration" below)
 #    JIRA_BASE_URL, JIRA_USER_EMAIL, JIRA_API_TOKEN
 
-# 4. Edit prompts/phase1.md - replace the example Project-to-Repository
-#    Mapping table with your own Jira projects and local repo paths.
+# 4. Edit repos.json - replace the example entries with your own
+#    Jira projects and local repo paths.
 
 # 5. Label a Jira issue with "llm-candidate" and run
 ./unshift.sh

@@ -48,7 +48,7 @@ RUN cd dashboard && npm install
 COPY dashboard/ dashboard/
 
 # Copy project files into the image
-COPY init.sh unshift.sh ./
+COPY init.sh unshift.sh repos.json ./
 COPY prompts/ prompts/
 COPY ralph/ ralph/
 
