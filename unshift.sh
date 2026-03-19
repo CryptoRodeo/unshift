@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# unshift.sh - Outer orchestrator for the Jira-to-PR automation workflow
+# unshift.sh - Outer orchestrator for the Jira-to-PR automation workflow (uses Jira REST API via curl)
 # Usage: ./unshift.sh
 #
 # Processes ALL llm-candidate Jira issues in a single run, looping
@@ -26,6 +26,37 @@ if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
   usage
 fi
 
+# Validate Claude Code authentication
+if [[ -z "${ANTHROPIC_API_KEY:-}" && -z "${CLAUDE_CODE_USE_VERTEX:-}" ]]; then
+  echo "Error: Set ANTHROPIC_API_KEY or CLAUDE_CODE_USE_VERTEX for Claude Code authentication." >&2
+  exit 1
+fi
+
+# Validate required environment variables for Jira REST API
+if [[ -z "${JIRA_BASE_URL:-}" ]]; then
+  echo "Error: JIRA_BASE_URL is not set. Set it to your Jira instance URL (e.g. https://mycompany.atlassian.net)." >&2
+  exit 1
+fi
+if [[ -z "${JIRA_API_TOKEN:-}" ]]; then
+  echo "Error: JIRA_API_TOKEN is not set. Set it to a Jira API token for authentication." >&2
+  exit 1
+fi
+JIRA_AUTH_TYPE="${JIRA_AUTH_TYPE:-basic}"
+if [[ "$JIRA_AUTH_TYPE" == "basic" && -z "${JIRA_USER_EMAIL:-}" ]]; then
+  echo "Error: JIRA_USER_EMAIL is not set. Required for Basic auth (Jira Cloud). Set JIRA_AUTH_TYPE=bearer for Data Center PATs." >&2
+  exit 1
+fi
+
+# Build curl auth flags based on auth type
+if [[ "$JIRA_AUTH_TYPE" == "bearer" ]]; then
+  CURL_AUTH=(-H "Authorization: Bearer ${JIRA_API_TOKEN}")
+else
+  CURL_AUTH=(-u "${JIRA_USER_EMAIL}:${JIRA_API_TOKEN}")
+fi
+
+# Determine Jira REST API endpoint based on version
+JIRA_API_VERSION="${JIRA_API_VERSION:-3}"
+
 # ---------------------------------------------------------------------------
 # Phase 0 - Pre-flight checks and Jira discovery
 # ---------------------------------------------------------------------------
@@ -33,7 +64,7 @@ echo "=== Phase 0: Pre-flight checks and Jira discovery ===" >&2
 
 # Pre-flight: verify required tools
 MISSING_TOOLS=()
-for tool in jira git gh glab jq; do
+for tool in git gh glab jq curl; do
   if ! command -v "$tool" &>/dev/null; then
     MISSING_TOOLS+=("$tool")
   fi
@@ -45,12 +76,18 @@ if [[ ${#MISSING_TOOLS[@]} -gt 0 ]]; then
   exit 1
 fi
 
-# Query Jira for all llm-candidate issues
+# Query Jira for all llm-candidate issues via REST API
 ISSUE_KEYS=()
-while IFS= read -r line; do
-  key="$(echo "$line" | awk '{print $1}')"
+if [[ "$JIRA_API_VERSION" == "2" ]]; then
+  JIRA_SEARCH_URL="${JIRA_BASE_URL}/rest/api/2/search?jql=labels%3Dllm-candidate&fields=key,summary,issuetype,status"
+else
+  JIRA_SEARCH_URL="${JIRA_BASE_URL}/rest/api/3/search/jql?jql=labels%3Dllm-candidate&fields=key,summary,issuetype,status"
+fi
+while IFS= read -r key; do
   [[ -n "$key" ]] && ISSUE_KEYS+=("$key")
-done < <(jira issue list -l "llm-candidate" --plain --no-headers --columns KEY,SUMMARY,TYPE,STATUS 2>/dev/null || true)
+done < <(curl -s "${CURL_AUTH[@]}" -H "Content-Type: application/json" \
+  "$JIRA_SEARCH_URL" 2>/dev/null \
+  | jq -r '.issues[].key' || true)
 
 if [[ ${#ISSUE_KEYS[@]} -eq 0 ]]; then
   echo "No llm-candidate issues found." >&2

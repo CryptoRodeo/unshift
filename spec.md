@@ -17,7 +17,8 @@ Phase 0 runs once at startup. Phases 1-3 run per issue in a loop. Each `claude -
 
 ## Prerequisites
 
-- `jira` CLI installed and configured (see `jira-cli-setup.md`)
+- `acli` (Atlassian CLI) installed and configured (via `init.sh`)
+- `JIRA_BASE_URL`, `JIRA_USER_EMAIL`, and `JIRA_API_TOKEN` environment variables set (used by Phase 0 curl discovery and `acli` authentication)
 - `claude` CLI available on the host
 - `gh` CLI for GitHub repositories
 - `glab` CLI for GitLab repositories
@@ -33,12 +34,14 @@ This is a full-send workflow. Once invoked, the orchestrator executes all phases
 
 ### Step 1: Pre-flight checks (Phase 0)
 
-Before starting, verify these tools are available: `jira`, `git`, `gh` (for GitHub repos), `glab` (for GitLab repos), `jq`. If any required tool is missing, stop with an actionable error listing what to install.
+Before starting, verify these tools are available: `curl`, `git`, `gh` (for GitHub repos), `glab` (for GitLab repos), `jq`. If any required tool is missing, stop with an actionable error listing what to install.
 
 ### Step 2: Query Jira for candidate issues (Phase 0)
 
 ```bash
-jira issue list -l "llm-candidate" --plain --no-headers --columns KEY,SUMMARY,TYPE,STATUS
+curl -s -u "${JIRA_USER_EMAIL}:${JIRA_API_TOKEN}" -H "Content-Type: application/json" \
+  "${JIRA_BASE_URL}/rest/api/3/search/jql?jql=labels%3Dllm-candidate&fields=key,summary,issuetype,status" \
+  2>/dev/null | jq -r '.issues[].key'
 ```
 
 - If no issues are returned, exit gracefully with a message: "No llm-candidate issues found."
@@ -48,9 +51,17 @@ jira issue list -l "llm-candidate" --plain --no-headers --columns KEY,SUMMARY,TY
 
 ### Step 3: Read the Jira issue details
 
+Use `acli` to look up the Jira issue:
+
 ```bash
-jira issue view <ISSUE_KEY>
+acli jira workitem view <ISSUE_KEY> --json
 ```
+
+> **Fallback:** If `acli` is unavailable, fall back to a curl call against the Jira REST API using the `JIRA_BASE_URL` and `JIRA_API_TOKEN` environment variables:
+> ```bash
+> curl -s -u "${JIRA_USER_EMAIL}:${JIRA_API_TOKEN}" -H "Content-Type: application/json" \
+>   "${JIRA_BASE_URL}/rest/api/3/issue/<ISSUE_KEY>?fields=summary,description,issuetype,components,labels" 2>/dev/null
+> ```
 
 Extract the following from the issue:
 - **Summary** - short description of the work
@@ -65,10 +76,10 @@ Extract the following from the issue:
 
 | Jira Project | Component | Repository URL | Local directory | Default branch | Host | Validation commands |
 |---|---|---|---|---|---|---|
-| `SSCUI` | `Calunga` | `git@gitlab.cee.redhat.com:hosted-pulp/ui-packages.redhat.com.git` | `~/work/ui-packages.redhat.com/` | `main` | GitLab | `npm test`, `npx tsc --noEmit` |
-| `TC` | None | `git@github.com:guacsec/trustify-ui.git` | `~/work/trustify-ui` | `main` | GitHub | `npm test`, `npx tsc --noEmit` |
-| `SECURESIGN` | None | `git@github.com:guacsec/trustify-ui.git` | `~/work/rhtas-console-ui` (fork/downstream of trustify-ui) | `main` | GitHub | `npm test`, `npx tsc --noEmit` |
-| `SSCUI` | `AI` | `git@github.com:CryptoRodeo/unshift.git` | `~/work/unshift` | `v2` | GitHub | None |
+| `SSCUI` | `Calunga` | `git@gitlab.cee.redhat.com:hosted-pulp/ui-packages.redhat.com.git` | `/work/ui-packages.redhat.com/` | `main` | GitLab | `npm test`, `npx tsc --noEmit` |
+| `TC` | None | `git@github.com:guacsec/trustify-ui.git` | `/work/trustify-ui` | `main` | GitHub | `npm test`, `npx tsc --noEmit` |
+| `SECURESIGN` | None | `git@github.com:guacsec/trustify-ui.git` | `/work/rhtas-console-ui` (fork/downstream of trustify-ui) | `main` | GitHub | `npm test`, `npx tsc --noEmit` |
+| `SSCUI` | `AI` | `git@github.com:CryptoRodeo/unshift.git` | `/work/unshift` | `v2` | GitHub | None |
 
 ### Step 4: Navigate to the repository and create a branch
 
@@ -239,28 +250,28 @@ glab mr create \
 
 ### Step 9: Update the Jira issue
 
-Transition the issue and attach the implementation details:
+Use `acli` to update the Jira issue:
 
-```bash
-jira issue move <ISSUE_KEY> "In Review"
-jira issue comment add <ISSUE_KEY> "PR created: <PR_URL>"
-```
+1. Transition the issue to "In Review":
+   ```bash
+   acli jira workitem transition --key <ISSUE_KEY> --status "In Review"
+   ```
+2. Add a comment with the PR URL:
+   ```bash
+   acli jira workitem comment create --key <ISSUE_KEY> --body "PR created: <PR_URL>"
+   ```
+3. Add a comment with the contents of `prd.json` under the heading "Implementation Plan":
+   ```bash
+   acli jira workitem comment create --key <ISSUE_KEY> --body "## Implementation Plan
+   $(cat prd.json)"
+   ```
+4. Add a comment with the contents of `progress.txt` under the heading "Execution Log":
+   ```bash
+   acli jira workitem comment create --key <ISSUE_KEY> --body "## Execution Log
+   $(cat progress.txt)"
+   ```
 
-Then post the contents of `prd.json` and `progress.txt` as separate comments so reviewers can see the implementation plan and execution log:
-
-```bash
-jira issue comment add <ISSUE_KEY> "## Implementation Plan (prd.json)
-
-\`\`\`json
-$(cat prd.json)
-\`\`\`"
-
-jira issue comment add <ISSUE_KEY> "## Execution Log (progress.txt)
-
-\`\`\`
-$(cat progress.txt)
-\`\`\`"
-```
+> **Fallback:** If `acli` is unavailable, fall back to curl calls against the Jira REST API using Basic auth: `curl -u "${JIRA_USER_EMAIL}:${JIRA_API_TOKEN}" ...` with the `JIRA_BASE_URL` environment variable.
 
 ### Step 10: Cleanup
 
@@ -341,7 +352,7 @@ The `dashboard/` directory contains a web UI for monitoring unshift runs in real
 | `ralph/ralph.sh` | `ralph/` | Implementation loop, one `claude -p` per prd.json entry |
 | `prompts/phase1.md` | `prompts/` | Phase 1 prompt template for reading the issue and planning |
 | `prompts/phase3.md` | `prompts/` | Phase 3 prompt template for PR creation and Jira update |
-| `init.sh` | Repo root | Configures Claude Code CLI permissions |
+| `init.sh` | Repo root | Configures Claude Code permissions and authenticates `acli` |
 | `dashboard/server/src/index.ts` | `dashboard/server/` | Express + WebSocket server |
 | `dashboard/server/src/unshift.ts` | `dashboard/server/` | UnshiftRunner, spawns and parses unshift.sh |
 | `dashboard/client/src/` | `dashboard/client/` | React frontend (components, hooks, types) |

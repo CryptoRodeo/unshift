@@ -63,20 +63,31 @@ Capture the PR/MR URL from the output.
 
 ## Step 5: Update Jira
 
-```bash
-jira issue move <issue_key> "In Review"
-jira issue comment add <issue_key> "PR created: <PR_URL>"
-```
+Use `acli` to update the Jira issue:
 
-Post `prd.json` and `progress.txt` contents as separate Jira comments:
+1. Transition the issue to "In Review":
+   ```bash
+   acli jira workitem transition --key <issue_key> --status "In Review"
+   ```
 
-```bash
-jira issue comment add <issue_key> "## Implementation Plan (prd.json)
-$(cat prd.json)"
+2. Add a comment with the PR/MR URL:
+   ```bash
+   acli jira workitem comment create --key <issue_key> --body "PR created: <PR_URL>"
+   ```
 
-jira issue comment add <issue_key> "## Execution Log (progress.txt)
-$(cat progress.txt)"
-```
+3. Add a comment with the contents of `prd.json` under the heading "Implementation Plan":
+   ```bash
+   acli jira workitem comment create --key <issue_key> --body "## Implementation Plan
+   $(cat prd.json)"
+   ```
+
+4. Add a comment with the contents of `progress.txt` under the heading "Execution Log":
+   ```bash
+   acli jira workitem comment create --key <issue_key> --body "## Execution Log
+   $(cat progress.txt)"
+   ```
+
+> **Fallback:** If `acli` is unavailable, fall back to curl calls against the Jira REST API using Basic auth: `curl -u "${JIRA_USER_EMAIL}:${JIRA_API_TOKEN}" ...` with the `JIRA_BASE_URL` environment variable.
 
 ## Step 6: Cleanup
 

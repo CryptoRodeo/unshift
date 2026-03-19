@@ -1,10 +1,5 @@
 # Pinned tool versions - update these when upgrading
-# JIRA_CLI_VERSION=1.7.0  GLAB_VERSION=1.89.0  CLAUDE_CODE_VERSION=2.1.76
-
-FROM golang:1.24-bookworm AS go-builder
-
-# Build Jira CLI in the builder stage
-RUN go install github.com/ankitpokhrel/jira-cli/cmd/jira@v1.7.0
+# GLAB_VERSION=1.89.0  CLAUDE_CODE_VERSION=2.1.76
 
 FROM node:20-bookworm-slim
 
@@ -18,9 +13,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Create a non-root user for security
 RUN useradd -m -s /bin/bash unshift
-
-# Copy Jira CLI binary from the builder stage
-COPY --from=go-builder /go/bin/jira /usr/local/bin/jira
 
 # Install GitHub CLI (gh)
 RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
@@ -36,6 +28,12 @@ RUN GLAB_VERSION=1.89.0 \
   && curl -fsSL "https://gitlab.com/gitlab-org/cli/-/releases/v${GLAB_VERSION}/downloads/glab_${GLAB_VERSION}_linux_${ARCH}.deb" -o /tmp/glab.deb \
   && dpkg -i /tmp/glab.deb \
   && rm /tmp/glab.deb
+
+# Install Atlassian CLI (acli)
+# NOTE: Verify the download URL is current at https://developer.atlassian.com/cloud/acli/guides/install-acli/
+RUN ARCH=$(dpkg --print-architecture) \
+  && curl -fsSL "https://acli.atlassian.com/linux/latest/acli_linux_${ARCH}/acli" -o /usr/local/bin/acli \
+  && chmod +x /usr/local/bin/acli
 
 # Install Claude Code globally
 RUN npm install -g @anthropic-ai/claude-code@2.1.76
@@ -63,10 +61,17 @@ USER unshift
 # Allow git to work with bind-mounted repos owned by the host user
 RUN git config --global --add safe.directory '*'
 
-# Pre-configure Claude Code settings
+# Pre-configure Claude Code settings (base permissions only; acli auth is configured at runtime)
 RUN bash ./init.sh
+
+# Copy entrypoint script
+COPY entrypoint.sh ./
+USER root
+RUN chmod +x entrypoint.sh
+USER unshift
 
 EXPOSE 3000 5173
 
-# Start the dashboard, which launches unshift.sh on demand
+# Re-run init.sh at startup so acli auth picks up runtime env vars, then start the dashboard
+ENTRYPOINT ["./entrypoint.sh"]
 CMD ["npm", "run", "dev", "--prefix", "dashboard"]

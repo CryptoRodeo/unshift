@@ -8,7 +8,7 @@ An automation tool that picks up Jira issues labeled llm-candidate, implements t
 
 Unshift uses a three-phase architecture orchestrated by `unshift.sh`:
 
-1. **Phase 1 (Planning)** - A `claude -p` session queries Jira for `llm-candidate` issues, reads the issue details, maps it to the correct repository, creates a branch, and generates an implementation plan (`prd.json`).
+1. **Phase 1 (Planning)** - A `claude -p` session queries Jira via `acli` for `llm-candidate` issues, reads the issue details, maps it to the correct repository, creates a branch, and generates an implementation plan (`prd.json`).
 2. **Phase 2 (Implementation)** - `ralph.sh --auto <N>` executes the plan one entry at a time, each in an isolated `claude -p` session.
 3. **Phase 3 (Delivery)** - A `claude -p` session verifies all work is complete, commits, pushes, opens a PR, updates the Jira issue, and cleans up.
 
@@ -28,7 +28,7 @@ Because each iteration starts a fresh Claude session, there is no accumulated co
 
 ## Quickstart (Docker Compose)
 
-The fastest way to get running. The container image bundles Node.js, Claude Code, Go, Jira CLI, gh, glab, jq, and git — no host-level installs needed beyond Docker.
+The fastest way to get running. The container image bundles Node.js, Claude Code, gh, glab, jq, curl, and git — no host-level installs needed beyond Docker.
 
 ### 1. Clone the repo
 
@@ -49,9 +49,10 @@ cp .env.example .unshift.env
 
 ```bash
 ANTHROPIC_API_KEY=sk-ant-...
+JIRA_BASE_URL=https://mycompany.atlassian.net
+JIRA_USER_EMAIL=you@company.com
 JIRA_API_TOKEN=your-jira-token
-JIRA_AUTH_TYPE=bearer
-GITHUB_TOKEN=ghp_...
+GH_TOKEN=ghp_...
 # Or, if using GitLab instead:
 # GITLAB_TOKEN=glpat-...
 ```
@@ -62,9 +63,10 @@ GITHUB_TOKEN=ghp_...
 CLAUDE_CODE_USE_VERTEX=1
 CLOUD_ML_REGION=us-eastx
 ANTHROPIC_VERTEX_PROJECT_ID=<your-gcp-project-id>
+JIRA_BASE_URL=https://mycompany.atlassian.net
+JIRA_USER_EMAIL=you@company.com
 JIRA_API_TOKEN=your-jira-token
-JIRA_AUTH_TYPE=bearer
-GITHUB_TOKEN=ghp_...
+GH_TOKEN=ghp_...
 # Or, if using GitLab instead:
 # GITLAB_TOKEN=glpat-...
 ```
@@ -75,26 +77,7 @@ When using Vertex AI, also uncomment the gcloud volume mount in `compose.yml`:
 - ${HOME}/.config/gcloud:/home/unshift/.config/gcloud:ro
 ```
 
-### 3. Configure Jira CLI
-
-Unshift needs a Jira CLI config directory at `~/.config/jira`. If you don't have one yet, the easiest way is to run `jira init` inside the container:
-
-```bash
-docker compose run --rm unshift jira init
-```
-
-When prompted, provide:
-
-```
-Installation type: Local
-Authentication type: bearer
-Link to Jira server: https://issues.<company>.com
-Login username: <your-username>
-Default project: <your-project>
-Default board: <your-board or None>
-```
-
-### 4. Edit the project-to-repository mapping
+### 3. Edit the project-to-repository mapping
 
 Open `prompts/phase1.md` and replace the example rows in the **Project-to-Repository Mapping** table with your own Jira projects and local repo paths.
 
@@ -112,7 +95,7 @@ Each row has the following columns:
 
 > **Note:** Inside the container, your `~/work` directory is mounted at `/work`. Use `/work/...` paths in the mapping table when running via Docker Compose, or `~/work/...` paths when running locally.
 
-### 5. Run
+### 4. Run
 
 ```bash
 docker compose up
@@ -120,13 +103,14 @@ docker compose up
 
 The dashboard will be available at `http://localhost:5173` (Vite dev server) and `http://localhost:3000` (API server). From the dashboard you can start and stop runs, view per-phase progress, and stream logs.
 
+> **Note:** The `acli` authentication is regenerated on each container start from your environment variables. Any manual changes to `~/.claude/settings.json` inside the container will be overwritten.
+
 The container bind-mounts the following from your host:
 
 | Host path | Container path | Mode |
 |---|---|---|
 | `~/work` (or `$UNSHIFT_WORK_DIR`) | `/work` | read-write |
 | `~/.ssh` | `/home/unshift/.ssh` | read-only |
-| `~/.config/jira` | `/home/unshift/.config/jira` | read-only |
 | `~/.gitconfig` | `/home/unshift/.gitconfig` | read-only |
 
 To use a different workspace directory:
@@ -168,8 +152,8 @@ If you prefer to run unshift directly on your host machine without Docker, insta
 |---|---|---|
 | [Node.js](https://nodejs.org/) (v18+) | Runtime for Claude Code and the dashboard | [Download](https://nodejs.org/) or `dnf install nodejs` / `brew install node` |
 | [Claude Code](https://docs.anthropic.com/en/docs/claude-code) | CLI agent that runs each phase | `npm install -g @anthropic-ai/claude-code` |
-| [Go](https://go.dev/) (1.21+) | Required to install the Jira CLI | [Download](https://go.dev/dl/) or `dnf install golang` / `brew install go` |
-| [Jira CLI](https://github.com/ankitpokhrel/jira-cli) | Query and update Jira issues | See [Jira CLI Setup](#jira-cli-setup) below |
+| [acli](https://developer.atlassian.com/cloud/acli/) | Atlassian CLI for Jira integration | [Install guide](https://developer.atlassian.com/cloud/acli/guides/install-acli/) |
+| [curl](https://curl.se/) | Jira REST API fallback | Pre-installed on most systems |
 | [gh](https://cli.github.com/) | Create GitHub PRs | `dnf install gh` / `brew install gh` |
 | [glab](https://gitlab.com/gitlab-org/cli) | Create GitLab MRs | `dnf install glab` / `brew install glab` |
 | [jq](https://jqlang.github.io/jq/) | Used by the installer and orchestrator | `dnf install jq` / `brew install jq` |
@@ -182,18 +166,17 @@ Git must be configured with push access to your target repositories (e.g. via SS
 ### Manual quickstart
 
 ```bash
-# 1. Install prerequisites (Node.js, Go, jq, gh/glab, Claude Code)
+# 1. Install prerequisites (Node.js, jq, curl, gh/glab, Claude Code)
 #    If using Vertex AI (Google Cloud), see "Claude Code via Vertex AI" above
 npm install -g @anthropic-ai/claude-code
-go install github.com/ankitpokhrel/jira-cli/cmd/jira@latest
 
 # 2. Clone and initialize
 git clone https://github.com/CryptoRodeo/unshift.git
 cd unshift
 ./init.sh
 
-# 3. Configure Jira CLI (see "Jira CLI Setup" below)
-jira init
+# 3. Set Jira environment variables (see "Jira Integration" below)
+#    JIRA_BASE_URL, JIRA_USER_EMAIL, JIRA_API_TOKEN
 
 # 4. Edit prompts/phase1.md - replace the example Project-to-Repository
 #    Mapping table with your own Jira projects and local repo paths.
@@ -213,149 +196,35 @@ Run the orchestrator script from the repo directory:
 ./unshift.sh
 ```
 
-## Jira CLI Setup
+## Jira Integration
 
-### 1. Install
+Unshift interacts with Jira through the [Atlassian CLI (`acli`)](https://developer.atlassian.com/cloud/acli/), which is authenticated automatically by `init.sh`. Phase 0 discovery also uses a direct `curl` call to the Jira REST API.
 
-```bash
-go install github.com/ankitpokhrel/jira-cli/cmd/jira@latest
-```
+### Environment variables
 
-If that doesn't work, build from source:
+Set the following in your `.unshift.env` file (or export them in your shell for manual installs):
 
-```bash
-git clone https://github.com/ankitpokhrel/jira-cli.git
-cd jira-cli
-make install
-```
+| Variable | Purpose |
+|---|---|
+| `JIRA_BASE_URL` | Your Jira instance URL (e.g. `https://mycompany.atlassian.net`) |
+| `JIRA_USER_EMAIL` | Email associated with your Jira account (required for Basic auth; not needed for bearer) |
+| `JIRA_API_TOKEN` | API token for Phase 0 curl discovery and `acli` authentication |
+| `JIRA_AUTH_TYPE` | `basic` (Cloud, default) or `bearer` (Data Center PATs) |
+| `JIRA_API_VERSION` | `3` (Cloud, default) or `2` (Data Center) |
 
-### 2. Create an API Token
+### How it works
 
-Choose the section that matches your Jira deployment.
+1. **Phase 0 (Discovery)** — `unshift.sh` uses `curl` to query the Jira REST API for issues labeled `llm-candidate`.
+2. **Phase 1 (Planning)** and **Phase 3 (Delivery)** — Claude Code uses `acli` to read issue details, transition issues, and add comments.
+3. If `acli` is unavailable, the prompts include a `curl` fallback using `JIRA_BASE_URL`, `JIRA_USER_EMAIL`, and `JIRA_API_TOKEN`.
 
-#### Local / Data Center instances
+### Creating a Jira API token
 
-1. Go to [your Jira profile](https://issues.<company>.com/secure/ViewProfile.jspa)
-2. Create a new Personal Access Token
-3. Copy the token value
+For **Jira Cloud**: Go to [Atlassian API token management](https://id.atlassian.com/manage-profile/security/api-tokens), click "Create API token", and copy the value. Use the email address of the Atlassian account that created the token as `JIRA_USER_EMAIL`.
 
-See your organization's internal docs on Personal Access Token usage and API/bot policies for details.
+For **Jira Data Center / Server**: Create a Personal Access Token from your Jira profile (Profile > Personal Access Tokens). Note that the REST API endpoint differs — see the note below.
 
-#### Cloud instances
-
-1. Create a personal API token for Jira Cloud
-
-   Use this when you want a token tied to your own Atlassian user (same permissions as you in Jira).
-
-2. Open your Atlassian account security page
-
-   Go to:
-   https://id.atlassian.com/manage-profile/security
-   (Atlassian docs reference: https://support.atlassian.com/atlassian-account/docs/manage-api-tokens-for-your-atlassian-account/)
-
-3. Sign in (if prompted)
-
-   Use the same account you use for https://<company>.atlassian.net.
-
-4. Create an API token
-
-   - Scroll to "API tokens".
-   - Click "Create API token" (or "Create API token with scopes" if visible).
-   - Enter a label (for example, `Jira - CI script`, `Postman`, `Local tooling`).
-
-5. Set token expiration
-
-   - Choose an expiration between 1 and 365 days.
-   - By default, tokens expire in 1 year.
-   - Pick the shortest lifetime that still works for your use case.
-
-6. (If offered) Choose scopes
-
-   Depending on your UI you may see:
-
-   - **Token with scopes** – recommended:
-     - Select only what is needed, e.g.:
-       - `read:jira-work` to read issues
-       - `write:jira-work` to create/update issues
-   - **Token without scopes / classic token** – full access equivalent to your user permissions.
-
-7. Create and copy the token
-
-   - Click **Create**.
-   - Click **Copy to clipboard** and store it somewhere safe (e.g., a password manager or a secure secret store in your CI/CD).
-   - You cannot view it again after closing the dialog; if lost, you must create a new one.
-
-### 3. Configure environment variables
-
-Add to your `~/.bashrc` or `~/.zshrc`:
-
-For **local / Data Center** instances:
-
-```bash
-export JIRA_API_TOKEN="<your-personal-access-token>"
-export JIRA_AUTH_TYPE="bearer"
-```
-
-For **cloud** instances:
-
-```bash
-export JIRA_API_TOKEN="<your-api-token>"
-# Cloud supports bearer and basic auth
-export JIRA_AUTH_TYPE="bearer"   # or "basic"
-```
-
-Then reload your shell:
-
-```bash
-source ~/.bashrc  # or source ~/.zshrc
-```
-
-### 4. Initialize
-
-#### Local / Data Center
-
-Find your username at [issues.<company>.com](https://issues.<company>.com) (profile picture > Profile > Summary), then run:
-
-```bash
-jira init
-```
-
-Provide the following when prompted:
-
-```
-Installation type: Local
-Authentication type: bearer
-Link to Jira server: https://issues.<company>.com
-Login username: <your-username>
-Default project: <your-project>
-Default board: <your-board or None>
-```
-
-#### Cloud
-
-```bash
-jira init
-```
-
-Provide the following when prompted (Cloud mode uses basic auth by default but also supports bearer auth):
-
-```
-Installation type: Cloud
-Link to Jira server: https://<company>.atlassian.net
-Login email: <your-email>
-Default project: <your-project>
-Default board: <your-board or None>
-```
-
-The config file is stored at `~/.config/.jira.yml`. To reconfigure, delete it and re-run `jira init`.
-
-> **Note:** If your on-premise Jira uses a non-English language, you may need to manually configure `epic.name`, `epic.link`, and `issue.types.*.handle` in the config file. See the [Jira CLI README](https://github.com/ankitpokhrel/jira-cli) for details.
-
-### 5. Verify
-
-```bash
-jira issue list
-```
+> **Jira Data Center / Server note:** Set `JIRA_AUTH_TYPE=bearer` and `JIRA_API_VERSION=2` in your `.unshift.env`. Data Center uses Personal Access Tokens (Bearer auth) and the `/rest/api/2/search` endpoint. You do not need to set `JIRA_USER_EMAIL` when using bearer auth.
 
 ## Dashboard (optional)
 
@@ -388,7 +257,7 @@ From the dashboard you can start and stop runs, view per-phase progress, and str
 | `ralph/ralph.sh` | This repo | Implementation loop — one `claude -p` per prd.json entry |
 | `prompts/phase1.md` | This repo | Phase 1 prompt template for Jira discovery and planning |
 | `prompts/phase3.md` | This repo | Phase 3 prompt template for PR creation and Jira update |
-| `init.sh` | This repo | Configures Claude Code permissions |
+| `init.sh` | This repo | Configures Claude Code permissions and authenticates `acli` |
 | `compose.yml` | This repo | Docker Compose configuration |
 | `Dockerfile` | This repo | Container image definition (all tools bundled) |
 | `prd.json` | Target repo root (at runtime) | Implementation plan, created per issue, cleaned up after |

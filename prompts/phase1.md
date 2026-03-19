@@ -6,9 +6,13 @@ Execute the steps below autonomously. Do NOT implement any code - only plan.
 
 ## Step 1: Read the Jira issue details
 
+Use `acli` to look up the Jira issue:
+
 ```bash
-jira issue view <ISSUE_KEY>
+acli jira workitem view ISSUE_KEY_VALUE --json
 ```
+
+If `acli` is unavailable, fall back to a curl call against the Jira REST API using Basic auth: `curl -u "${JIRA_USER_EMAIL}:${JIRA_API_TOKEN}" ...` with the JIRA_BASE_URL environment variable.
 
 Extract:
 - **Summary** - short description
@@ -20,10 +24,10 @@ Extract:
 
 | Jira Project | Component | Repository URL | Local directory | Default branch | Host | Validation commands |
 |---|---|---|---|---|---|---|
-| `SSCUI` | `Calunga` | `git@gitlab.cee.redhat.com:hosted-pulp/ui-packages.redhat.com.git` | `~/work/ui-packages.redhat.com/` | `main` | GitLab | `npm test`, `npx tsc --noEmit` |
-| `TC` | None | `git@github.com:guacsec/trustify-ui.git` | `~/work/trustify-ui` | `main` | GitHub | `npm test`, `npx tsc --noEmit` |
-| `SECURESIGN` | None | `git@github.com:guacsec/trustify-ui.git` | `~/work/rhtas-console-ui` (fork/downstream of trustify-ui) | `main` | GitHub | `npm test`, `npx tsc --noEmit` |
-| `SSCUI` | `AI` | `git@github.com:CryptoRodeo/unshift.git` | `~/work/unshift` | `v2` | GitHub | None |
+| `SSCUI` | `Calunga` | `git@gitlab.cee.redhat.com:hosted-pulp/ui-packages.redhat.com.git` | `/work/ui-packages.redhat.com/` | `main` | GitLab | `npm test`, `npx tsc --noEmit` |
+| `TC` | None | `git@github.com:guacsec/trustify-ui.git` | `/work/trustify-ui` | `main` | GitHub | `npm test`, `npx tsc --noEmit` |
+| `SECURESIGN` | None | `git@github.com:guacsec/trustify-ui.git` | `/work/rhtas-console-ui` (fork/downstream of trustify-ui) | `main` | GitHub | `npm test`, `npx tsc --noEmit` |
+| `SSCUI` | `AI` | `git@github.com:CryptoRodeo/unshift.git` | `/work/unshift` | `v2` | GitHub | None |
 
 If the repository cannot be determined, fail with: "Could not determine repository for issue `<ISSUE_KEY>`."
 
