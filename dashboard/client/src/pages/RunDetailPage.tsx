@@ -11,6 +11,7 @@ import {
   Card,
   CardTitle,
   CardBody,
+  Alert,
 } from "@patternfly/react-core";
 import { ArrowLeftIcon } from "@patternfly/react-icons";
 import { useWebSocket } from "../hooks/useWebSocket";
@@ -28,6 +29,15 @@ export function RunDetailPage() {
 
   const run = runId ? runs.get(runId) : undefined;
   const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set());
+  const [approveError, setApproveError] = useState<string | null>(null);
+
+  const handleApprove = async () => {
+    setApproveError(null);
+    const result = await approveRun(run!.id);
+    if (!result.ok) {
+      setApproveError(result.error || "Failed to approve run");
+    }
+  };
 
   // Auto-expand the current phase section when it changes
   useEffect(() => {
@@ -107,8 +117,13 @@ export function RunDetailPage() {
                     .join("\n")}
                 </pre>
               )}
+              {approveError && (
+                <Alert variant="danger" title="Approval failed" isInline style={{ marginBottom: "1rem" }}>
+                  {approveError}
+                </Alert>
+              )}
               <Flex gap={{ default: "gapMd" }}>
-                <Button variant="primary" onClick={() => approveRun(run.id)}>
+                <Button variant="primary" onClick={handleApprove}>
                   Approve &amp; Create PR
                 </Button>
                 <Button variant="danger" onClick={() => rejectRun(run.id)}>

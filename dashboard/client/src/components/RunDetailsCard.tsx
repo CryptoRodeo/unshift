@@ -18,7 +18,7 @@ export function RunDetailsCard({ run }: { run: Run }) {
           <DescriptionListGroup>
             <DescriptionListTerm>Run ID</DescriptionListTerm>
             <DescriptionListDescription>
-              <code>{run.id}</code>
+              <code>{run.issueKey || run.id}</code>
             </DescriptionListDescription>
           </DescriptionListGroup>
           <DescriptionListGroup>
