@@ -63,31 +63,75 @@ Capture the PR/MR URL from the output.
 
 ## Step 5: Update Jira
 
-Use `acli` to update the Jira issue:
+Use the Jira REST API via curl. Authentication uses environment variables already set by unshift.sh:
+- `JIRA_BASE_URL` — Jira instance URL (e.g. `https://mycompany.atlassian.net`)
+- `JIRA_USER_EMAIL` — user email (required for Basic auth)
+- `JIRA_API_TOKEN` — API token or PAT
+- `JIRA_AUTH_TYPE` — `basic` (default, Jira Cloud) or `bearer` (Data Center PATs)
+- `JIRA_API_VERSION` — `3` (default) or `2`
 
-1. Transition the issue to "In Review":
-   ```bash
-   acli jira workitem transition --key <issue_key> --status "In Review"
-   ```
+Build the auth header based on `JIRA_AUTH_TYPE`:
+- **basic**: `-u "${JIRA_USER_EMAIL}:${JIRA_API_TOKEN}"`
+- **bearer**: `-H "Authorization: Bearer ${JIRA_API_TOKEN}"`
 
-2. Add a comment with the PR/MR URL:
-   ```bash
-   acli jira workitem comment create --key <issue_key> --body "PR created: <PR_URL>"
-   ```
+Use `JIRA_API_VERSION` (default `3`) to set the API path prefix: `/rest/api/${JIRA_API_VERSION:-3}`.
 
-3. Add a comment with the contents of `prd.json` under the heading "Implementation Plan":
-   ```bash
-   acli jira workitem comment create --key <issue_key> --body "## Implementation Plan
-   $(cat prd.json)"
-   ```
+### 1. Transition the issue to "In Review"
 
-4. Add a comment with the contents of `progress.txt` under the heading "Execution Log":
-   ```bash
-   acli jira workitem comment create --key <issue_key> --body "## Execution Log
-   $(cat progress.txt)"
-   ```
+First, get available transitions:
+```bash
+curl -s -X GET \
+  "${JIRA_BASE_URL}/rest/api/${JIRA_API_VERSION:-3}/issue/<issue_key>/transitions" \
+  <auth> \
+  -H "Content-Type: application/json"
+```
 
-> **Fallback:** If `acli` is unavailable, fall back to curl calls against the Jira REST API using Basic auth: `curl -u "${JIRA_USER_EMAIL}:${JIRA_API_TOKEN}" ...` with the `JIRA_BASE_URL` environment variable.
+Find the transition whose `name` matches "In Review" (case-insensitive) and note its `id`. Then apply the transition:
+```bash
+curl -s -X POST \
+  "${JIRA_BASE_URL}/rest/api/${JIRA_API_VERSION:-3}/issue/<issue_key>/transitions" \
+  <auth> \
+  -H "Content-Type: application/json" \
+  -d '{"transition": {"id": "<transition_id>"}}'
+```
+
+### 2. Add a comment with the PR/MR URL
+
+**If `JIRA_API_VERSION` is `3`** (default), use Atlassian Document Format (ADF):
+```bash
+curl -s -X POST \
+  "${JIRA_BASE_URL}/rest/api/3/issue/<issue_key>/comment" \
+  <auth> \
+  -H "Content-Type: application/json" \
+  -d '{
+    "body": {
+      "type": "doc",
+      "version": 1,
+      "content": [{"type": "paragraph", "content": [{"type": "text", "text": "PR created: <PR_URL>"}]}]
+    }
+  }'
+```
+
+**If `JIRA_API_VERSION` is `2`**, use plain text:
+```bash
+curl -s -X POST \
+  "${JIRA_BASE_URL}/rest/api/2/issue/<issue_key>/comment" \
+  <auth> \
+  -H "Content-Type: application/json" \
+  -d '{"body": "PR created: <PR_URL>"}'
+```
+
+### 3. Add a comment with the contents of `prd.json` under the heading "Implementation Plan"
+
+Read `prd.json` and format it as a comment. Use the same API version logic as step 2:
+- **API v3**: Wrap content in ADF format with a heading node ("Implementation Plan") followed by a codeBlock node containing the JSON.
+- **API v2**: Use plain text: `"## Implementation Plan\n<contents of prd.json>"`.
+
+### 4. Add a comment with the contents of `progress.txt` under the heading "Execution Log"
+
+Read `progress.txt` and format it as a comment. Use the same API version logic as step 2:
+- **API v3**: Wrap content in ADF format with a heading node ("Execution Log") followed by a codeBlock node containing the text.
+- **API v2**: Use plain text: `"## Execution Log\n<contents of progress.txt>"`.
 
 ## Step 6: Cleanup
 
