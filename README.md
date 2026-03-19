@@ -110,6 +110,29 @@ Each entry is a JSON object with the following fields:
 | `host` | `GitHub` or `GitLab` — determines whether `gh` or `glab` is used for PRs |
 | `validation` | Array of shell commands to verify correctness (e.g. `["npm test", "npx tsc --noEmit"]`), or `[]` if none |
 
+#### Adding a new repository
+
+To add a new repository, append a JSON object to the `repos.json` array with the fields listed above. For optional fields that do not apply to your repository, use `null` or an empty array (`[]`) as appropriate:
+
+- **`component`** — set to `null` if the Jira project does not use components to distinguish repos.
+- **`labels`** — set to `[]` if labels are not needed for disambiguation.
+- **`validation`** — set to `[]` if the repository has no validation commands.
+
+Example entry with no component, labels, or validation:
+
+```json
+{
+  "jira_projects": ["MYPROJ"],
+  "component": null,
+  "labels": [],
+  "repo_url": "git@github.com:org/my-repo.git",
+  "local_dir": "/work/my-repo",
+  "default_branch": "main",
+  "host": "GitHub",
+  "validation": []
+}
+```
+
 ### 5. Run
 
 ```bash
