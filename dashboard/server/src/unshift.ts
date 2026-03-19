@@ -95,14 +95,22 @@ export class UnshiftRunner extends EventEmitter {
     }
   }
 
-  approveRun(id: string): boolean {
+  approveRun(id: string): { ok: boolean; error?: string } {
     const run = this.runs.get(id);
     const proc = this.processes.get(id);
-    if (!run || run.status !== "awaiting_approval" || !proc?.pid) return false;
-    process.kill(-proc.pid, "SIGCONT");
+    if (!run) return { ok: false, error: "Run not found" };
+    if (run.status !== "awaiting_approval") return { ok: false, error: `Run is not awaiting approval (status: ${run.status})` };
+    if (!proc?.pid) return { ok: false, error: "Process not found or has no PID" };
+    try {
+      process.kill(-proc.pid, "SIGCONT");
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error(`Failed to send SIGCONT to process group -${proc.pid}: ${msg}`);
+      return { ok: false, error: `Failed to resume process: ${msg}` };
+    }
     run.status = "phase3";
     this.emit("run:phase", run.id, "phase3");
-    return true;
+    return { ok: true };
   }
 
   rejectRun(id: string): boolean {
@@ -224,21 +232,12 @@ export class UnshiftRunner extends EventEmitter {
       }
     }
 
-    // Phase 3 — pause for approval before allowing it to proceed
+    // Phase 3 — the script self-pauses (kill -STOP $$) after printing this line,
+    // so we only need to transition to awaiting_approval. The dashboard sends
+    // SIGCONT when the user approves.
     if (line.includes("Phase 3:")) {
-      if (run.status === "awaiting_approval") {
-        // Already approved — transition normally
-        run.status = "phase3";
-        this.emit("run:phase", run.id, "phase3");
-      } else {
-        run.status = "awaiting_approval";
-        this.emit("run:phase", run.id, "awaiting_approval");
-        // Pause the process group so Phase 3 doesn't execute until approved
-        const proc = this.processes.get(run.id);
-        if (proc?.pid) {
-          try { process.kill(-proc.pid, "SIGSTOP"); } catch {}
-        }
-      }
+      run.status = "awaiting_approval";
+      this.emit("run:phase", run.id, "awaiting_approval");
     }
   }
 

@@ -186,7 +186,12 @@ export function useWebSocket() {
   }, []);
 
   const approveRun = useCallback(async (runId: string) => {
-    await fetch(`/api/runs/${runId}/approve`, { method: "POST" });
+    const res = await fetch(`/api/runs/${runId}/approve`, { method: "POST" });
+    const result = await res.json();
+    if (!result.ok) {
+      console.error("Approve failed:", result.error);
+    }
+    return result;
   }, []);
 
   const rejectRun = useCallback(async (runId: string) => {

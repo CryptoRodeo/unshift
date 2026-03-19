@@ -52,8 +52,8 @@ app.post("/api/runs/:id/stop", (req, res) => {
 });
 
 app.post("/api/runs/:id/approve", (req, res) => {
-  const ok = runner.approveRun(req.params.id);
-  res.json({ ok });
+  const result = runner.approveRun(req.params.id);
+  res.json(result);
 });
 
 app.post("/api/runs/:id/reject", (req, res) => {

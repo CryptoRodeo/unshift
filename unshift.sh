@@ -195,6 +195,10 @@ for ISSUE_KEY in "${ISSUE_KEYS[@]}"; do
   echo "" >&2
   echo "--- Phase 3: PR creation for $ISSUE_KEY ---" >&2
 
+  # Self-pause before Phase 3 execution so the dashboard can gate on approval.
+  # The dashboard will send SIGCONT to resume once the user approves.
+  kill -STOP $$
+
   PHASE3_PROMPT="$(cat "${SCRIPT_DIR}/prompts/phase3.md")"
   PHASE3_PROMPT="${PHASE3_PROMPT//CONTEXT_FILE_PATH/$CONTEXT_FILE}"
 
