@@ -235,6 +235,57 @@ This starts both the Express/WebSocket server and the Vite dev server using `con
 
 From the dashboard you can start and stop runs, view per-phase progress, and stream logs.
 
+## Claude Code Skill (`/unshift`)
+
+Unshift also ships as a Claude Code [custom skill](https://docs.anthropic.com/en/docs/claude-code/skills) that you can invoke inside any Claude Code session with `/unshift`. The skill uses Jira MCP tools directly (instead of `acli`) and runs the full Jira-to-PR workflow from within Claude Code.
+
+### Install the skill
+
+From the project where you want to use the skill, run:
+
+```bash
+mkdir -p .claude/skills/unshift
+curl -fsSL https://raw.githubusercontent.com/CryptoRodeo/unshift/main/.claude/skills/unshift/SKILL.md \
+  -o .claude/skills/unshift/SKILL.md
+```
+
+That's it — Claude Code automatically discovers skills in `.claude/skills/`.
+
+### Configure the Jira MCP server
+
+The skill communicates with Jira via the [Atlassian MCP server](https://mcp.atlassian.com). Add the following to your `.claude/settings.local.json` (this file should not be committed):
+
+```json
+{
+  "mcpServers": {
+    "atlassian": {
+      "type": "url",
+      "url": "https://mcp.atlassian.com/v1/sse",
+      "headers": {
+        "Authorization": "Basic <base64-encoded email:api-token>"
+      }
+    }
+  }
+}
+```
+
+To generate the base64 value:
+
+```bash
+echo -n "you@company.com:your-jira-api-token" | base64
+```
+
+### Usage
+
+Inside a Claude Code session, run:
+
+```
+/unshift              # discover and process all llm-candidate issues
+/unshift PROJ-123     # process a specific issue
+```
+
+The skill reads `repos.json` from this repo's root to map Jira projects to repositories. See the "Edit the project-to-repository mapping" section above for the schema.
+
 ## File Reference
 
 | File | Location | Purpose |
@@ -244,5 +295,6 @@ From the dashboard you can start and stop runs, view per-phase progress, and str
 | `prompts/phase1.md` | This repo | Phase 1 prompt template for Jira discovery and planning |
 | `prompts/phase3.md` | This repo | Phase 3 prompt template for PR creation and Jira update |
 | `init.sh` | This repo | Configures Claude Code permissions and authenticates `acli` |
+| `.claude/skills/unshift/SKILL.md` | This repo | Claude Code custom skill — run `/unshift` inside a session |
 | `prd.json` | Target repo root (at runtime) | Implementation plan, created per issue, cleaned up after |
 | `progress.txt` | Target repo root (at runtime) | Append-only execution log, cleaned up after |
