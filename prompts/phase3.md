@@ -14,10 +14,19 @@ If any entry is incomplete or validation fails, report which ones and STOP.
 
 Exclude agent working files from the commit:
 
+Determine the conventional commit type from the `issue_type` field:
+- Bug → `fix`
+- Story or Task → `feat`
+- Anything else → `chore`
+
+Write a concise commit message in conventional commit format. Do NOT copy the Jira summary verbatim — instead, write a short, lowercase description that captures the essence of the change.
+
 ```bash
 git add -A -- ':!prd.json' ':!progress.txt' ':!ralph.sh'
-git commit -m "<commit_prefix> <issue_key> <short description based on summary>"
+git commit -m "(<type>): <issue_key> <concise-description>"
 ```
+
+Example: `git commit -m "(fix): PROJ-123 handle null response in user lookup"`
 
 ## Step 3: Push
 
@@ -29,10 +38,12 @@ git push origin <branch_name>
 
 Based on the `host` field:
 
+Use the same conventional commit type as Step 2 (`fix`, `feat`, or `chore` based on `issue_type`). The PR/MR title must be in conventional commit format with a concise summary — do NOT copy the Jira ticket title verbatim. Instead, write a short description that captures the intent of the changes.
+
 **GitHub** (host == "github"):
 ```bash
 gh pr create \
-  --title "<commit_prefix> <issue_key> <summary>" \
+  --title "(<type>): <concise-summary>" \
   --body "Resolves: <issue_key>
 
 ## Description
@@ -47,7 +58,7 @@ gh pr create \
 **GitLab** (host == "gitlab"):
 ```bash
 glab mr create \
-  --title "<commit_prefix> <issue_key> <summary>" \
+  --title "(<type>): <concise-summary>" \
   --description "Resolves: <issue_key>
 
 ## Description
@@ -58,6 +69,8 @@ glab mr create \
   --target-branch <default_branch> \
   --yes
 ```
+
+Example title: `(feat): add dark mode toggle to settings page`
 
 Capture the PR/MR URL from the output.
 
