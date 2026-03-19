@@ -1,18 +1,22 @@
 #!/usr/bin/env bash
 # ralph.sh
-# Usage: ./ralph.sh [--auto] <iterations>
+# Usage: ./ralph.sh [--auto] [--no-retry] <iterations>
 
 set -euo pipefail
 
 AUTO=false
+NO_RETRY=false
 
-if [[ "${1:-}" == "--auto" ]]; then
-  AUTO=true
-  shift
-fi
+while [[ "${1:-}" == --* ]]; do
+  case "$1" in
+    --auto) AUTO=true; shift ;;
+    --no-retry) NO_RETRY=true; shift ;;
+    *) echo "Unknown flag: $1" >&2; exit 1 ;;
+  esac
+done
 
 if [[ $# -ne 1 ]]; then
-  echo "Usage: $0 [--auto] <iterations>" >&2
+  echo "Usage: $0 [--auto] [--no-retry] <iterations>" >&2
   exit 1
 fi
 
@@ -57,7 +61,7 @@ You MUST NOT:
 4. If ANY validation command fails:
    - Do NOT mark the feature as completed in prd.json
    - Append a failure entry to progress.txt with the command that failed and its output
-   - STOP — do not retry or continue
+   - STOP - do not retry or continue
 5. If ALL validation commands pass, append a concise entry to progress.txt describing:
    - Feature worked on
    - Files changed
@@ -98,9 +102,36 @@ for ((i = 1; i <= iterations; i++)); do
   echo "=== Ralph iteration $i/$iterations ===" >&2
 
   # Run Claude
-  if ! claude -p --permission-mode bypassPermissions "$PROMPT"; then
-    echo "Error: claude execution failed" >&2
+  claude_exit=0
+  claude -p --permission-mode bypassPermissions "$PROMPT" || claude_exit=$?
+
+  if [[ "$claude_exit" -ne 0 ]]; then
+    echo "Error: claude execution failed (exit $claude_exit)" >&2
     exit 1
+  fi
+
+  # Check if the last progress.txt entry indicates a validation failure
+  last_progress=$(tail -20 progress.txt 2>/dev/null || true)
+  if echo "$last_progress" | grep -qi 'INCOMPLETE\|FAILED\|failure'; then
+    if [[ "$NO_RETRY" == true ]]; then
+      echo "Validation failure detected but --no-retry is set, skipping retry." >&2
+    else
+      echo "=== Validation failure detected, retrying with error context ===" >&2
+      RETRY_PROMPT="$PROMPT
+
+The previous attempt at this feature failed. Here is what went wrong:
+$last_progress"
+
+      retry_exit=0
+      claude -p --permission-mode bypassPermissions "$RETRY_PROMPT" || retry_exit=$?
+
+      if [[ "$retry_exit" -ne 0 ]]; then
+        echo "Error: claude retry execution failed (exit $retry_exit)" >&2
+        # Log retry failure and continue to next iteration instead of exiting
+        echo "" >> progress.txt
+        echo "Retry failed: claude exited with code $retry_exit" >> progress.txt
+      fi
+    fi
   fi
 
   # If we still have iterations left, ask the human whether to continue.
