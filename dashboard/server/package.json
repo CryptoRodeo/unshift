@@ -2,7 +2,7 @@
   "name": "unshift-server",
   "private": true,
   "scripts": {
-    "dev": "tsx watch src/index.ts",
+    "dev": "tsx watch --exclude '../**' src/index.ts",
     "build": "tsc",
     "start": "node dist/index.js"
   },
