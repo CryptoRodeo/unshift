@@ -183,6 +183,37 @@ For **Jira Data Center / Server**: Create a Personal Access Token from your Jira
 
 > **Jira Data Center / Server note:** Set `JIRA_AUTH_TYPE=bearer` and `JIRA_API_VERSION=2` in your `.unshift.env`. Data Center uses Personal Access Tokens (Bearer auth) and the `/rest/api/2/search` endpoint. You do not need to set `JIRA_USER_EMAIL` when using bearer auth.
 
+## GitHub & GitLab Tokens
+
+Unshift uses the `gh` or `glab` CLI to open pull/merge requests. Each CLI expects a personal access token in a specific environment variable. You only need to configure the one that matches your repositories' `host` field in `repos.json`.
+
+### GitHub (`GH_TOKEN`)
+
+1. Go to [GitHub > Settings > Developer settings > Personal access tokens](https://github.com/settings/tokens).
+2. Click **Generate new token** (classic) or **Generate new token (fine-grained)**.
+3. For classic tokens, select the **`repo`** scope (full control of private repositories).
+   For fine-grained tokens, grant **Contents** (read/write) and **Pull requests** (read/write) on the target repositories.
+4. Copy the token and set it in your `.unshift.env`:
+
+```bash
+GH_TOKEN=ghp_...
+```
+
+The `gh` CLI recognizes `GH_TOKEN` automatically — no separate `gh auth login` is needed.
+
+### GitLab (`GITLAB_TOKEN`)
+
+1. Go to **GitLab > Preferences > Access Tokens** (or `https://gitlab.com/-/user_settings/personal_access_tokens`).
+2. Click **Add new token**.
+3. Select the **`api`** scope (full API access, required for creating merge requests).
+4. Copy the token and set it in your `.unshift.env`:
+
+```bash
+GITLAB_TOKEN=glpat-...
+```
+
+The `glab` CLI recognizes `GITLAB_TOKEN` automatically — no separate `glab auth login` is needed.
+
 ## Dashboard (optional)
 
 The `dashboard/` directory contains a web UI for monitoring unshift runs in real time. It is not required to use unshift — the CLI works on its own.
