@@ -14,10 +14,12 @@ import {
 } from "@patternfly/react-core";
 import { ArrowLeftIcon } from "@patternfly/react-icons";
 import { useWebSocket } from "../hooks/useWebSocket";
-import { PhaseProgress } from "./PhaseProgress";
-import { StatusLabel } from "./StatusLabel";
-import { RunDetailsCard } from "./RunDetailsCard";
-import { RunLogsCard } from "./RunLogsCard";
+import { PhaseProgress } from "../components/PhaseProgress";
+import { StatusLabel } from "../components/StatusLabel";
+import { RunDetailsCard } from "../components/RunDetailsCard";
+import { RunLogsCard } from "../components/RunLogsCard";
+import { RunContextCard } from "../components/RunContextCard";
+import { PrdStatusCard } from "../components/PrdStatusCard";
 
 export function RunDetailPage() {
   const { runId } = useParams<{ runId: string }>();
@@ -75,6 +77,18 @@ export function RunDetailPage() {
       <PageSection>
         <PhaseProgress status={run.status} />
       </PageSection>
+
+      {run.context && (
+        <PageSection>
+          <RunContextCard context={run.context} />
+        </PageSection>
+      )}
+
+      {run.prd.length > 0 && (
+        <PageSection>
+          <PrdStatusCard entries={run.prd} />
+        </PageSection>
+      )}
 
       {run.status === "awaiting_approval" && (
         <PageSection>

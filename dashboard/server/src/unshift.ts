@@ -1,6 +1,7 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { randomUUID } from "node:crypto";
+import { readFile } from "node:fs/promises";
 import path from "node:path";
 import kill from "tree-kill";
 
@@ -18,13 +19,22 @@ export type RunPhase =
   | "phase0"
   | "phase1"
   | "phase2"
+  | "awaiting_approval"
   | "phase3"
   | "success"
-  | "failed";
+  | "failed"
+  | "rejected";
 
 export interface LogEntry {
   phase: RunPhase;
   line: string;
+}
+
+export interface RunContext {
+  issueKey: string;
+  summary: string;
+  repoPath: string;
+  branchName: string;
 }
 
 export interface Run {
@@ -36,6 +46,7 @@ export interface Run {
   repoPath?: string;
   branchName?: string;
   prUrl?: string;
+  context?: RunContext;
   prd: PrdEntry[];
   logs: LogEntry[];
 }
@@ -84,10 +95,37 @@ export class UnshiftRunner extends EventEmitter {
     }
   }
 
+  approveRun(id: string): boolean {
+    const run = this.runs.get(id);
+    const proc = this.processes.get(id);
+    if (!run || run.status !== "awaiting_approval" || !proc?.pid) return false;
+    process.kill(-proc.pid, "SIGCONT");
+    run.status = "phase3";
+    this.emit("run:phase", run.id, "phase3");
+    return true;
+  }
+
+  rejectRun(id: string): boolean {
+    const run = this.runs.get(id);
+    const proc = this.processes.get(id);
+    if (!run || run.status !== "awaiting_approval") return false;
+    run.status = "rejected";
+    run.completedAt = new Date().toISOString();
+    this.emit("run:complete", run.id, "rejected");
+    if (proc?.pid) {
+      // Resume then kill so the process group isn't left stopped
+      try { process.kill(-proc.pid, "SIGCONT"); } catch {}
+      kill(proc.pid);
+    }
+    this.processes.delete(id);
+    return true;
+  }
+
   private spawn(run: Run): void {
     const proc = spawn("bash", [this.scriptPath], {
       cwd: path.dirname(this.scriptPath),
       stdio: ["ignore", "pipe", "pipe"],
+      detached: true,
     });
 
     this.processes.set(run.id, proc);
@@ -119,10 +157,13 @@ export class UnshiftRunner extends EventEmitter {
       if (stdoutBuf) handleLine(stdoutBuf);
       if (stderrBuf) handleLine(stderrBuf);
 
-      const status = code === 0 ? "success" : "failed";
-      run.status = status;
-      run.completedAt = new Date().toISOString();
-      this.emit("run:complete", run.id, status);
+      // Don't overwrite status if already set (e.g. rejected)
+      if (run.status !== "rejected") {
+        const status = code === 0 ? "success" : "failed";
+        run.status = status;
+        run.completedAt = new Date().toISOString();
+        this.emit("run:complete", run.id, status);
+      }
       this.processes.delete(run.id);
     });
   }
@@ -157,6 +198,7 @@ export class UnshiftRunner extends EventEmitter {
     if (p1Complete) {
       run.repoPath = p1Complete[1];
       run.branchName = p1Complete[2];
+      this.readContextFile(run);
     }
 
     // Phase 2
@@ -165,10 +207,68 @@ export class UnshiftRunner extends EventEmitter {
       this.emit("run:phase", run.id, "phase2");
     }
 
-    // Phase 3
+    // Ralph iteration marker: "=== Ralph iteration N/M ==="
+    // When N > 1, the previous iteration just completed, so read updated prd.json
+    const ralphMatch = line.match(/Ralph iteration (\d+)\/(\d+)/);
+    if (ralphMatch) {
+      const iterNum = parseInt(ralphMatch[1], 10);
+      if (iterNum > 1 && run.repoPath) {
+        this.readPrdFile(run);
+      }
+    }
+
+    // Phase 2 complete — read final prd.json state
+    if (line.includes("Phase 2 complete")) {
+      if (run.repoPath) {
+        this.readPrdFile(run);
+      }
+    }
+
+    // Phase 3 — pause for approval before allowing it to proceed
     if (line.includes("Phase 3:")) {
-      run.status = "phase3";
-      this.emit("run:phase", run.id, "phase3");
+      if (run.status === "awaiting_approval") {
+        // Already approved — transition normally
+        run.status = "phase3";
+        this.emit("run:phase", run.id, "phase3");
+      } else {
+        run.status = "awaiting_approval";
+        this.emit("run:phase", run.id, "awaiting_approval");
+        // Pause the process group so Phase 3 doesn't execute until approved
+        const proc = this.processes.get(run.id);
+        if (proc?.pid) {
+          try { process.kill(-proc.pid, "SIGSTOP"); } catch {}
+        }
+      }
+    }
+  }
+
+  private async readContextFile(run: Run): Promise<void> {
+    const contextPath = process.env.UNSHIFT_CONTEXT_FILE ?? "/tmp/unshift_context.json";
+    try {
+      const raw = await readFile(contextPath, "utf-8");
+      const ctx = JSON.parse(raw);
+      run.context = {
+        issueKey: ctx.issue_key ?? run.issueKey,
+        summary: ctx.summary ?? "",
+        repoPath: ctx.repo_path ?? run.repoPath ?? "",
+        branchName: ctx.branch_name ?? run.branchName ?? "",
+      };
+      this.emit("run:context", run.id, run.context);
+    } catch {
+      // Context file may not exist yet or be unreadable; skip silently
+    }
+  }
+
+  private async readPrdFile(run: Run): Promise<void> {
+    if (!run.repoPath) return;
+    const prdPath = path.join(run.repoPath, "prd.json");
+    try {
+      const raw = await readFile(prdPath, "utf-8");
+      const entries: PrdEntry[] = JSON.parse(raw);
+      run.prd = entries;
+      this.emit("run:prd", run.id, entries);
+    } catch {
+      // prd.json may not exist yet; skip silently
     }
   }
 }

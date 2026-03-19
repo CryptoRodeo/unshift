@@ -2,7 +2,7 @@ import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { Page } from "@patternfly/react-core";
 import { AppHeader } from "./components/AppHeader";
 import { DashboardPage } from "./components/DashboardPage";
-import { RunDetailPage } from "./components/RunDetailPage";
+import { RunDetailPage } from "./pages/RunDetailPage";
 
 export function App() {
   return (

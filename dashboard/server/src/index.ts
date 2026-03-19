@@ -26,6 +26,9 @@ runner.on("run:phase", (runId, phase) =>
 runner.on("run:log", (runId, line, phase) =>
   broadcast({ type: "run:log", runId, line, phase })
 );
+runner.on("run:context", (runId, context) =>
+  broadcast({ type: "run:context", runId, context })
+);
 runner.on("run:prd", (runId, prd) =>
   broadcast({ type: "run:prd", runId, prd })
 );
@@ -46,6 +49,16 @@ app.post("/api/runs", (_req, res) => {
 app.post("/api/runs/:id/stop", (req, res) => {
   runner.stopRun(req.params.id);
   res.json({ ok: true });
+});
+
+app.post("/api/runs/:id/approve", (req, res) => {
+  const ok = runner.approveRun(req.params.id);
+  res.json({ ok });
+});
+
+app.post("/api/runs/:id/reject", (req, res) => {
+  const ok = runner.rejectRun(req.params.id);
+  res.json({ ok });
 });
 
 const PORT = process.env.SERVER_PORT ?? 3000;

@@ -5,18 +5,19 @@ import {
 import { PHASE_CONFIG } from "../types";
 import type { RunPhase } from "../types";
 
-const phaseOrder: RunPhase[] = ["phase0", "phase1", "phase2", "phase3", "success"];
+const phaseOrder: RunPhase[] = ["phase0", "phase1", "phase2", "awaiting_approval", "phase3", "success"];
 
 function getVariant(
   phaseKey: RunPhase,
   currentStatus: RunPhase
-): "success" | "info" | "pending" | "danger" {
-  if (currentStatus === "failed") return "danger";
+): "success" | "info" | "pending" | "danger" | "warning" {
+  if (currentStatus === "failed" || currentStatus === "rejected") return "danger";
 
   const currentIdx = phaseOrder.indexOf(currentStatus);
   const phaseIdx = phaseOrder.indexOf(phaseKey);
 
   if (currentStatus === "success") return "success";
+  if (currentStatus === "awaiting_approval" && phaseKey === "awaiting_approval") return "warning";
   if (phaseIdx < currentIdx) return "success";
   if (phaseIdx === currentIdx) return "info";
   return "pending";

@@ -1,13 +1,14 @@
 import { useEffect, useRef, useCallback, useReducer, useState } from "react";
-import type { WsMessage, Run, PrdEntry, RunPhase } from "../types";
+import type { WsMessage, Run, RunContext, PrdEntry, RunPhase } from "../types";
 
 type RunsAction =
   | { type: "BulkLoad"; runs: Run[] }
   | { type: "RunCreated"; run: Run }
   | { type: "PhaseChanged"; runId: string; phase: RunPhase }
   | { type: "LogAppended"; runId: string; phase: RunPhase; line: string }
+  | { type: "ContextUpdated"; runId: string; context: RunContext }
   | { type: "PrdUpdated"; runId: string; prd: PrdEntry[] }
-  | { type: "RunCompleted"; runId: string; status: "success" | "failed" };
+  | { type: "RunCompleted"; runId: string; status: "success" | "failed" | "rejected" };
 
 function runsReducer(
   state: Map<string, Run>,
@@ -43,6 +44,14 @@ function runsReducer(
       const logs = run.logs.slice();
       logs.push({ phase: action.phase, line: action.line });
       next.set(action.runId, { ...run, logs });
+      return next;
+    }
+
+    case "ContextUpdated": {
+      const run = state.get(action.runId);
+      if (!run) return state;
+      const next = new Map(state);
+      next.set(action.runId, { ...run, context: action.context });
       return next;
     }
 
@@ -133,6 +142,13 @@ export function useWebSocket() {
               line: msg.line,
             });
             break;
+          case "run:context":
+            dispatch({
+              type: "ContextUpdated",
+              runId: msg.runId,
+              context: msg.context,
+            });
+            break;
           case "run:prd":
             dispatch({
               type: "PrdUpdated",
@@ -169,5 +185,13 @@ export function useWebSocket() {
     await fetch(`/api/runs/${runId}/stop`, { method: "POST" });
   }, []);
 
-  return { runs, connected, startRun, stopRun };
+  const approveRun = useCallback(async (runId: string) => {
+    await fetch(`/api/runs/${runId}/approve`, { method: "POST" });
+  }, []);
+
+  const rejectRun = useCallback(async (runId: string) => {
+    await fetch(`/api/runs/${runId}/reject`, { method: "POST" });
+  }, []);
+
+  return { runs, connected, startRun, stopRun, approveRun, rejectRun };
 }

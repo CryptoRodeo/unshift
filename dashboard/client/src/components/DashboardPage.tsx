@@ -19,6 +19,7 @@ import { useWebSocket } from "../hooks/useWebSocket";
 import { PhaseProgress } from "./PhaseProgress";
 import { StatusLabel } from "./StatusLabel";
 import type { Run } from "../types";
+import { PHASE_LABELS } from "../types";
 
 export function DashboardPage() {
   const { runs, connected, startRun } = useWebSocket();
@@ -94,9 +95,16 @@ function RunCard({ run, onClick }: { run: Run; onClick: () => void }) {
             <PhaseProgress status={run.status} />
           </FlexItem>
 
+          {run.context && (
+            <FlexItem>
+              <small>{run.context.summary}</small>
+            </FlexItem>
+          )}
+
           <FlexItem>
             <small>
               Started {new Date(run.startedAt).toLocaleString()}
+              {PHASE_LABELS[run.status] && ` \u00b7 ${PHASE_LABELS[run.status]}`}
             </small>
           </FlexItem>
         </Flex>
