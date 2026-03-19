@@ -1,6 +1,10 @@
 .unshift.env
 .env
 unshift_context.json
+progress.txt
+prd.json
+issues.md
+ralph.sh
 node_modules/
 **/dist/
 
