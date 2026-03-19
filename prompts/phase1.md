@@ -30,9 +30,9 @@ REPO_MAPPING_JSON
 
 Each entry has: `jira_project`, `component` (nullable), `repo_url`, `local_dir`, `default_branch`, `host`, `validation` (array of command strings).
 
-Match the issue's Jira project key (and component, if present) to find the correct repository entry.
+Match the issue's Jira project key to find the correct repository entry. When multiple entries share the same `jira_project`, you **must** use the issue's component(s) to disambiguate. Pick the entry whose `component` matches one of the issue's components. If the issue has no components, pick the entry with `component: null`.
 
-If the repository cannot be determined, fail with: "Could not determine repository for issue `<ISSUE_KEY>`."
+If no entry matches, fail with: "Could not determine repository for issue `<ISSUE_KEY>`."
 
 ## Step 4: Navigate to the repository and create a branch
 
