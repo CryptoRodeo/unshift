@@ -99,7 +99,7 @@ export function RunDetailPage() {
                 Implementation is complete. Review the changes below before proceeding to create a PR.
               </p>
               {run.logs.length > 0 && (
-                <pre style={{ maxHeight: "200px", overflow: "auto", marginBottom: "1rem", padding: "0.5rem", background: "var(--pf-v5-global--BackgroundColor--200, #f0f0f0)", fontSize: "0.85rem" }}>
+                <pre style={{ maxHeight: "200px", overflow: "auto", marginBottom: "1rem", padding: "0.5rem", background: "var(--pf-v5-global--BackgroundColor--200)", color: "var(--pf-v5-global--Color--100)", fontSize: "0.85rem" }}>
                   {run.logs
                     .filter((l) => l.phase === "phase2")
                     .slice(-20)
