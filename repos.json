@@ -35,7 +35,7 @@
     "labels": [],
     "repo_url": "git@github.com:CryptoRodeo/unshift.git",
     "local_dir": "/work/unshift",
-    "default_branch": "v2",
+    "default_branch": "main",
     "host": "GitHub",
     "validation": []
   }
