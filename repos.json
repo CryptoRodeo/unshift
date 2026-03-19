@@ -1,7 +1,8 @@
 [
   {
-    "jira_project": "SSCUI",
+    "jira_projects": ["SSCUI", "PULP"],
     "component": "Calunga",
+    "labels": ["TSD-UI"],
     "repo_url": "git@gitlab.cee.redhat.com:hosted-pulp/ui-packages.redhat.com.git",
     "local_dir": "/work/ui-packages.redhat.com/",
     "default_branch": "main",
@@ -9,8 +10,9 @@
     "validation": ["npm test", "npx tsc --noEmit"]
   },
   {
-    "jira_project": "TC",
+    "jira_projects": ["TC"],
     "component": null,
+    "labels": [],
     "repo_url": "git@github.com:guacsec/trustify-ui.git",
     "local_dir": "/work/trustify-ui",
     "default_branch": "main",
@@ -18,8 +20,9 @@
     "validation": ["npm test", "npx tsc --noEmit"]
   },
   {
-    "jira_project": "SECURESIGN",
+    "jira_projects": ["SECURESIGN"],
     "component": null,
+    "labels": [],
     "repo_url": "git@github.com:guacsec/trustify-ui.git",
     "local_dir": "/work/rhtas-console-ui",
     "default_branch": "main",
@@ -27,8 +30,9 @@
     "validation": ["npm test", "npx tsc --noEmit"]
   },
   {
-    "jira_project": "SSCUI",
+    "jira_projects": ["SSCUI"],
     "component": "AI",
+    "labels": [],
     "repo_url": "git@github.com:CryptoRodeo/unshift.git",
     "local_dir": "/work/unshift",
     "default_branch": "v2",

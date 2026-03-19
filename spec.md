@@ -74,12 +74,7 @@ Extract the following from the issue:
 
 #### Project-to-Repository Mapping
 
-| Jira Project | Component | Repository URL | Local directory | Default branch | Host | Validation commands |
-|---|---|---|---|---|---|---|
-| `SSCUI` | `Calunga` | `git@gitlab.cee.redhat.com:hosted-pulp/ui-packages.redhat.com.git` | `/work/ui-packages.redhat.com/` | `main` | GitLab | `npm test`, `npx tsc --noEmit` |
-| `TC` | None | `git@github.com:guacsec/trustify-ui.git` | `/work/trustify-ui` | `main` | GitHub | `npm test`, `npx tsc --noEmit` |
-| `SECURESIGN` | None | `git@github.com:guacsec/trustify-ui.git` | `/work/rhtas-console-ui` (fork/downstream of trustify-ui) | `main` | GitHub | `npm test`, `npx tsc --noEmit` |
-| `SSCUI` | `AI` | `git@github.com:CryptoRodeo/unshift.git` | `/work/unshift` | `v2` | GitHub | None |
+The mapping is defined in `repos.json` at the repo root. Each entry contains: `jira_projects`, `component`, `labels`, `repo_url`, `local_dir`, `default_branch`, `host`, and `validation`. The orchestrator injects this file into the Phase 1 prompt at runtime.
 
 ### Step 4: Navigate to the repository and create a branch
 

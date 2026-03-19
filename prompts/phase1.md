@@ -28,9 +28,13 @@ Use the following repository mapping (provided as JSON):
 REPO_MAPPING_JSON
 ```
 
-Each entry has: `jira_project`, `component` (nullable), `repo_url`, `local_dir`, `default_branch`, `host`, `validation` (array of command strings).
+Each entry has: `jira_projects` (array of project keys), `component` (nullable), `labels` (array, may be empty), `repo_url`, `local_dir`, `default_branch`, `host`, `validation` (array of command strings).
 
-Match the issue's Jira project key to find the correct repository entry. When multiple entries share the same `jira_project`, you **must** use the issue's component(s) to disambiguate. Pick the entry whose `component` matches one of the issue's components. If the issue has no components, pick the entry with `component: null`.
+Match the issue's Jira project key to find the correct repository entry. An entry matches if the issue's project key is contained in its `jira_projects` array. When multiple entries match, disambiguate using these rules in order:
+
+1. **By component** — pick the entry whose `component` matches one of the issue's components.
+2. **By label** — if the issue has no matching component, check the issue's labels. Pick the entry whose `labels` array contains at least one label that also appears on the issue.
+3. **Fallback** — if neither component nor label narrows it down, pick the entry with `component: null` and an empty `labels` array.
 
 If no entry matches, fail with: "Could not determine repository for issue `<ISSUE_KEY>`."
 

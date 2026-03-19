@@ -101,8 +101,9 @@ Each entry is a JSON object with the following fields:
 
 | Field | Description |
 |---|---|
-| `jira_project` | The Jira project key (e.g. `MYPROJ`) |
+| `jira_projects` | Array of Jira project keys that map to this repo (e.g. `["MYPROJ"]` or `["PROJ1", "PROJ2"]`) |
 | `component` | Optional Jira component to disambiguate projects that map to multiple repos (use `null` if not needed) |
+| `labels` | Array of Jira labels to disambiguate when the project cannot use components (e.g. `["TSD-UI"]`), or `[]` if not needed |
 | `repo_url` | The git remote URL |
 | `local_dir` | Absolute path where the repo is cloned on your machine |
 | `default_branch` | Branch to base new work on (e.g. `main`) |
