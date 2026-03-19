@@ -1,7 +1,0 @@
-.git
-node_modules
-dashboard/node_modules
-dashboard/client/node_modules
-dashboard/server/node_modules
-.env
-ideas.txt

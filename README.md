@@ -26,23 +26,45 @@ The implementation phase uses `ralph.sh` to run one `claude -p` invocation per `
 
 Because each iteration starts a fresh Claude session, there is no accumulated context from previous iterations. Token usage stays flat regardless of how many entries exist, and each entry gets the full context window for its implementation.
 
-## Quickstart (Docker Compose)
+## Quickstart
 
-The fastest way to get running. The container image bundles Node.js, Claude Code, gh, glab, jq, curl, and git — no host-level installs needed beyond Docker.
+### 1. Install prerequisites
 
-### 1. Clone the repo
+| Tool | Purpose | Install |
+|---|---|---|
+| [Node.js](https://nodejs.org/) (v18+) | Runtime for Claude Code and the dashboard | [Download](https://nodejs.org/) or `dnf install nodejs` / `brew install node` |
+| [Claude Code](https://docs.anthropic.com/en/docs/claude-code) | CLI agent that runs each phase | `npm install -g @anthropic-ai/claude-code` |
+| [acli](https://developer.atlassian.com/cloud/acli/) | Atlassian CLI for Jira integration | [Install guide](https://developer.atlassian.com/cloud/acli/guides/install-acli/) |
+| [curl](https://curl.se/) | Jira REST API fallback | Pre-installed on most systems |
+| [gh](https://cli.github.com/) | Create GitHub PRs | `dnf install gh` / `brew install gh` |
+| [glab](https://gitlab.com/gitlab-org/cli) | Create GitLab MRs | `dnf install glab` / `brew install glab` |
+| [jq](https://jqlang.github.io/jq/) | Used by the installer and orchestrator | `dnf install jq` / `brew install jq` |
+| [Git](https://git-scm.com/) | Version control | Pre-installed on most systems |
+
+You only need `gh` or `glab` depending on which repositories you work with.
+
+Git must be configured with push access to your target repositories (e.g. via SSH keys or a credential helper).
+
+### 2. Clone and initialize
 
 ```bash
 git clone https://github.com/CryptoRodeo/unshift.git
 cd unshift
+./init.sh
 ```
 
-### 2. Configure credentials
+### 3. Configure credentials
 
 Copy the template and fill in your tokens:
 
 ```bash
 cp .env.example .unshift.env
+```
+
+Then source it (or export the variables in your shell):
+
+```bash
+source .unshift.env
 ```
 
 **With an Anthropic API key:**
@@ -71,13 +93,7 @@ GH_TOKEN=ghp_...
 # GITLAB_TOKEN=glpat-...
 ```
 
-When using Vertex AI, also uncomment the gcloud volume mount in `compose.yml`:
-
-```yaml
-- ${HOME}/.config/gcloud:/home/unshift/.config/gcloud:ro
-```
-
-### 3. Edit the project-to-repository mapping
+### 4. Edit the project-to-repository mapping
 
 Open `repos.json` in the repo root and replace the example entries with your own Jira projects and local repo paths.
 
@@ -93,30 +109,16 @@ Each entry is a JSON object with the following fields:
 | `host` | `GitHub` or `GitLab` — determines whether `gh` or `glab` is used for PRs |
 | `validation` | Array of shell commands to verify correctness (e.g. `["npm test", "npx tsc --noEmit"]`), or `[]` if none |
 
-> **Note:** Inside the container, your `~/work` directory is mounted at `/work`. Use `/work/...` paths in the mapping when running via Docker Compose, or `~/work/...` paths when running locally.
-
-### 4. Run
+### 5. Run
 
 ```bash
-docker compose up
+./unshift.sh
 ```
 
-The dashboard will be available at `http://localhost:5173` (Vite dev server) and `http://localhost:3000` (API server). From the dashboard you can start and stop runs, view per-phase progress, and stream logs.
-
-> **Note:** The `acli` authentication is regenerated on each container start from your environment variables. Any manual changes to `~/.claude/settings.json` inside the container will be overwritten.
-
-The container bind-mounts the following from your host:
-
-| Host path | Container path | Mode |
-|---|---|---|
-| `~/work` (or `$UNSHIFT_WORK_DIR`) | `/work` | read-write |
-| `~/.ssh` | `/home/unshift/.ssh` | read-only |
-| `~/.gitconfig` | `/home/unshift/.gitconfig` | read-only |
-
-To use a different workspace directory:
+Or start a run from the dashboard instead (see "Dashboard" below):
 
 ```bash
-UNSHIFT_WORK_DIR=/path/to/your/repos docker compose up
+cd dashboard && npm install && npm run dev
 ```
 
 ## Claude Code via Vertex AI
@@ -142,52 +144,6 @@ To verify your setup, run `claude` and then `/status` - the provider should show
 
 > **Note:** Everything else in this README (init.sh, unshift.sh, ralph, etc.) works the same regardless of whether you use a direct API key or Vertex AI. The only difference is how Claude Code authenticates.
 
-## Manual Installation (without Docker)
-
-If you prefer to run unshift directly on your host machine without Docker, install the prerequisites below and follow the manual quickstart.
-
-### Prerequisites
-
-| Tool | Purpose | Install |
-|---|---|---|
-| [Node.js](https://nodejs.org/) (v18+) | Runtime for Claude Code and the dashboard | [Download](https://nodejs.org/) or `dnf install nodejs` / `brew install node` |
-| [Claude Code](https://docs.anthropic.com/en/docs/claude-code) | CLI agent that runs each phase | `npm install -g @anthropic-ai/claude-code` |
-| [acli](https://developer.atlassian.com/cloud/acli/) | Atlassian CLI for Jira integration | [Install guide](https://developer.atlassian.com/cloud/acli/guides/install-acli/) |
-| [curl](https://curl.se/) | Jira REST API fallback | Pre-installed on most systems |
-| [gh](https://cli.github.com/) | Create GitHub PRs | `dnf install gh` / `brew install gh` |
-| [glab](https://gitlab.com/gitlab-org/cli) | Create GitLab MRs | `dnf install glab` / `brew install glab` |
-| [jq](https://jqlang.github.io/jq/) | Used by the installer and orchestrator | `dnf install jq` / `brew install jq` |
-| [Git](https://git-scm.com/) | Version control | Pre-installed on most systems |
-
-You only need `gh` or `glab` depending on which repositories you work with.
-
-Git must be configured with push access to your target repositories (e.g. via SSH keys or a credential helper).
-
-### Manual quickstart
-
-```bash
-# 1. Install prerequisites (Node.js, jq, curl, gh/glab, Claude Code)
-#    If using Vertex AI (Google Cloud), see "Claude Code via Vertex AI" above
-npm install -g @anthropic-ai/claude-code
-
-# 2. Clone and initialize
-git clone https://github.com/CryptoRodeo/unshift.git
-cd unshift
-./init.sh
-
-# 3. Set Jira environment variables (see "Jira Integration" below)
-#    JIRA_BASE_URL, JIRA_USER_EMAIL, JIRA_API_TOKEN
-
-# 4. Edit repos.json - replace the example entries with your own
-#    Jira projects and local repo paths.
-
-# 5. Label a Jira issue with "llm-candidate" and run
-./unshift.sh
-
-# Or start a run from the dashboard instead (see "Dashboard" below)
-cd dashboard && npm install && npm run dev
-```
-
 ## Usage
 
 Run the orchestrator script from the repo directory:
@@ -202,7 +158,7 @@ Unshift interacts with Jira through the [Atlassian CLI (`acli`)](https://develop
 
 ### Environment variables
 
-Set the following in your `.unshift.env` file (or export them in your shell for manual installs):
+Set the following in your `.unshift.env` file (or export them in your shell):
 
 | Variable | Purpose |
 |---|---|
@@ -230,8 +186,6 @@ For **Jira Data Center / Server**: Create a Personal Access Token from your Jira
 
 The `dashboard/` directory contains a web UI for monitoring unshift runs in real time. It is not required to use unshift — the CLI works on its own.
 
-When using Docker Compose, the dashboard starts automatically. For manual installs:
-
 ### Setup
 
 ```bash
@@ -258,7 +212,5 @@ From the dashboard you can start and stop runs, view per-phase progress, and str
 | `prompts/phase1.md` | This repo | Phase 1 prompt template for Jira discovery and planning |
 | `prompts/phase3.md` | This repo | Phase 3 prompt template for PR creation and Jira update |
 | `init.sh` | This repo | Configures Claude Code permissions and authenticates `acli` |
-| `compose.yml` | This repo | Docker Compose configuration |
-| `Dockerfile` | This repo | Container image definition (all tools bundled) |
 | `prd.json` | Target repo root (at runtime) | Implementation plan, created per issue, cleaned up after |
 | `progress.txt` | Target repo root (at runtime) | Append-only execution log, cleaned up after |
