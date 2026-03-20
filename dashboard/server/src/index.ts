@@ -4,6 +4,8 @@ import { WebSocketServer, WebSocket } from "ws";
 import { UnshiftRunner } from "./unshift.js";
 
 const app = express();
+app.use(express.json());
+
 const server = http.createServer(app);
 const wss = new WebSocketServer({ server, path: "/ws" });
 
@@ -41,9 +43,37 @@ app.get("/api/runs", (_req, res) => {
   res.json(runner.listRuns());
 });
 
-app.post("/api/runs", (_req, res) => {
-  const run = runner.startRun();
-  res.json(run);
+app.get("/api/discover", async (_req, res) => {
+  try {
+    const keys = await runner.discover();
+    res.json({ issueKeys: keys });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    res.status(500).json({ error: msg });
+  }
+});
+
+app.post("/api/runs", async (req, res) => {
+  const { issueKey } = req.body ?? {};
+
+  if (issueKey) {
+    // Start a single run for the specified issue
+    const result = runner.startRun(issueKey);
+    if ("error" in result) {
+      res.status(409).json(result);
+    } else {
+      res.json(result);
+    }
+  } else {
+    // Discover all issues and start a run for each
+    try {
+      const result = await runner.startRuns();
+      res.json(result);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      res.status(500).json({ error: msg });
+    }
+  }
 });
 
 app.post("/api/runs/:id/stop", (req, res) => {

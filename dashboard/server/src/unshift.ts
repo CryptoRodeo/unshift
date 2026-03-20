@@ -1,7 +1,7 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { randomUUID } from "node:crypto";
-import { readFile } from "node:fs/promises";
+import { readFile, unlink } from "node:fs/promises";
 import path from "node:path";
 import kill from "tree-kill";
 
@@ -52,12 +52,14 @@ export interface Run {
 }
 
 /**
- * Spawns `unshift.sh`, parses its stderr output to track phase transitions,
- * and emits events for the WebSocket layer to broadcast.
+ * Spawns one `unshift.sh --issue <KEY>` per Jira ticket, each as its own Run
+ * with a dedicated context file. Prevents duplicate runs for the same ticket.
  */
 export class UnshiftRunner extends EventEmitter {
   private runs = new Map<string, Run>();
   private processes = new Map<string, ChildProcess>();
+  private contextFiles = new Map<string, string>();
+  private activeIssueKeys = new Set<string>();
 
   /** Path to unshift.sh - two directories up from server/src/ */
   private scriptPath: string;
@@ -71,11 +73,41 @@ export class UnshiftRunner extends EventEmitter {
     return Array.from(this.runs.values());
   }
 
-  startRun(): Run {
+  /** Discover llm-candidate issues by running unshift.sh --discover */
+  discover(): Promise<string[]> {
+    return new Promise((resolve, reject) => {
+      const proc = spawn("bash", [this.scriptPath, "--discover"], {
+        cwd: path.dirname(this.scriptPath),
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+
+      let stdout = "";
+      proc.stdout?.on("data", (chunk: Buffer) => {
+        stdout += chunk.toString();
+      });
+
+      proc.on("close", (code) => {
+        if (code !== 0) {
+          reject(new Error(`Discovery failed with exit code ${code}`));
+          return;
+        }
+        const keys = stdout.trim().split("\n").filter(Boolean);
+        resolve(keys);
+      });
+    });
+  }
+
+  /** Start a run for a single Jira issue */
+  startRun(issueKey: string): Run | { error: string } {
+    if (this.activeIssueKeys.has(issueKey)) {
+      return { error: `Issue ${issueKey} already has an active run` };
+    }
+
     const id = randomUUID();
+    const contextFile = `/tmp/unshift_context_${id}.json`;
     const run: Run = {
       id,
-      issueKey: "",
+      issueKey,
       status: "pending",
       startedAt: new Date().toISOString(),
       prd: [],
@@ -83,9 +115,29 @@ export class UnshiftRunner extends EventEmitter {
     };
 
     this.runs.set(id, run);
+    this.activeIssueKeys.add(issueKey);
+    this.contextFiles.set(id, contextFile);
     this.emit("run:created", run);
-    this.spawn(run);
+    this.spawn(run, contextFile);
     return run;
+  }
+
+  /** Discover issues and start a run for each new one */
+  async startRuns(): Promise<{ runs: Run[]; errors: string[] }> {
+    const keys = await this.discover();
+    const runs: Run[] = [];
+    const errors: string[] = [];
+
+    for (const key of keys) {
+      const result = this.startRun(key);
+      if ("error" in result) {
+        errors.push(result.error);
+      } else {
+        runs.push(result);
+      }
+    }
+
+    return { runs, errors };
   }
 
   stopRun(id: string): void {
@@ -125,15 +177,16 @@ export class UnshiftRunner extends EventEmitter {
       try { process.kill(-proc.pid, "SIGCONT"); } catch {}
       kill(proc.pid);
     }
-    this.processes.delete(id);
+    this.cleanupRun(id);
     return true;
   }
 
-  private spawn(run: Run): void {
-    const proc = spawn("bash", [this.scriptPath], {
+  private spawn(run: Run, contextFile: string): void {
+    const proc = spawn("bash", [this.scriptPath, "--issue", run.issueKey], {
       cwd: path.dirname(this.scriptPath),
       stdio: ["ignore", "pipe", "pipe"],
       detached: true,
+      env: { ...process.env, UNSHIFT_CONTEXT_FILE: contextFile },
     });
 
     this.processes.set(run.id, proc);
@@ -172,8 +225,21 @@ export class UnshiftRunner extends EventEmitter {
         run.completedAt = new Date().toISOString();
         this.emit("run:complete", run.id, status);
       }
-      this.processes.delete(run.id);
+      this.cleanupRun(run.id);
     });
+  }
+
+  private cleanupRun(id: string): void {
+    const run = this.runs.get(id);
+    if (run) {
+      this.activeIssueKeys.delete(run.issueKey);
+    }
+    this.processes.delete(id);
+    const contextFile = this.contextFiles.get(id);
+    if (contextFile) {
+      unlink(contextFile).catch(() => {});
+      this.contextFiles.delete(id);
+    }
   }
 
   /**
@@ -242,7 +308,9 @@ export class UnshiftRunner extends EventEmitter {
   }
 
   private async readContextFile(run: Run): Promise<void> {
-    const contextPath = process.env.UNSHIFT_CONTEXT_FILE ?? "/tmp/unshift_context.json";
+    const contextPath = this.contextFiles.get(run.id)
+      ?? process.env.UNSHIFT_CONTEXT_FILE
+      ?? "/tmp/unshift_context.json";
     try {
       const raw = await readFile(contextPath, "utf-8");
       const ctx = JSON.parse(raw);
