@@ -15,6 +15,7 @@ import {
 } from "@patternfly/react-core";
 import { ArrowLeftIcon, RedoIcon } from "@patternfly/react-icons";
 import { useWebSocket } from "../hooks/useWebSocket";
+import { TERMINAL_STATES, COMPLETED_STATES } from "../types";
 import { PhaseProgress } from "../components/PhaseProgress";
 import { StatusLabel } from "../components/StatusLabel";
 import { RunDetailsCard } from "../components/RunDetailsCard";
@@ -62,8 +63,8 @@ export function RunDetailPage() {
     );
   }
 
-  const isActive = !["success", "failed", "rejected"].includes(run.status);
-  const isTerminal = ["failed", "rejected"].includes(run.status);
+  const isActive = !COMPLETED_STATES.includes(run.status);
+  const isTerminal = TERMINAL_STATES.includes(run.status);
 
   const handleRetry = async () => {
     setRetryError(null);

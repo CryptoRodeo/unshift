@@ -1,7 +1,7 @@
 import express from "express";
 import http from "node:http";
 import { WebSocketServer, WebSocket } from "ws";
-import { UnshiftRunner } from "./unshift.js";
+import { UnshiftRunner, type RunErrorCode } from "./unshift.js";
 
 const app = express();
 app.use(express.json());
@@ -10,6 +10,13 @@ const server = http.createServer(app);
 const wss = new WebSocketServer({ server, path: "/ws" });
 
 const runner = new UnshiftRunner();
+
+const ERROR_CODE_TO_STATUS: Record<RunErrorCode, number> = {
+  NOT_FOUND: 404,
+  CONFLICT: 409,
+  BAD_REQUEST: 400,
+  INVALID_STATE: 400,
+};
 
 // Broadcast helper
 function broadcast(data: object) {
@@ -59,8 +66,8 @@ app.post("/api/runs", async (req, res) => {
   if (issueKey) {
     // Start a single run for the specified issue
     const result = runner.startRun(issueKey);
-    if ("error" in result) {
-      res.status(409).json(result);
+    if ("code" in result) {
+      res.status(ERROR_CODE_TO_STATUS[result.code]).json(result);
     } else {
       res.json(result);
     }
@@ -104,15 +111,8 @@ app.post("/api/runs/:id/reject", async (req, res) => {
 app.post("/api/runs/:id/retry", async (req, res) => {
   try {
     const result = await runner.retryRun(req.params.id);
-    if ("error" in result) {
-      const msg = result.error;
-      if (msg === "Run not found") {
-        res.status(404).json(result);
-      } else if (msg.includes("already has an active run")) {
-        res.status(409).json(result);
-      } else {
-        res.status(400).json(result);
-      }
+    if ("code" in result) {
+      res.status(ERROR_CODE_TO_STATUS[result.code]).json(result);
     } else {
       res.json(result);
     }

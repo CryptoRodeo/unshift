@@ -25,6 +25,12 @@ export type RunPhase =
   | "failed"
   | "rejected";
 
+/** Runs that cannot be retried or acted upon */
+export const TERMINAL_STATES: readonly RunPhase[] = ["failed", "rejected"] as const;
+
+/** Runs that have finished (successfully or not) */
+export const COMPLETED_STATES: readonly RunPhase[] = ["success", "failed", "rejected"] as const;
+
 export interface LogEntry {
   phase: RunPhase;
   line: string;
@@ -40,6 +46,13 @@ export interface RunContext {
   defaultBranch?: string;
   host?: string;
   commitPrefix?: string;
+}
+
+export type RunErrorCode = 'NOT_FOUND' | 'CONFLICT' | 'BAD_REQUEST' | 'INVALID_STATE';
+
+export interface RunError {
+  error: string;
+  code: RunErrorCode;
 }
 
 export interface Run {
@@ -104,9 +117,9 @@ export class UnshiftRunner extends EventEmitter {
   }
 
   /** Start a run for a single Jira issue */
-  startRun(issueKey: string): Run | { error: string } {
+  startRun(issueKey: string): Run | RunError {
     if (this.activeIssueKeys.has(issueKey)) {
-      return { error: `Issue ${issueKey} already has an active run` };
+      return { error: `Issue ${issueKey} already has an active run`, code: 'CONFLICT' };
     }
 
     const id = randomUUID();
@@ -147,26 +160,25 @@ export class UnshiftRunner extends EventEmitter {
   }
 
   /** Retry a run that is in a terminal state (rejected, failed, or stopped process) */
-  async retryRun(id: string): Promise<Run | { error: string }> {
+  async retryRun(id: string): Promise<Run | RunError> {
     const sourceRun = this.runs.get(id);
     if (!sourceRun) {
-      return { error: "Run not found" };
+      return { error: "Run not found", code: 'NOT_FOUND' };
     }
 
-    const terminalStates: RunPhase[] = ["rejected", "failed"];
-    const isTerminal = terminalStates.includes(sourceRun.status);
+    const isTerminal = TERMINAL_STATES.includes(sourceRun.status);
 
     if (!isTerminal) {
-      return { error: `Run is not in a terminal state (status: ${sourceRun.status})` };
+      return { error: `Run is not in a terminal state (status: ${sourceRun.status})`, code: 'INVALID_STATE' };
     }
 
     if (this.activeIssueKeys.has(sourceRun.issueKey)) {
-      return { error: `Issue ${sourceRun.issueKey} already has an active run` };
+      return { error: `Issue ${sourceRun.issueKey} already has an active run`, code: 'CONFLICT' };
     }
 
     const contextData = sourceRun.context;
     if (!contextData) {
-      return { error: "Source run has no context data to retry from" };
+      return { error: "Source run has no context data to retry from", code: 'BAD_REQUEST' };
     }
 
     const newId = randomUUID();
@@ -222,7 +234,7 @@ export class UnshiftRunner extends EventEmitter {
     const proc = this.processes.get(id);
     if (proc?.pid) {
       kill(proc.pid);
-    } else if (run && !["success", "failed", "rejected"].includes(run.status)) {
+    } else if (run && !COMPLETED_STATES.includes(run.status)) {
       // No process found — mark as failed and clean up so retry is possible
       run.status = "failed";
       run.completedAt = new Date().toISOString();
