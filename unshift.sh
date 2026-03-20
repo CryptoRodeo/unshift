@@ -248,8 +248,8 @@ if [[ "$RETRY_MODE" == true ]]; then
 
   # Count entries and run Phase 2 + Phase 3 via shared function
   ENTRY_COUNT="$(jq 'length' "${REPO_PATH}/prd.json")"
-  run_phase2_and_phase3 "$ISSUE_KEY" "$REPO_PATH" "$CONTEXT_FILE" "$ENTRY_COUNT"
-  rc=$?
+  rc=0
+  run_phase2_and_phase3 "$ISSUE_KEY" "$REPO_PATH" "$CONTEXT_FILE" "$ENTRY_COUNT" || rc=$?
   if [[ $rc -eq 0 ]]; then
     RESULTS["$ISSUE_KEY"]="SUCCESS"
   elif [[ $rc -eq 2 ]]; then
@@ -389,8 +389,8 @@ for ISSUE_KEY in "${ISSUE_KEYS[@]}"; do
 
   INCOMPLETE_COUNT="$(jq '[.[] | select(.completed == false)] | length' "${REPO_PATH}/prd.json")"
 
-  run_phase2_and_phase3 "$ISSUE_KEY" "$REPO_PATH" "$CONTEXT_FILE" "$INCOMPLETE_COUNT"
-  rc=$?
+  rc=0
+  run_phase2_and_phase3 "$ISSUE_KEY" "$REPO_PATH" "$CONTEXT_FILE" "$INCOMPLETE_COUNT" || rc=$?
   if [[ $rc -eq 0 ]]; then
     RESULTS["$ISSUE_KEY"]="SUCCESS"
   elif [[ $rc -eq 2 ]]; then

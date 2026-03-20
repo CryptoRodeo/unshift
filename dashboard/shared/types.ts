@@ -45,7 +45,7 @@ export interface RunError {
 }
 
 export function isRunError(value: unknown): value is RunError {
-  return typeof value === "object" && value !== null && "code" in value;
+  return typeof value === "object" && value !== null && "error" in value && "code" in value;
 }
 
 export interface LogEntry {
