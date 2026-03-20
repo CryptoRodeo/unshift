@@ -102,18 +102,23 @@ app.post("/api/runs/:id/reject", async (req, res) => {
 });
 
 app.post("/api/runs/:id/retry", async (req, res) => {
-  const result = await runner.retryRun(req.params.id);
-  if ("error" in result) {
-    const msg = result.error;
-    if (msg === "Run not found") {
-      res.status(404).json(result);
-    } else if (msg.includes("already has an active run")) {
-      res.status(409).json(result);
+  try {
+    const result = await runner.retryRun(req.params.id);
+    if ("error" in result) {
+      const msg = result.error;
+      if (msg === "Run not found") {
+        res.status(404).json(result);
+      } else if (msg.includes("already has an active run")) {
+        res.status(409).json(result);
+      } else {
+        res.status(400).json(result);
+      }
     } else {
-      res.status(400).json(result);
+      res.json(result);
     }
-  } else {
-    res.json(result);
+  } catch (err) {
+    console.error("Failed to retry run:", err);
+    res.status(500).json({ error: "Failed to retry run" });
   }
 });
 

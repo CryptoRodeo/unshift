@@ -110,6 +110,7 @@ if [[ "$RETRY_MODE" == true ]]; then
 
   echo "" >&2
   echo "================================================================" >&2
+  echo "Processing issue: $ISSUE_KEY" >&2
   echo "Retrying issue: $ISSUE_KEY" >&2
   echo "================================================================" >&2
 
