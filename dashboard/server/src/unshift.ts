@@ -59,7 +59,8 @@ export class UnshiftRunner extends EventEmitter {
   private runs = new Map<string, Run>();
   private processes = new Map<string, ChildProcess>();
   private contextFiles = new Map<string, string>();
-  private activeIssueKeys = new Set<string>();
+  /** Maps issueKey → owning runId to prevent duplicate runs */
+  private activeIssueKeys = new Map<string, string>();
 
   /** Path to unshift.sh - two directories up from server/src/ */
   private scriptPath: string;
@@ -115,7 +116,7 @@ export class UnshiftRunner extends EventEmitter {
     };
 
     this.runs.set(id, run);
-    this.activeIssueKeys.add(issueKey);
+    this.activeIssueKeys.set(issueKey, id);
     this.contextFiles.set(id, contextFile);
     this.emit("run:created", run);
     this.spawn(run, contextFile);
@@ -187,7 +188,7 @@ export class UnshiftRunner extends EventEmitter {
     await writeFile(contextFile, JSON.stringify(contextFileData, null, 2));
 
     this.runs.set(newId, run);
-    this.activeIssueKeys.add(sourceRun.issueKey);
+    this.activeIssueKeys.set(sourceRun.issueKey, newId);
     this.contextFiles.set(newId, contextFile);
     this.emit("run:created", run);
     this.spawn(run, contextFile, true);
@@ -313,7 +314,7 @@ export class UnshiftRunner extends EventEmitter {
 
   private cleanupRun(id: string): void {
     const run = this.runs.get(id);
-    if (run) {
+    if (run && this.activeIssueKeys.get(run.issueKey) === id) {
       this.activeIssueKeys.delete(run.issueKey);
     }
     this.processes.delete(id);

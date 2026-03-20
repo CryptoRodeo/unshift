@@ -114,6 +114,8 @@ if [[ "$RETRY_MODE" == true ]]; then
   echo "Retrying issue: $ISSUE_KEY" >&2
   echo "================================================================" >&2
 
+  CONTEXT_FILE="$UNSHIFT_CONTEXT_FILE"
+
   # Read repo_path and branch_name from the existing context file
   if [[ ! -f "$CONTEXT_FILE" ]]; then
     echo "Error: Context file $CONTEXT_FILE not found for retry." >&2
@@ -132,13 +134,11 @@ if [[ "$RETRY_MODE" == true ]]; then
   cd "$REPO_PATH"
   git checkout "$BRANCH_NAME"
 
-  # Reset all prd.json entries to completed: false
+  # Verify prd.json exists (completed entries are preserved so retry picks up where it left off)
   if [[ ! -f "${REPO_PATH}/prd.json" ]]; then
     echo "Error: prd.json not found in ${REPO_PATH}." >&2
     exit 1
   fi
-  jq '[.[] | .completed = false]' "${REPO_PATH}/prd.json" > "${REPO_PATH}/prd.json.tmp" \
-    && mv "${REPO_PATH}/prd.json.tmp" "${REPO_PATH}/prd.json"
 
   # Re-copy ralph.sh from the script directory
   RALPH_SRC="${SCRIPT_DIR}/ralph/ralph.sh"
