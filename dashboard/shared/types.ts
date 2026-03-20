@@ -19,7 +19,7 @@ export type RunPhase =
   | "stopped"
   | "rejected";
 
-/** Runs that cannot be retried or acted upon */
+/** Runs in a terminal failure state (eligible for retry) */
 const TERMINAL_LIST = ["failed", "stopped", "rejected"] as const;
 export type TerminalStatus = (typeof TERMINAL_LIST)[number];
 export const TERMINAL_STATES: ReadonlySet<RunPhase> = new Set(TERMINAL_LIST);

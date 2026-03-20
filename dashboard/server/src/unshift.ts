@@ -132,22 +132,17 @@ export class UnshiftRunner extends EventEmitter {
 
     const contextFile = `/tmp/unshift_context_${randomUUID()}.json`;
 
-    // Reserve the issue key before any async work to prevent races
+    // Reserve the issue key before the async writeFile to prevent races.
+    // registerAndSpawn will overwrite the value with the real new run ID.
     this.activeIssueKeys.set(sourceRun.issueKey, id);
 
-    // Write context file from source run's preserved context
     const contextFileData = this.serializeContext(sourceRun.context);
     try {
       await writeFile(contextFile, JSON.stringify(contextFileData, null, 2));
     } catch (err) {
-      // Roll back reservation on failure
       this.activeIssueKeys.delete(sourceRun.issueKey);
       throw err;
     }
-
-    // Clean up the old source run's context file now that we have a new one
-    const oldContextFile = this.contextFiles.get(id);
-    if (oldContextFile) unlink(oldContextFile).catch(() => {});
 
     return this.registerAndSpawn(
       {
