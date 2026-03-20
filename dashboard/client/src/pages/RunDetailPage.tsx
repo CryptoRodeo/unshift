@@ -68,15 +68,11 @@ export function RunDetailPage() {
 
   const handleRetry = async () => {
     setRetryError(null);
-    try {
-      const result = await retryRun(run.id);
-      if (result.id) {
-        navigate(`/runs/${result.id}`);
-      } else if (result.error) {
-        setRetryError(result.error);
-      }
-    } catch {
-      setRetryError("Failed to retry run. Please try again.");
+    const result = await retryRun(run.id);
+    if (result.id) {
+      navigate(`/runs/${result.id}`);
+    } else if (result.error) {
+      setRetryError(result.error);
     }
   };
 

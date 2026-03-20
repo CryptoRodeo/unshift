@@ -158,8 +158,8 @@ export class UnshiftRunner extends EventEmitter {
     }
 
     // Clean up the old source run's context file now that we have a new one
-    const oldContextFile = `/tmp/unshift_context_${id}.json`;
-    unlink(oldContextFile).catch(() => {});
+    const oldContextFile = this.contextFiles.get(id);
+    if (oldContextFile) unlink(oldContextFile).catch(() => {});
 
     this.runs.set(newId, run);
     this.contextFiles.set(newId, contextFile);
@@ -369,32 +369,39 @@ export class UnshiftRunner extends EventEmitter {
     }
   }
 
+  /** Bi-directional mapping between RunContext camelCase keys and context-file snake_case keys */
+  private static readonly CONTEXT_KEY_MAP: readonly [keyof RunContext, string][] = [
+    ["issueKey", "issue_key"],
+    ["summary", "summary"],
+    ["repoPath", "repo_path"],
+    ["branchName", "branch_name"],
+    ["description", "description"],
+    ["issueType", "issue_type"],
+    ["defaultBranch", "default_branch"],
+    ["host", "host"],
+    ["commitPrefix", "commit_prefix"],
+  ];
+
   private serializeContext(ctx: RunContext): Record<string, string | undefined> {
-    return {
-      issue_key: ctx.issueKey,
-      summary: ctx.summary,
-      repo_path: ctx.repoPath,
-      branch_name: ctx.branchName,
-      description: ctx.description,
-      issue_type: ctx.issueType,
-      default_branch: ctx.defaultBranch,
-      host: ctx.host,
-      commit_prefix: ctx.commitPrefix,
-    };
+    const out: Record<string, string | undefined> = {};
+    for (const [camel, snake] of UnshiftRunner.CONTEXT_KEY_MAP) {
+      out[snake] = ctx[camel];
+    }
+    return out;
   }
 
   private deserializeContext(raw: Record<string, unknown>, run: Run): RunContext {
-    return {
-      issueKey: (raw.issue_key as string) ?? run.issueKey,
-      summary: (raw.summary as string) ?? "",
-      repoPath: (raw.repo_path as string) ?? run.repoPath ?? "",
-      branchName: (raw.branch_name as string) ?? run.branchName ?? "",
-      description: raw.description as string | undefined,
-      issueType: raw.issue_type as string | undefined,
-      defaultBranch: raw.default_branch as string | undefined,
-      host: raw.host as string | undefined,
-      commitPrefix: raw.commit_prefix as string | undefined,
+    const defaults: Record<string, string> = {
+      issueKey: run.issueKey,
+      summary: "",
+      repoPath: run.repoPath ?? "",
+      branchName: run.branchName ?? "",
     };
+    const out: Record<string, string | undefined> = {};
+    for (const [camel, snake] of UnshiftRunner.CONTEXT_KEY_MAP) {
+      out[camel] = (raw[snake] as string | undefined) ?? defaults[camel];
+    }
+    return out as unknown as RunContext;
   }
 
   private async readContextFile(run: Run): Promise<void> {

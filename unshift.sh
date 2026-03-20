@@ -92,6 +92,38 @@ if [[ "$JIRA_AUTH_TYPE" == "basic" && -z "${JIRA_USER_EMAIL:-}" ]]; then
 fi
 
 # ---------------------------------------------------------------------------
+# Shared helpers
+# ---------------------------------------------------------------------------
+
+# Copy ralph.sh into the target repo. Exits on failure.
+copy_ralph() {
+  local repo_path="$1"
+  local ralph_src="${SCRIPT_DIR}/ralph/ralph.sh"
+  if [[ ! -f "$ralph_src" ]]; then
+    echo "Error: Cannot find ralph/ralph.sh." >&2
+    return 1
+  fi
+  cp "$ralph_src" "${repo_path}/ralph.sh"
+  chmod +x "${repo_path}/ralph.sh"
+}
+
+# Print a run summary from the RESULTS associative array.
+print_summary() {
+  local label="$1"
+  shift
+  local keys=("$@")
+
+  echo "" >&2
+  echo "================================================================" >&2
+  echo "=== unshift ${label} complete ===" >&2
+  echo "================================================================" >&2
+  echo "" >&2
+  for key in "${keys[@]}"; do
+    echo "  $key: ${RESULTS[$key]:-UNKNOWN}" >&2
+  done
+}
+
+# ---------------------------------------------------------------------------
 # Shared function: Phase 2 (ralph.sh) + Phase 3 (PR creation)
 # Expects: ISSUE_KEY, REPO_PATH, CONTEXT_FILE, SCRIPT_DIR, RESULTS (assoc array)
 # ---------------------------------------------------------------------------
@@ -210,13 +242,9 @@ if [[ "$RETRY_MODE" == true ]]; then
   > "${REPO_PATH}/progress.txt"
 
   # Re-copy ralph.sh from the script directory
-  RALPH_SRC="${SCRIPT_DIR}/ralph/ralph.sh"
-  if [[ ! -f "$RALPH_SRC" ]]; then
-    echo "Error: Cannot find ralph/ralph.sh." >&2
+  if ! copy_ralph "$REPO_PATH"; then
     exit 1
   fi
-  cp "$RALPH_SRC" "${REPO_PATH}/ralph.sh"
-  chmod +x "${REPO_PATH}/ralph.sh"
 
   # Count entries and run Phase 2 + Phase 3 via shared function
   ENTRY_COUNT="$(jq 'length' "${REPO_PATH}/prd.json")"
@@ -228,12 +256,7 @@ if [[ "$RETRY_MODE" == true ]]; then
 
   # Summary for retry
   rm -f "$CONTEXT_FILE"
-  echo "" >&2
-  echo "================================================================" >&2
-  echo "=== unshift retry run complete ===" >&2
-  echo "================================================================" >&2
-  echo "" >&2
-  echo "  $ISSUE_KEY: ${RESULTS[$ISSUE_KEY]:-UNKNOWN}" >&2
+  print_summary "retry run" "$ISSUE_KEY"
 
   if [[ "${RESULTS[$ISSUE_KEY]:-}" != "SUCCESS" ]]; then
     exit 1
@@ -349,18 +372,10 @@ for ISSUE_KEY in "${ISSUE_KEYS[@]}"; do
   # -----------------------------------------------------------------------
   # Phase 2 + Phase 3 - Implementation and PR creation
   # -----------------------------------------------------------------------
-  RALPH_SRC="${SCRIPT_DIR}/ralph/ralph.sh"
-
-  if [[ ! -f "$RALPH_SRC" ]]; then
-    echo "Error: Cannot find ralph/ralph.sh. Skipping $ISSUE_KEY." >&2
+  if ! copy_ralph "$REPO_PATH"; then
     RESULTS["$ISSUE_KEY"]="FAILED (Phase 2 - ralph.sh not found)"
     continue
   fi
-
-  # Copy ralph.sh to the repository where the changes
-  # will take place.
-  cp "$RALPH_SRC" "${REPO_PATH}/ralph.sh"
-  chmod +x "${REPO_PATH}/ralph.sh"
 
   if [[ ! -f "${REPO_PATH}/prd.json" ]]; then
     echo "Error: prd.json not found in ${REPO_PATH}. Skipping $ISSUE_KEY." >&2
@@ -384,15 +399,7 @@ done
 # ---------------------------------------------------------------------------
 rm -f "$CONTEXT_FILE"
 
-echo "" >&2
-echo "================================================================" >&2
-echo "=== unshift run complete ===" >&2
-echo "================================================================" >&2
-echo "" >&2
-echo "Results:" >&2
-for key in "${ISSUE_KEYS[@]}"; do
-  echo "  $key: ${RESULTS[$key]:-UNKNOWN}" >&2
-done
+print_summary "run" "${ISSUE_KEYS[@]}"
 
 # Exit with error if any issue failed
 for key in "${ISSUE_KEYS[@]}"; do
