@@ -52,7 +52,9 @@ gh pr create \
 ## Changes
 <Bulleted list of changes from progress.txt>" \
   --base <default_branch> \
-  --head <branch_name>
+  --head <branch_name> \
+  --draft \
+  --label "llm-generated"
 ```
 
 **GitLab** (host == "gitlab"):
@@ -67,6 +69,8 @@ glab mr create \
 ## Changes
 <Bulleted list of changes from progress.txt>" \
   --target-branch <default_branch> \
+  --draft \
+  --label "llm-generated" \
   --yes
 ```
 
