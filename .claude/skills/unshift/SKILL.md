@@ -224,4 +224,5 @@ After all issues are processed, print a summary:
 === Unshift complete ===
 <KEY>: SUCCESS
 <KEY>: FAILED (reason)
+<KEY>: STOPPED
 ```

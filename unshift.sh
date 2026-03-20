@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
 # unshift.sh - Outer orchestrator for the Jira-to-PR automation workflow (uses Jira REST API via curl)
-# Usage: ./unshift.sh [--discover] [--issue KEY]
+# Usage: ./unshift.sh [--discover] [--issue KEY] [--retry]
 #
 # --discover   Print all llm-candidate Jira issue keys to stdout and exit.
 # --issue KEY  Process a single Jira issue instead of discovering all.
+# --retry      Skip Phase 0/1, resume from prd.json, re-copy ralph.sh, re-run Phase 2.
+#              Requires --issue KEY and UNSHIFT_CONTEXT_FILE env var.
 # (no flags)   Discover and process ALL llm-candidate issues sequentially.
 
 set -euo pipefail
@@ -17,6 +19,8 @@ usage() {
   echo "Options:" >&2
   echo "  --discover   Print llm-candidate issue keys to stdout and exit" >&2
   echo "  --issue KEY  Process a single Jira issue" >&2
+  echo "  --retry      Skip Phase 0/1, resume from prd.json, re-copy ralph.sh, re-run Phase 2" >&2
+  echo "               Requires --issue KEY and UNSHIFT_CONTEXT_FILE env var" >&2
   echo "  (no flags)   Discover and process all llm-candidate issues" >&2
   echo "" >&2
   echo "Phases per issue:" >&2
@@ -28,6 +32,7 @@ usage() {
 
 SINGLE_ISSUE=""
 DISCOVER_ONLY=false
+RETRY_MODE=false
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -39,6 +44,10 @@ while [[ $# -gt 0 ]]; do
       DISCOVER_ONLY=true
       shift
       ;;
+    --retry)
+      RETRY_MODE=true
+      shift
+      ;;
     -h|--help)
       usage
       ;;
@@ -48,6 +57,18 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
+
+# Validate --retry requirements
+if [[ "$RETRY_MODE" == true ]]; then
+  if [[ -z "$SINGLE_ISSUE" ]]; then
+    echo "Error: --retry requires --issue KEY" >&2
+    exit 1
+  fi
+  if [[ -z "${UNSHIFT_CONTEXT_FILE:-}" ]]; then
+    echo "Error: --retry requires UNSHIFT_CONTEXT_FILE env var to be set" >&2
+    exit 1
+  fi
+fi
 
 # Validate Claude Code authentication
 if [[ -z "${ANTHROPIC_API_KEY:-}" && -z "${CLAUDE_CODE_USE_VERTEX:-}" ]]; then
@@ -70,6 +91,85 @@ if [[ "$JIRA_AUTH_TYPE" == "basic" && -z "${JIRA_USER_EMAIL:-}" ]]; then
   exit 1
 fi
 
+# ---------------------------------------------------------------------------
+# Shared helpers
+# ---------------------------------------------------------------------------
+
+# Copy ralph.sh into the target repo. Exits on failure.
+copy_ralph() {
+  local repo_path="$1"
+  local ralph_src="${SCRIPT_DIR}/ralph/ralph.sh"
+  if [[ ! -f "$ralph_src" ]]; then
+    echo "Error: Cannot find ralph/ralph.sh." >&2
+    return 1
+  fi
+  cp "$ralph_src" "${repo_path}/ralph.sh"
+  chmod +x "${repo_path}/ralph.sh"
+}
+
+# Print a run summary from the RESULTS associative array.
+print_summary() {
+  local label="$1"
+  shift
+  local keys=("$@")
+
+  echo "" >&2
+  echo "================================================================" >&2
+  echo "=== unshift ${label} complete ===" >&2
+  echo "================================================================" >&2
+  echo "" >&2
+  for key in "${keys[@]}"; do
+    echo "  $key: ${RESULTS[$key]:-UNKNOWN}" >&2
+  done
+}
+
+# ---------------------------------------------------------------------------
+# Shared function: Phase 2 (ralph.sh) + Phase 3 (PR creation)
+# Expects: ISSUE_KEY, REPO_PATH, CONTEXT_FILE, SCRIPT_DIR, RESULTS (assoc array)
+# ---------------------------------------------------------------------------
+run_phase2_and_phase3() {
+  local issue_key="$1"
+  local repo_path="$2"
+  local context_file="$3"
+  local entry_count="$4"
+
+  echo "" >&2
+  echo "--- Phase 2: Implementation for $issue_key ---" >&2
+
+  if [[ "$entry_count" -eq 0 ]]; then
+    echo "prd.json has no entries to implement. Skipping Phase 2." >&2
+  else
+    echo "Running ralph.sh with ${entry_count} iteration(s)..." >&2
+    cd "$repo_path"
+    if ! ./ralph.sh --auto "$entry_count"; then
+      echo "Error: Phase 2 (ralph.sh) failed for $issue_key." >&2
+      return 2
+    fi
+  fi
+
+  echo "Phase 2 complete." >&2
+
+  # Phase 3 - Verify, commit, push, PR, Jira update, cleanup
+  echo "" >&2
+  echo "--- Phase 3: PR creation for $issue_key ---" >&2
+
+  # Self-pause before Phase 3 execution so the dashboard can gate on approval.
+  # The dashboard will send SIGCONT to resume once the user approves.
+  kill -STOP $$
+
+  PHASE3_PROMPT="$(cat "${SCRIPT_DIR}/prompts/phase3.md")"
+  PHASE3_PROMPT="${PHASE3_PROMPT//CONTEXT_FILE_PATH/$context_file}"
+
+  cd "$repo_path"
+  if ! claude -p --permission-mode bypassPermissions --add-dir="$repo_path" "$PHASE3_PROMPT"; then
+    echo "Error: Phase 3 failed for $issue_key." >&2
+    return 3
+  fi
+
+  echo "Issue $issue_key completed successfully." >&2
+  return 0
+}
+
 # Build curl auth flags based on auth type
 if [[ "$JIRA_AUTH_TYPE" == "bearer" ]]; then
   CURL_AUTH=(-H "Authorization: Bearer ${JIRA_API_TOKEN}")
@@ -79,6 +179,94 @@ fi
 
 # Determine Jira REST API endpoint based on version
 JIRA_API_VERSION="${JIRA_API_VERSION:-3}"
+
+# ---------------------------------------------------------------------------
+# Retry mode: skip Phase 0/1, reuse context, reset prd.json, re-run Phase 2
+# ---------------------------------------------------------------------------
+if [[ "$RETRY_MODE" == true ]]; then
+  ISSUE_KEY="$SINGLE_ISSUE"
+  declare -A RESULTS
+
+  echo "" >&2
+  echo "================================================================" >&2
+  echo "Retrying issue: $ISSUE_KEY" >&2
+  echo "================================================================" >&2
+
+  CONTEXT_FILE="$UNSHIFT_CONTEXT_FILE"
+
+  # Read repo_path and branch_name from the existing context file
+  if [[ ! -f "$CONTEXT_FILE" ]]; then
+    echo "Error: Context file $CONTEXT_FILE not found for retry." >&2
+    exit 1
+  fi
+
+  REPO_PATH="$(jq -r '.repo_path' "$CONTEXT_FILE")"
+  BRANCH_NAME="$(jq -r '.branch_name' "$CONTEXT_FILE")"
+  DEFAULT_BRANCH="$(jq -r '.default_branch // empty' "$CONTEXT_FILE")"
+
+  if [[ -z "$REPO_PATH" || "$REPO_PATH" == "null" ]]; then
+    echo "Error: repo_path missing from context file." >&2
+    exit 1
+  fi
+
+  if [[ -z "$DEFAULT_BRANCH" ]]; then
+    echo "Error: default_branch missing from context file." >&2
+    exit 1
+  fi
+
+  # Ensure we're on the correct branch
+  cd "$REPO_PATH"
+  git checkout "$BRANCH_NAME"
+
+  # Reset branch to the merge-base with the default branch,
+  # undoing all Phase 2 implementation commits from the previous attempt.
+  # prd.json and progress.txt are untracked worktree files, so they survive the reset.
+  MERGE_BASE="$(git merge-base "$DEFAULT_BRANCH" HEAD)"
+  if [[ -z "$MERGE_BASE" ]]; then
+    echo "Error: Could not find merge-base between $DEFAULT_BRANCH and $BRANCH_NAME." >&2
+    exit 1
+  fi
+  echo "Resetting branch to merge-base with $DEFAULT_BRANCH: ${MERGE_BASE:0:12}" >&2
+  git reset --hard "$MERGE_BASE"
+
+  # Reset prd.json entries to incomplete so Phase 2 re-implements everything
+  if [[ -f "${REPO_PATH}/prd.json" ]]; then
+    jq '[.[] | .completed = false]' "${REPO_PATH}/prd.json" > "${REPO_PATH}/prd.json.tmp"
+    mv "${REPO_PATH}/prd.json.tmp" "${REPO_PATH}/prd.json"
+  else
+    echo "Error: prd.json not found in ${REPO_PATH}." >&2
+    exit 1
+  fi
+
+  # Reset progress.txt for a fresh start
+  > "${REPO_PATH}/progress.txt"
+
+  # Re-copy ralph.sh from the script directory
+  if ! copy_ralph "$REPO_PATH"; then
+    exit 1
+  fi
+
+  # Count entries and run Phase 2 + Phase 3 via shared function
+  ENTRY_COUNT="$(jq 'length' "${REPO_PATH}/prd.json")"
+  rc=0
+  run_phase2_and_phase3 "$ISSUE_KEY" "$REPO_PATH" "$CONTEXT_FILE" "$ENTRY_COUNT" || rc=$?
+  if [[ $rc -eq 0 ]]; then
+    RESULTS["$ISSUE_KEY"]="SUCCESS"
+  elif [[ $rc -eq 2 ]]; then
+    RESULTS["$ISSUE_KEY"]="FAILED (Phase 2 - ralph.sh)"
+  else
+    RESULTS["$ISSUE_KEY"]="FAILED (Phase 3)"
+  fi
+
+  # Summary for retry
+  rm -f "$CONTEXT_FILE"
+  print_summary "retry run" "$ISSUE_KEY"
+
+  if [[ "${RESULTS[$ISSUE_KEY]:-}" != "SUCCESS" ]]; then
+    exit 1
+  fi
+  exit 0
+fi
 
 # ---------------------------------------------------------------------------
 # Phase 0 - Pre-flight checks and Jira discovery
@@ -186,23 +374,12 @@ for ISSUE_KEY in "${ISSUE_KEYS[@]}"; do
   echo "Phase 1 complete. Repo: $REPO_PATH, Branch: $BRANCH_NAME" >&2
 
   # -----------------------------------------------------------------------
-  # Phase 2 - Implementation via ralph.sh
+  # Phase 2 + Phase 3 - Implementation and PR creation
   # -----------------------------------------------------------------------
-  echo "" >&2
-  echo "--- Phase 2: Implementation for $ISSUE_KEY ---" >&2
-
-  RALPH_SRC="${SCRIPT_DIR}/ralph/ralph.sh"
-
-  if [[ ! -f "$RALPH_SRC" ]]; then
-    echo "Error: Cannot find ralph/ralph.sh. Skipping $ISSUE_KEY." >&2
+  if ! copy_ralph "$REPO_PATH"; then
     RESULTS["$ISSUE_KEY"]="FAILED (Phase 2 - ralph.sh not found)"
     continue
   fi
-
-  # Copy ralph.sh to the repository where the changes
-  # will take place.
-  cp "$RALPH_SRC" "${REPO_PATH}/ralph.sh"
-  chmod +x "${REPO_PATH}/ralph.sh"
 
   if [[ ! -f "${REPO_PATH}/prd.json" ]]; then
     echo "Error: prd.json not found in ${REPO_PATH}. Skipping $ISSUE_KEY." >&2
@@ -212,42 +389,17 @@ for ISSUE_KEY in "${ISSUE_KEYS[@]}"; do
 
   INCOMPLETE_COUNT="$(jq '[.[] | select(.completed == false)] | length' "${REPO_PATH}/prd.json")"
 
-  if [[ "$INCOMPLETE_COUNT" -eq 0 ]]; then
-    echo "All prd.json entries already completed. Skipping Phase 2." >&2
+  rc=0
+  run_phase2_and_phase3 "$ISSUE_KEY" "$REPO_PATH" "$CONTEXT_FILE" "$INCOMPLETE_COUNT" || rc=$?
+  if [[ $rc -eq 0 ]]; then
+    RESULTS["$ISSUE_KEY"]="SUCCESS"
+  elif [[ $rc -eq 2 ]]; then
+    RESULTS["$ISSUE_KEY"]="FAILED (Phase 2 - ralph.sh)"
+    continue
   else
-    echo "Running ralph.sh with ${INCOMPLETE_COUNT} iteration(s)..." >&2
-    cd "$REPO_PATH"
-    if ! ./ralph.sh --auto "$INCOMPLETE_COUNT"; then
-      echo "Error: Phase 2 (ralph.sh) failed for $ISSUE_KEY. Skipping to next issue." >&2
-      RESULTS["$ISSUE_KEY"]="FAILED (Phase 2 - ralph.sh)"
-      continue
-    fi
-  fi
-
-  echo "Phase 2 complete." >&2
-
-  # -----------------------------------------------------------------------
-  # Phase 3 - Verify, commit, push, PR, Jira update, cleanup
-  # -----------------------------------------------------------------------
-  echo "" >&2
-  echo "--- Phase 3: PR creation for $ISSUE_KEY ---" >&2
-
-  # Self-pause before Phase 3 execution so the dashboard can gate on approval.
-  # The dashboard will send SIGCONT to resume once the user approves.
-  kill -STOP $$
-
-  PHASE3_PROMPT="$(cat "${SCRIPT_DIR}/prompts/phase3.md")"
-  PHASE3_PROMPT="${PHASE3_PROMPT//CONTEXT_FILE_PATH/$CONTEXT_FILE}"
-
-  cd "$REPO_PATH"
-  if ! claude -p --permission-mode bypassPermissions --add-dir="$REPO_PATH" "$PHASE3_PROMPT"; then
-    echo "Error: Phase 3 failed for $ISSUE_KEY." >&2
     RESULTS["$ISSUE_KEY"]="FAILED (Phase 3)"
     continue
   fi
-
-  RESULTS["$ISSUE_KEY"]="SUCCESS"
-  echo "Issue $ISSUE_KEY completed successfully." >&2
 
 done
 
@@ -256,15 +408,7 @@ done
 # ---------------------------------------------------------------------------
 rm -f "$CONTEXT_FILE"
 
-echo "" >&2
-echo "================================================================" >&2
-echo "=== unshift run complete ===" >&2
-echo "================================================================" >&2
-echo "" >&2
-echo "Results:" >&2
-for key in "${ISSUE_KEYS[@]}"; do
-  echo "  $key: ${RESULTS[$key]:-UNKNOWN}" >&2
-done
+print_summary "run" "${ISSUE_KEYS[@]}"
 
 # Exit with error if any issue failed
 for key in "${ISSUE_KEYS[@]}"; do

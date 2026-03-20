@@ -1,5 +1,5 @@
 import { useEffect, useRef, useCallback, useReducer, useState } from "react";
-import type { WsMessage, Run, RunContext, PrdEntry, RunPhase } from "../types";
+import type { WsMessage, Run, RunContext, PrdEntry, RunPhase, CompletedStatus } from "../types";
 
 type RunsAction =
   | { type: "BulkLoad"; runs: Run[] }
@@ -8,7 +8,7 @@ type RunsAction =
   | { type: "LogAppended"; runId: string; phase: RunPhase; line: string }
   | { type: "ContextUpdated"; runId: string; context: RunContext }
   | { type: "PrdUpdated"; runId: string; prd: PrdEntry[] }
-  | { type: "RunCompleted"; runId: string; status: "success" | "failed" | "rejected" };
+  | { type: "RunCompleted"; runId: string; status: CompletedStatus };
 
 function runsReducer(
   state: Map<string, Run>,
@@ -187,16 +187,17 @@ export function useWebSocket() {
 
   const approveRun = useCallback(async (runId: string) => {
     const res = await fetch(`/api/runs/${runId}/approve`, { method: "POST" });
-    const result = await res.json();
-    if (!result.ok) {
-      console.error("Approve failed:", result.error);
-    }
-    return result;
+    return res.json();
   }, []);
 
   const rejectRun = useCallback(async (runId: string) => {
     await fetch(`/api/runs/${runId}/reject`, { method: "POST" });
   }, []);
 
-  return { runs, connected, startRun, stopRun, approveRun, rejectRun };
+  const retryRun = useCallback(async (runId: string) => {
+    const res = await fetch(`/api/runs/${runId}/retry`, { method: "POST" });
+    return res.json();
+  }, []);
+
+  return { runs, connected, startRun, stopRun, approveRun, rejectRun, retryRun };
 }

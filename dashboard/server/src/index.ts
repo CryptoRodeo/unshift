@@ -1,7 +1,9 @@
 import express from "express";
 import http from "node:http";
 import { WebSocketServer, WebSocket } from "ws";
-import { UnshiftRunner } from "./unshift.js";
+import { UnshiftRunner } from "./unshift";
+import { isRunError } from "../../shared/types";
+import type { RunErrorCode } from "../../shared/types";
 
 const app = express();
 app.use(express.json());
@@ -10,6 +12,13 @@ const server = http.createServer(app);
 const wss = new WebSocketServer({ server, path: "/ws" });
 
 const runner = new UnshiftRunner();
+
+const ERROR_CODE_TO_STATUS: Record<RunErrorCode, number> = {
+  NOT_FOUND: 404,
+  CONFLICT: 409,
+  BAD_REQUEST: 400,
+  INVALID_STATE: 400,
+};
 
 // Broadcast helper
 function broadcast(data: object) {
@@ -59,8 +68,8 @@ app.post("/api/runs", async (req, res) => {
   if (issueKey) {
     // Start a single run for the specified issue
     const result = runner.startRun(issueKey);
-    if ("error" in result) {
-      res.status(409).json(result);
+    if (isRunError(result)) {
+      res.status(ERROR_CODE_TO_STATUS[result.code]).json(result);
     } else {
       res.json(result);
     }
@@ -76,19 +85,51 @@ app.post("/api/runs", async (req, res) => {
   }
 });
 
-app.post("/api/runs/:id/stop", (req, res) => {
-  runner.stopRun(req.params.id);
-  res.json({ ok: true });
+app.post("/api/runs/:id/stop", async (req, res) => {
+  try {
+    await runner.stopRun(req.params.id);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error("Failed to stop run:", err);
+    res.status(500).json({ ok: false, error: "Failed to stop run" });
+  }
 });
 
 app.post("/api/runs/:id/approve", (req, res) => {
   const result = runner.approveRun(req.params.id);
-  res.json(result);
+  if (isRunError(result)) {
+    res.status(ERROR_CODE_TO_STATUS[result.code]).json(result);
+  } else {
+    res.json(result);
+  }
 });
 
-app.post("/api/runs/:id/reject", (req, res) => {
-  const ok = runner.rejectRun(req.params.id);
-  res.json({ ok });
+app.post("/api/runs/:id/reject", async (req, res) => {
+  try {
+    const result = await runner.rejectRun(req.params.id);
+    if (isRunError(result)) {
+      res.status(ERROR_CODE_TO_STATUS[result.code]).json(result);
+    } else {
+      res.json(result);
+    }
+  } catch (err) {
+    console.error("Failed to reject run:", err);
+    res.status(500).json({ error: "Failed to reject run" });
+  }
+});
+
+app.post("/api/runs/:id/retry", async (req, res) => {
+  try {
+    const result = await runner.retryRun(req.params.id);
+    if (isRunError(result)) {
+      res.status(ERROR_CODE_TO_STATUS[result.code]).json(result);
+    } else {
+      res.json(result);
+    }
+  } catch (err) {
+    console.error("Failed to retry run:", err);
+    res.status(500).json({ error: "Failed to retry run" });
+  }
 });
 
 const PORT = process.env.SERVER_PORT ?? 3000;
