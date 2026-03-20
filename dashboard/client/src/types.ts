@@ -7,11 +7,16 @@ export type {
   RunContext,
   Run,
   WsMessage,
+  CompletedStatus,
+  RunErrorCode,
+  RunError,
 } from "../../shared/types";
 
 export {
   TERMINAL_STATES,
   COMPLETED_STATES,
+  isTerminal,
+  isCompleted,
 } from "../../shared/types";
 
 export const PHASE_CONFIG: { key: RunPhase; label: string }[] = [

@@ -5,17 +5,10 @@ import { readFile, writeFile, unlink } from "node:fs/promises";
 import path from "node:path";
 import kill from "tree-kill";
 
-import type { PrdEntry, RunPhase, LogEntry, RunContext, Run } from "../../shared/types";
-import { TERMINAL_STATES, COMPLETED_STATES } from "../../shared/types";
-export type { PrdEntry, RunPhase, LogEntry, RunContext, Run };
-export { TERMINAL_STATES, COMPLETED_STATES };
-
-export type RunErrorCode = 'NOT_FOUND' | 'CONFLICT' | 'BAD_REQUEST' | 'INVALID_STATE';
-
-export interface RunError {
-  error: string;
-  code: RunErrorCode;
-}
+import type { PrdEntry, RunPhase, LogEntry, RunContext, Run, RunErrorCode, RunError } from "../../shared/types";
+import { isTerminal, isCompleted } from "../../shared/types";
+export type { PrdEntry, RunPhase, LogEntry, RunContext, Run, RunErrorCode, RunError };
+export { isTerminal, isCompleted };
 
 /**
  * Spawns one `unshift.sh --issue <KEY>` per Jira ticket, each as its own Run
@@ -98,7 +91,7 @@ export class UnshiftRunner extends EventEmitter {
 
     for (const key of keys) {
       const result = this.startRun(key);
-      if ("error" in result) {
+      if ("code" in result) {
         errors.push(result.error);
       } else {
         runs.push(result);
@@ -115,7 +108,7 @@ export class UnshiftRunner extends EventEmitter {
       return { error: "Run not found", code: 'NOT_FOUND' };
     }
 
-    if (!TERMINAL_STATES.includes(sourceRun.status)) {
+    if (!isTerminal(sourceRun.status)) {
       return { error: `Run is not in a terminal state (status: ${sourceRun.status})`, code: 'INVALID_STATE' };
     }
 
@@ -178,7 +171,7 @@ export class UnshiftRunner extends EventEmitter {
     if (proc?.pid) {
       this.stoppingRuns.add(id);
       kill(proc.pid);
-    } else if (run && !COMPLETED_STATES.includes(run.status)) {
+    } else if (run && !isCompleted(run.status)) {
       // No process found — mark as stopped and clean up so retry is possible
       run.status = "stopped";
       run.completedAt = new Date().toISOString();
@@ -369,39 +362,32 @@ export class UnshiftRunner extends EventEmitter {
     }
   }
 
-  /** Bi-directional mapping between RunContext camelCase keys and context-file snake_case keys */
-  private static readonly CONTEXT_KEY_MAP: readonly [keyof RunContext, string][] = [
-    ["issueKey", "issue_key"],
-    ["summary", "summary"],
-    ["repoPath", "repo_path"],
-    ["branchName", "branch_name"],
-    ["description", "description"],
-    ["issueType", "issue_type"],
-    ["defaultBranch", "default_branch"],
-    ["host", "host"],
-    ["commitPrefix", "commit_prefix"],
-  ];
-
   private serializeContext(ctx: RunContext): Record<string, string | undefined> {
-    const out: Record<string, string | undefined> = {};
-    for (const [camel, snake] of UnshiftRunner.CONTEXT_KEY_MAP) {
-      out[snake] = ctx[camel];
-    }
-    return out;
+    return {
+      issue_key: ctx.issueKey,
+      summary: ctx.summary,
+      repo_path: ctx.repoPath,
+      branch_name: ctx.branchName,
+      description: ctx.description,
+      issue_type: ctx.issueType,
+      default_branch: ctx.defaultBranch,
+      host: ctx.host,
+      commit_prefix: ctx.commitPrefix,
+    };
   }
 
   private deserializeContext(raw: Record<string, unknown>, run: Run): RunContext {
-    const defaults: Record<string, string> = {
-      issueKey: run.issueKey,
-      summary: "",
-      repoPath: run.repoPath ?? "",
-      branchName: run.branchName ?? "",
+    return {
+      issueKey: (raw.issue_key as string) ?? run.issueKey,
+      summary: (raw.summary as string) ?? "",
+      repoPath: (raw.repo_path as string) ?? run.repoPath ?? "",
+      branchName: (raw.branch_name as string) ?? run.branchName ?? "",
+      description: raw.description as string | undefined,
+      issueType: raw.issue_type as string | undefined,
+      defaultBranch: raw.default_branch as string | undefined,
+      host: raw.host as string | undefined,
+      commitPrefix: raw.commit_prefix as string | undefined,
     };
-    const out: Record<string, string | undefined> = {};
-    for (const [camel, snake] of UnshiftRunner.CONTEXT_KEY_MAP) {
-      out[camel] = (raw[snake] as string | undefined) ?? defaults[camel];
-    }
-    return out as unknown as RunContext;
   }
 
   private async readContextFile(run: Run): Promise<void> {

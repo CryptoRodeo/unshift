@@ -20,10 +20,27 @@ export type RunPhase =
   | "rejected";
 
 /** Runs that cannot be retried or acted upon */
-export const TERMINAL_STATES: readonly RunPhase[] = ["failed", "stopped", "rejected"];
+export const TERMINAL_STATES = ["failed", "stopped", "rejected"] as const;
+export type TerminalStatus = typeof TERMINAL_STATES[number];
 
 /** Runs that have finished (successfully or not) */
-export const COMPLETED_STATES: readonly RunPhase[] = ["success", "failed", "stopped", "rejected"];
+export const COMPLETED_STATES = ["success", "failed", "stopped", "rejected"] as const;
+export type CompletedStatus = typeof COMPLETED_STATES[number];
+
+export function isTerminal(status: RunPhase): status is TerminalStatus {
+  return (TERMINAL_STATES as readonly string[]).includes(status);
+}
+
+export function isCompleted(status: RunPhase): status is CompletedStatus {
+  return (COMPLETED_STATES as readonly string[]).includes(status);
+}
+
+export type RunErrorCode = 'NOT_FOUND' | 'CONFLICT' | 'BAD_REQUEST' | 'INVALID_STATE';
+
+export interface RunError {
+  error: string;
+  code: RunErrorCode;
+}
 
 export interface LogEntry {
   phase: RunPhase;
@@ -63,4 +80,4 @@ export type WsMessage =
   | { type: "run:log"; runId: string; line: string; phase: RunPhase }
   | { type: "run:context"; runId: string; context: RunContext }
   | { type: "run:prd"; runId: string; prd: PrdEntry[] }
-  | { type: "run:complete"; runId: string; status: "success" | "failed" | "stopped" | "rejected" };
+  | { type: "run:complete"; runId: string; status: CompletedStatus };

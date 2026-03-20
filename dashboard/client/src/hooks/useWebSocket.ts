@@ -1,5 +1,5 @@
 import { useEffect, useRef, useCallback, useReducer, useState } from "react";
-import type { WsMessage, Run, RunContext, PrdEntry, RunPhase } from "../types";
+import type { WsMessage, Run, RunContext, PrdEntry, RunPhase, CompletedStatus } from "../types";
 
 type RunsAction =
   | { type: "BulkLoad"; runs: Run[] }
@@ -8,7 +8,7 @@ type RunsAction =
   | { type: "LogAppended"; runId: string; phase: RunPhase; line: string }
   | { type: "ContextUpdated"; runId: string; context: RunContext }
   | { type: "PrdUpdated"; runId: string; prd: PrdEntry[] }
-  | { type: "RunCompleted"; runId: string; status: Extract<WsMessage, { type: "run:complete" }>["status"] };
+  | { type: "RunCompleted"; runId: string; status: CompletedStatus };
 
 function runsReducer(
   state: Map<string, Run>,

@@ -15,7 +15,7 @@ import {
 } from "@patternfly/react-core";
 import { ArrowLeftIcon, RedoIcon } from "@patternfly/react-icons";
 import { useWebSocket } from "../hooks/useWebSocket";
-import { TERMINAL_STATES, COMPLETED_STATES } from "../types";
+import { isTerminal, isCompleted } from "../types";
 import { PhaseProgress } from "../components/PhaseProgress";
 import { StatusLabel } from "../components/StatusLabel";
 import { RunDetailsCard } from "../components/RunDetailsCard";
@@ -55,8 +55,8 @@ export function RunDetailPage() {
     );
   }
 
-  const isActive = !COMPLETED_STATES.includes(run.status);
-  const isTerminal = TERMINAL_STATES.includes(run.status);
+  const isActive = !isCompleted(run.status);
+  const canRetry = isTerminal(run.status);
 
   const handleApprove = async () => {
     setApproveError(null);
@@ -69,10 +69,10 @@ export function RunDetailPage() {
   const handleRetry = async () => {
     setRetryError(null);
     const result = await retryRun(run.id);
-    if (result.id) {
-      navigate(`/runs/${result.id}`);
-    } else if (result.error) {
+    if ("code" in result) {
       setRetryError(result.error);
+    } else {
+      navigate(`/runs/${result.id}`);
     }
   };
 
@@ -89,7 +89,7 @@ export function RunDetailPage() {
           </FlexItem>
           <FlexItem>
             <Flex gap={{ default: "gapMd" }}>
-              {isTerminal && (
+              {canRetry && (
                 <Button variant="secondary" icon={<RedoIcon />} onClick={handleRetry}>
                   Retry
                 </Button>

@@ -2,7 +2,7 @@ import {
   ProgressStepper,
   ProgressStep,
 } from "@patternfly/react-core";
-import { PHASE_CONFIG, TERMINAL_STATES } from "../types";
+import { PHASE_CONFIG, isTerminal } from "../types";
 import type { RunPhase } from "../types";
 
 const phaseOrder: RunPhase[] = ["phase0", "phase1", "phase2", "awaiting_approval", "phase3", "success"];
@@ -11,7 +11,7 @@ function getVariant(
   phaseKey: RunPhase,
   currentStatus: RunPhase
 ): "success" | "info" | "pending" | "danger" | "warning" {
-  if (TERMINAL_STATES.includes(currentStatus)) return "danger";
+  if (isTerminal(currentStatus)) return "danger";
 
   const currentIdx = phaseOrder.indexOf(currentStatus);
   const phaseIdx = phaseOrder.indexOf(phaseKey);
