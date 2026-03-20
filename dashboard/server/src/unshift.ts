@@ -5,10 +5,10 @@ import { readFile, writeFile, unlink } from "node:fs/promises";
 import path from "node:path";
 import kill from "tree-kill";
 
-export type { PrdEntry, RunPhase, LogEntry, RunContext, Run } from "../../shared/types";
-export { TERMINAL_STATES, COMPLETED_STATES } from "../../shared/types";
 import type { PrdEntry, RunPhase, LogEntry, RunContext, Run } from "../../shared/types";
 import { TERMINAL_STATES, COMPLETED_STATES } from "../../shared/types";
+export type { PrdEntry, RunPhase, LogEntry, RunContext, Run };
+export { TERMINAL_STATES, COMPLETED_STATES };
 
 export type RunErrorCode = 'NOT_FOUND' | 'CONFLICT' | 'BAD_REQUEST' | 'INVALID_STATE';
 
@@ -115,9 +115,7 @@ export class UnshiftRunner extends EventEmitter {
       return { error: "Run not found", code: 'NOT_FOUND' };
     }
 
-    const isTerminal = TERMINAL_STATES.includes(sourceRun.status);
-
-    if (!isTerminal) {
+    if (!TERMINAL_STATES.includes(sourceRun.status)) {
       return { error: `Run is not in a terminal state (status: ${sourceRun.status})`, code: 'INVALID_STATE' };
     }
 
@@ -317,8 +315,8 @@ export class UnshiftRunner extends EventEmitter {
       this.emit("run:phase", run.id, "phase0");
     }
 
-    // Issue discovery: "Processing issue: SSCUI-81"
-    const issueMatch = line.match(/Processing issue:\s+(\S+)/);
+    // Issue discovery: "Processing issue: SSCUI-81" or "Retrying issue: SSCUI-81"
+    const issueMatch = line.match(/(?:Processing|Retrying) issue:\s+(\S+)/);
     if (issueMatch) {
       run.issueKey = issueMatch[1];
     }

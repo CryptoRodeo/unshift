@@ -33,14 +33,6 @@ export function RunDetailPage() {
   const [approveError, setApproveError] = useState<string | null>(null);
   const [retryError, setRetryError] = useState<string | null>(null);
 
-  const handleApprove = async () => {
-    setApproveError(null);
-    const result = await approveRun(run!.id);
-    if (!result.ok) {
-      setApproveError(result.error || "Failed to approve run");
-    }
-  };
-
   // Auto-expand the current phase section when it changes
   useEffect(() => {
     if (run) {
@@ -65,6 +57,14 @@ export function RunDetailPage() {
 
   const isActive = !COMPLETED_STATES.includes(run.status);
   const isTerminal = TERMINAL_STATES.includes(run.status);
+
+  const handleApprove = async () => {
+    setApproveError(null);
+    const result = await approveRun(run.id);
+    if (!result.ok) {
+      setApproveError(result.error || "Failed to approve run");
+    }
+  };
 
   const handleRetry = async () => {
     setRetryError(null);

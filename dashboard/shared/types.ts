@@ -20,10 +20,10 @@ export type RunPhase =
   | "rejected";
 
 /** Runs that cannot be retried or acted upon */
-export const TERMINAL_STATES: readonly RunPhase[] = ["failed", "stopped", "rejected"] as const;
+export const TERMINAL_STATES: readonly RunPhase[] = ["failed", "stopped", "rejected"];
 
 /** Runs that have finished (successfully or not) */
-export const COMPLETED_STATES: readonly RunPhase[] = ["success", "failed", "stopped", "rejected"] as const;
+export const COMPLETED_STATES: readonly RunPhase[] = ["success", "failed", "stopped", "rejected"];
 
 export interface LogEntry {
   phase: RunPhase;
