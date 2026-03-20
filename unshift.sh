@@ -1,30 +1,53 @@
 #!/usr/bin/env bash
 # unshift.sh - Outer orchestrator for the Jira-to-PR automation workflow (uses Jira REST API via curl)
-# Usage: ./unshift.sh
+# Usage: ./unshift.sh [--discover] [--issue KEY]
 #
-# Processes ALL llm-candidate Jira issues in a single run, looping
-# Phase 1 → Phase 2 (ralph) → Phase 3 for each issue independently.
+# --discover   Print all llm-candidate Jira issue keys to stdout and exit.
+# --issue KEY  Process a single Jira issue instead of discovering all.
+# (no flags)   Discover and process ALL llm-candidate issues sequentially.
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-CONTEXT_FILE="/tmp/unshift_context.json"
+CONTEXT_FILE="${UNSHIFT_CONTEXT_FILE:-/tmp/unshift_context.json}"
 
 usage() {
-  echo "Usage: $0" >&2
+  echo "Usage: $0 [--discover] [--issue KEY]" >&2
   echo "" >&2
-  echo "Orchestrates the full Jira-to-PR workflow for all llm-candidate issues:" >&2
-  echo "  Phase 0: Pre-flight checks and Jira discovery (all issues)" >&2
-  echo "  Per issue:" >&2
-  echo "    Phase 1: Repo setup, branch creation, prd.json generation" >&2
-  echo "    Phase 2: Implementation via ralph.sh loop" >&2
-  echo "    Phase 3: Commit, push, PR creation, Jira update, cleanup" >&2
+  echo "Options:" >&2
+  echo "  --discover   Print llm-candidate issue keys to stdout and exit" >&2
+  echo "  --issue KEY  Process a single Jira issue" >&2
+  echo "  (no flags)   Discover and process all llm-candidate issues" >&2
+  echo "" >&2
+  echo "Phases per issue:" >&2
+  echo "  Phase 1: Repo setup, branch creation, prd.json generation" >&2
+  echo "  Phase 2: Implementation via ralph.sh loop" >&2
+  echo "  Phase 3: Commit, push, PR creation, Jira update, cleanup" >&2
   exit 1
 }
 
-if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
-  usage
-fi
+SINGLE_ISSUE=""
+DISCOVER_ONLY=false
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --issue)
+      SINGLE_ISSUE="${2:?'--issue requires a Jira key'}"
+      shift 2
+      ;;
+    --discover)
+      DISCOVER_ONLY=true
+      shift
+      ;;
+    -h|--help)
+      usage
+      ;;
+    *)
+      echo "Unknown argument: $1" >&2
+      exit 1
+      ;;
+  esac
+done
 
 # Validate Claude Code authentication
 if [[ -z "${ANTHROPIC_API_KEY:-}" && -z "${CLAUDE_CODE_USE_VERTEX:-}" ]]; then
@@ -76,25 +99,39 @@ if [[ ${#MISSING_TOOLS[@]} -gt 0 ]]; then
   exit 1
 fi
 
-# Query Jira for all llm-candidate issues via REST API
-ISSUE_KEYS=()
-if [[ "$JIRA_API_VERSION" == "2" ]]; then
-  JIRA_SEARCH_URL="${JIRA_BASE_URL}/rest/api/2/search?jql=labels%3Dllm-candidate&fields=key,summary,issuetype,status"
+if [[ -n "$SINGLE_ISSUE" ]]; then
+  # Single-issue mode: skip discovery
+  ISSUE_KEYS=("$SINGLE_ISSUE")
+  echo "Processing single issue: $SINGLE_ISSUE" >&2
 else
-  JIRA_SEARCH_URL="${JIRA_BASE_URL}/rest/api/3/search/jql?jql=labels%3Dllm-candidate&fields=key,summary,issuetype,status"
-fi
-while IFS= read -r key; do
-  [[ -n "$key" ]] && ISSUE_KEYS+=("$key")
-done < <(curl -s "${CURL_AUTH[@]}" -H "Content-Type: application/json" \
-  "$JIRA_SEARCH_URL" 2>/dev/null \
-  | jq -r '.issues[].key' || true)
+  # Query Jira for all llm-candidate issues via REST API
+  ISSUE_KEYS=()
+  if [[ "$JIRA_API_VERSION" == "2" ]]; then
+    JIRA_SEARCH_URL="${JIRA_BASE_URL}/rest/api/2/search?jql=labels%3Dllm-candidate&fields=key,summary,issuetype,status"
+  else
+    JIRA_SEARCH_URL="${JIRA_BASE_URL}/rest/api/3/search/jql?jql=labels%3Dllm-candidate&fields=key,summary,issuetype,status"
+  fi
+  while IFS= read -r key; do
+    [[ -n "$key" ]] && ISSUE_KEYS+=("$key")
+  done < <(curl -s "${CURL_AUTH[@]}" -H "Content-Type: application/json" \
+    "$JIRA_SEARCH_URL" 2>/dev/null \
+    | jq -r '.issues[].key' || true)
 
-if [[ ${#ISSUE_KEYS[@]} -eq 0 ]]; then
-  echo "No llm-candidate issues found." >&2
-  exit 0
-fi
+  if [[ ${#ISSUE_KEYS[@]} -eq 0 ]]; then
+    echo "No llm-candidate issues found." >&2
+    exit 0
+  fi
 
-echo "Found ${#ISSUE_KEYS[@]} issue(s): ${ISSUE_KEYS[*]}" >&2
+  echo "Found ${#ISSUE_KEYS[@]} issue(s): ${ISSUE_KEYS[*]}" >&2
+
+  # Discover-only mode: print issue keys to stdout and exit
+  if [[ "$DISCOVER_ONLY" == true ]]; then
+    for key in "${ISSUE_KEYS[@]}"; do
+      echo "$key"
+    done
+    exit 0
+  fi
+fi
 
 # Track results per issue
 declare -A RESULTS
