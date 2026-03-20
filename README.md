@@ -27,6 +27,8 @@ The implementation phase uses `ralph.sh` to run one `claude -p` invocation per `
 Because each iteration starts a fresh Claude session, there is no accumulated context from previous iterations. Token usage stays flat regardless of how many entries exist, and each entry gets the full context window for its implementation.
 
 ## Quickstart
+### Prefer Claude Code Skills?
+We have a skill for this whole workflow. See [Claude Code Skill setup](#claude-code-skill-setup-unshift).
 
 ### 1. Install prerequisites
 
@@ -235,9 +237,13 @@ This starts both the Express/WebSocket server and the Vite dev server using `con
 
 From the dashboard you can start and stop runs, view per-phase progress, and stream logs.
 
-## Claude Code Skill (`/unshift`)
+## Claude Code Skill setup (`/unshift`)
 
 Unshift also ships as a Claude Code [custom skill](https://docs.anthropic.com/en/docs/claude-code/skills) that you can invoke inside any Claude Code session with `/unshift`. The skill uses Jira MCP tools directly (instead of `acli`) and runs the full Jira-to-PR workflow from within Claude Code.
+
+### Prerequisites
+
+The skill uses the `gh` or `glab` CLI to create pull/merge requests. Make sure the relevant CLI is installed and its token is configured — see [Install prerequisites](#1-install-prerequisites) and [GitHub & GitLab Tokens](#github--gitlab-tokens).
 
 ### Install the skill
 
@@ -253,7 +259,19 @@ That's it — Claude Code automatically discovers skills in `.claude/skills/`.
 
 ### Configure the Jira MCP server
 
-The skill communicates with Jira via the [Atlassian MCP server](https://mcp.atlassian.com). Add the following to your `.claude/settings.local.json` (this file should not be committed):
+The skill communicates with Jira via the [Atlassian MCP server](https://mcp.atlassian.com).
+
+Add the MCP server:
+
+```bash
+claude mcp add --transport http jira https://mcp.atlassian.com/v1/mcp
+```
+
+#### Configure Auth
+
+Generate an API token. (see [Creating a Jira API token](#creating-a-jira-api-token))
+
+Add the following to your `.claude/settings.local.json` (this file should not be committed):
 
 ```json
 {
@@ -267,12 +285,6 @@ The skill communicates with Jira via the [Atlassian MCP server](https://mcp.atla
     }
   }
 }
-```
-
-To generate the base64 value:
-
-```bash
-echo -n "you@company.com:your-jira-api-token" | base64
 ```
 
 ### Usage
