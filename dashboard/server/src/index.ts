@@ -2,6 +2,7 @@ import express from "express";
 import http from "node:http";
 import { WebSocketServer, WebSocket } from "ws";
 import { UnshiftRunner } from "./unshift";
+import { isRunError } from "../../shared/types";
 import type { RunErrorCode } from "../../shared/types";
 
 const app = express();
@@ -67,7 +68,7 @@ app.post("/api/runs", async (req, res) => {
   if (issueKey) {
     // Start a single run for the specified issue
     const result = runner.startRun(issueKey);
-    if ("code" in result) {
+    if (isRunError(result)) {
       res.status(ERROR_CODE_TO_STATUS[result.code]).json(result);
     } else {
       res.json(result);
@@ -96,23 +97,31 @@ app.post("/api/runs/:id/stop", async (req, res) => {
 
 app.post("/api/runs/:id/approve", (req, res) => {
   const result = runner.approveRun(req.params.id);
-  res.json(result);
+  if (isRunError(result)) {
+    res.status(ERROR_CODE_TO_STATUS[result.code]).json(result);
+  } else {
+    res.json(result);
+  }
 });
 
 app.post("/api/runs/:id/reject", async (req, res) => {
   try {
-    const ok = await runner.rejectRun(req.params.id);
-    res.json({ ok });
+    const result = await runner.rejectRun(req.params.id);
+    if (isRunError(result)) {
+      res.status(ERROR_CODE_TO_STATUS[result.code]).json(result);
+    } else {
+      res.json(result);
+    }
   } catch (err) {
     console.error("Failed to reject run:", err);
-    res.status(500).json({ ok: false, error: "Failed to reject run" });
+    res.status(500).json({ error: "Failed to reject run" });
   }
 });
 
 app.post("/api/runs/:id/retry", async (req, res) => {
   try {
     const result = await runner.retryRun(req.params.id);
-    if ("code" in result) {
+    if (isRunError(result)) {
       res.status(ERROR_CODE_TO_STATUS[result.code]).json(result);
     } else {
       res.json(result);

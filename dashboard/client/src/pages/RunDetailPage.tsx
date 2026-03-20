@@ -15,7 +15,7 @@ import {
 } from "@patternfly/react-core";
 import { ArrowLeftIcon, RedoIcon } from "@patternfly/react-icons";
 import { useWebSocket } from "../hooks/useWebSocket";
-import { isTerminal, isCompleted } from "../types";
+import { isTerminal, isCompleted, isRunError } from "../types";
 import { PhaseProgress } from "../components/PhaseProgress";
 import { StatusLabel } from "../components/StatusLabel";
 import { RunDetailsCard } from "../components/RunDetailsCard";
@@ -61,15 +61,15 @@ export function RunDetailPage() {
   const handleApprove = async () => {
     setApproveError(null);
     const result = await approveRun(run.id);
-    if (!result.ok) {
-      setApproveError(result.error || "Failed to approve run");
+    if (isRunError(result)) {
+      setApproveError(result.error);
     }
   };
 
   const handleRetry = async () => {
     setRetryError(null);
     const result = await retryRun(run.id);
-    if ("code" in result) {
+    if (isRunError(result)) {
       setRetryError(result.error);
     } else {
       navigate(`/runs/${result.id}`);

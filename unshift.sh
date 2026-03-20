@@ -143,7 +143,7 @@ run_phase2_and_phase3() {
     cd "$repo_path"
     if ! ./ralph.sh --auto "$entry_count"; then
       echo "Error: Phase 2 (ralph.sh) failed for $issue_key." >&2
-      return 1
+      return 2
     fi
   fi
 
@@ -163,7 +163,7 @@ run_phase2_and_phase3() {
   cd "$repo_path"
   if ! claude -p --permission-mode bypassPermissions --add-dir="$repo_path" "$PHASE3_PROMPT"; then
     echo "Error: Phase 3 failed for $issue_key." >&2
-    return 1
+    return 3
   fi
 
   echo "Issue $issue_key completed successfully." >&2
@@ -248,10 +248,14 @@ if [[ "$RETRY_MODE" == true ]]; then
 
   # Count entries and run Phase 2 + Phase 3 via shared function
   ENTRY_COUNT="$(jq 'length' "${REPO_PATH}/prd.json")"
-  if run_phase2_and_phase3 "$ISSUE_KEY" "$REPO_PATH" "$CONTEXT_FILE" "$ENTRY_COUNT"; then
+  run_phase2_and_phase3 "$ISSUE_KEY" "$REPO_PATH" "$CONTEXT_FILE" "$ENTRY_COUNT"
+  rc=$?
+  if [[ $rc -eq 0 ]]; then
     RESULTS["$ISSUE_KEY"]="SUCCESS"
+  elif [[ $rc -eq 2 ]]; then
+    RESULTS["$ISSUE_KEY"]="FAILED (Phase 2 - ralph.sh)"
   else
-    RESULTS["$ISSUE_KEY"]="FAILED (Phase 2/3)"
+    RESULTS["$ISSUE_KEY"]="FAILED (Phase 3)"
   fi
 
   # Summary for retry
@@ -385,10 +389,15 @@ for ISSUE_KEY in "${ISSUE_KEYS[@]}"; do
 
   INCOMPLETE_COUNT="$(jq '[.[] | select(.completed == false)] | length' "${REPO_PATH}/prd.json")"
 
-  if run_phase2_and_phase3 "$ISSUE_KEY" "$REPO_PATH" "$CONTEXT_FILE" "$INCOMPLETE_COUNT"; then
+  run_phase2_and_phase3 "$ISSUE_KEY" "$REPO_PATH" "$CONTEXT_FILE" "$INCOMPLETE_COUNT"
+  rc=$?
+  if [[ $rc -eq 0 ]]; then
     RESULTS["$ISSUE_KEY"]="SUCCESS"
+  elif [[ $rc -eq 2 ]]; then
+    RESULTS["$ISSUE_KEY"]="FAILED (Phase 2 - ralph.sh)"
+    continue
   else
-    RESULTS["$ISSUE_KEY"]="FAILED (Phase 2/3)"
+    RESULTS["$ISSUE_KEY"]="FAILED (Phase 3)"
     continue
   fi
 

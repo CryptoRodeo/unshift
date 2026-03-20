@@ -6,7 +6,7 @@ import path from "node:path";
 import kill from "tree-kill";
 
 import type { RunContext, Run, RunError, PrdEntry } from "../../shared/types";
-import { isTerminal, isCompleted } from "../../shared/types";
+import { isTerminal, isCompleted, isRunError } from "../../shared/types";
 
 /**
  * Spawns one `unshift.sh --issue <KEY>` per Jira ticket, each as its own Run
@@ -56,29 +56,40 @@ export class UnshiftRunner extends EventEmitter {
     });
   }
 
+  /** Register a new run, emit the created event, and spawn the process */
+  private registerAndSpawn(
+    fields: Pick<Run, "issueKey"> & Partial<Pick<Run, "repoPath" | "branchName" | "context">>,
+    contextFile: string,
+    retry = false,
+  ): Run {
+    const run: Run = {
+      id: randomUUID(),
+      issueKey: fields.issueKey,
+      status: "pending",
+      startedAt: new Date().toISOString(),
+      repoPath: fields.repoPath,
+      branchName: fields.branchName,
+      context: fields.context,
+      prd: [],
+      logs: [],
+    };
+
+    this.runs.set(run.id, run);
+    this.activeIssueKeys.set(run.issueKey, run.id);
+    this.contextFiles.set(run.id, contextFile);
+    this.emit("run:created", run);
+    this.spawn(run, contextFile, retry);
+    return run;
+  }
+
   /** Start a run for a single Jira issue */
   startRun(issueKey: string): Run | RunError {
     if (this.activeIssueKeys.has(issueKey)) {
       return { error: `Issue ${issueKey} already has an active run`, code: 'CONFLICT' };
     }
 
-    const id = randomUUID();
-    const contextFile = `/tmp/unshift_context_${id}.json`;
-    const run: Run = {
-      id,
-      issueKey,
-      status: "pending",
-      startedAt: new Date().toISOString(),
-      prd: [],
-      logs: [],
-    };
-
-    this.runs.set(id, run);
-    this.activeIssueKeys.set(issueKey, id);
-    this.contextFiles.set(id, contextFile);
-    this.emit("run:created", run);
-    this.spawn(run, contextFile);
-    return run;
+    const contextFile = `/tmp/unshift_context_${randomUUID()}.json`;
+    return this.registerAndSpawn({ issueKey }, contextFile);
   }
 
   /** Discover issues and start a run for each new one */
@@ -89,7 +100,7 @@ export class UnshiftRunner extends EventEmitter {
 
     for (const key of keys) {
       const result = this.startRun(key);
-      if ("code" in result) {
+      if (isRunError(result)) {
         errors.push(result.error);
       } else {
         runs.push(result);
@@ -119,27 +130,13 @@ export class UnshiftRunner extends EventEmitter {
       return { error: `Issue ${sourceRun.issueKey} already has an active run`, code: 'CONFLICT' };
     }
 
-    const contextData = sourceRun.context;
-
-    const newId = randomUUID();
-    const contextFile = `/tmp/unshift_context_${newId}.json`;
-    const run: Run = {
-      id: newId,
-      issueKey: sourceRun.issueKey,
-      status: "pending",
-      startedAt: new Date().toISOString(),
-      repoPath: sourceRun.repoPath,
-      branchName: sourceRun.branchName,
-      context: { ...contextData },
-      prd: [],
-      logs: [],
-    };
+    const contextFile = `/tmp/unshift_context_${randomUUID()}.json`;
 
     // Reserve the issue key before any async work to prevent races
-    this.activeIssueKeys.set(sourceRun.issueKey, newId);
+    this.activeIssueKeys.set(sourceRun.issueKey, id);
 
     // Write context file from source run's preserved context
-    const contextFileData = this.serializeContext(contextData);
+    const contextFileData = this.serializeContext(sourceRun.context);
     try {
       await writeFile(contextFile, JSON.stringify(contextFileData, null, 2));
     } catch (err) {
@@ -152,11 +149,16 @@ export class UnshiftRunner extends EventEmitter {
     const oldContextFile = this.contextFiles.get(id);
     if (oldContextFile) unlink(oldContextFile).catch(() => {});
 
-    this.runs.set(newId, run);
-    this.contextFiles.set(newId, contextFile);
-    this.emit("run:created", run);
-    this.spawn(run, contextFile, true);
-    return run;
+    return this.registerAndSpawn(
+      {
+        issueKey: sourceRun.issueKey,
+        repoPath: sourceRun.repoPath,
+        branchName: sourceRun.branchName,
+        context: { ...sourceRun.context },
+      },
+      contextFile,
+      true,
+    );
   }
 
   async stopRun(id: string): Promise<void> {
@@ -179,28 +181,29 @@ export class UnshiftRunner extends EventEmitter {
     }
   }
 
-  approveRun(id: string): { ok: boolean; error?: string } {
+  approveRun(id: string): { ok: true } | RunError {
     const run = this.runs.get(id);
+    if (!run) return { error: "Run not found", code: "NOT_FOUND" };
+    if (run.status !== "awaiting_approval") return { error: `Run is not awaiting approval (status: ${run.status})`, code: "INVALID_STATE" };
     const proc = this.processes.get(id);
-    if (!run) return { ok: false, error: "Run not found" };
-    if (run.status !== "awaiting_approval") return { ok: false, error: `Run is not awaiting approval (status: ${run.status})` };
-    if (!proc?.pid) return { ok: false, error: "Process not found or has no PID" };
+    if (!proc?.pid) return { error: "Process not found or has no PID", code: "INVALID_STATE" };
     try {
       process.kill(-proc.pid, "SIGCONT");
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       console.error(`Failed to send SIGCONT to process group -${proc.pid}: ${msg}`);
-      return { ok: false, error: `Failed to resume process: ${msg}` };
+      return { error: `Failed to resume process: ${msg}`, code: "INVALID_STATE" };
     }
     run.status = "phase3";
     this.emit("run:phase", run.id, "phase3");
     return { ok: true };
   }
 
-  async rejectRun(id: string): Promise<boolean> {
+  async rejectRun(id: string): Promise<{ ok: true } | RunError> {
     const run = this.runs.get(id);
+    if (!run) return { error: "Run not found", code: "NOT_FOUND" };
+    if (run.status !== "awaiting_approval") return { error: `Run is not awaiting approval (status: ${run.status})`, code: "INVALID_STATE" };
     const proc = this.processes.get(id);
-    if (!run || run.status !== "awaiting_approval") return false;
     // Preserve context data before cleanup so retry can reuse it
     if (!run.context) {
       await this.readContextFile(run);
@@ -214,7 +217,7 @@ export class UnshiftRunner extends EventEmitter {
       kill(proc.pid);
     }
     this.cleanupRun(id);
-    return true;
+    return { ok: true };
   }
 
   private spawn(run: Run, contextFile: string, retry = false): void {
@@ -361,41 +364,43 @@ export class UnshiftRunner extends EventEmitter {
     }
   }
 
-  /** Mapping from RunContext camelCase keys to snake_case context file keys */
-  private static readonly CONTEXT_KEY_MAP: [keyof RunContext, string][] = [
-    ["issueKey", "issue_key"],
-    ["summary", "summary"],
-    ["repoPath", "repo_path"],
-    ["branchName", "branch_name"],
-    ["description", "description"],
-    ["issueType", "issue_type"],
-    ["defaultBranch", "default_branch"],
-    ["host", "host"],
-    ["commitPrefix", "commit_prefix"],
-  ];
+  /** Mapping from RunContext camelCase keys to snake_case context file keys.
+   *  Typed as Record<keyof RunContext, string> so adding a field to RunContext
+   *  without updating this map is a compile error. */
+  private static readonly CONTEXT_KEYS: Record<keyof RunContext, string> = {
+    issueKey: "issue_key",
+    summary: "summary",
+    repoPath: "repo_path",
+    branchName: "branch_name",
+    description: "description",
+    issueType: "issue_type",
+    defaultBranch: "default_branch",
+    host: "host",
+    commitPrefix: "commit_prefix",
+  };
 
   private serializeContext(ctx: RunContext): Record<string, string | undefined> {
     const result: Record<string, string | undefined> = {};
-    for (const [camel, snake] of UnshiftRunner.CONTEXT_KEY_MAP) {
-      result[snake] = ctx[camel];
+    for (const [camel, snake] of Object.entries(UnshiftRunner.CONTEXT_KEYS)) {
+      result[snake] = ctx[camel as keyof RunContext];
     }
     return result;
   }
 
   private deserializeContext(raw: Record<string, unknown>, run: Run): RunContext {
-    const get = (key: string, fallback = ""): string =>
-      (raw[key] as string | undefined) ?? fallback;
-
+    const mapped: Partial<RunContext> = {};
+    for (const [camel, snake] of Object.entries(UnshiftRunner.CONTEXT_KEYS)) {
+      const value = raw[snake];
+      if (typeof value === "string") {
+        (mapped as Record<string, string>)[camel] = value;
+      }
+    }
     return {
-      issueKey: get("issue_key", run.issueKey),
-      summary: get("summary"),
-      repoPath: get("repo_path", run.repoPath ?? ""),
-      branchName: get("branch_name", run.branchName ?? ""),
-      description: raw["description"] as string | undefined,
-      issueType: raw["issue_type"] as string | undefined,
-      defaultBranch: raw["default_branch"] as string | undefined,
-      host: raw["host"] as string | undefined,
-      commitPrefix: raw["commit_prefix"] as string | undefined,
+      ...mapped,
+      issueKey: mapped.issueKey ?? run.issueKey,
+      summary: mapped.summary ?? "",
+      repoPath: mapped.repoPath ?? run.repoPath ?? "",
+      branchName: mapped.branchName ?? run.branchName ?? "",
     };
   }
 

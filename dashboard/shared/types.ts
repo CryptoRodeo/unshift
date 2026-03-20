@@ -44,6 +44,10 @@ export interface RunError {
   code: RunErrorCode;
 }
 
+export function isRunError(value: unknown): value is RunError {
+  return typeof value === "object" && value !== null && "code" in value;
+}
+
 export interface LogEntry {
   phase: RunPhase;
   line: string;
