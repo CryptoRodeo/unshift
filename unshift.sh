@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
 # unshift.sh - Outer orchestrator for the Jira-to-PR automation workflow (uses Jira REST API via curl)
-# Usage: ./unshift.sh [--discover] [--issue KEY]
+# Usage: ./unshift.sh [--discover] [--issue KEY] [--retry]
 #
 # --discover   Print all llm-candidate Jira issue keys to stdout and exit.
 # --issue KEY  Process a single Jira issue instead of discovering all.
+# --retry      Skip Phase 0/1, reset prd.json, re-copy ralph.sh, re-run Phase 2.
+#              Requires --issue KEY and UNSHIFT_CONTEXT_FILE env var.
 # (no flags)   Discover and process ALL llm-candidate issues sequentially.
 
 set -euo pipefail
@@ -17,6 +19,8 @@ usage() {
   echo "Options:" >&2
   echo "  --discover   Print llm-candidate issue keys to stdout and exit" >&2
   echo "  --issue KEY  Process a single Jira issue" >&2
+  echo "  --retry      Skip Phase 0/1, reset prd.json, re-copy ralph.sh, re-run Phase 2" >&2
+  echo "               Requires --issue KEY and UNSHIFT_CONTEXT_FILE env var" >&2
   echo "  (no flags)   Discover and process all llm-candidate issues" >&2
   echo "" >&2
   echo "Phases per issue:" >&2
@@ -28,6 +32,7 @@ usage() {
 
 SINGLE_ISSUE=""
 DISCOVER_ONLY=false
+RETRY_MODE=false
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -39,6 +44,10 @@ while [[ $# -gt 0 ]]; do
       DISCOVER_ONLY=true
       shift
       ;;
+    --retry)
+      RETRY_MODE=true
+      shift
+      ;;
     -h|--help)
       usage
       ;;
@@ -48,6 +57,18 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
+
+# Validate --retry requirements
+if [[ "$RETRY_MODE" == true ]]; then
+  if [[ -z "$SINGLE_ISSUE" ]]; then
+    echo "Error: --retry requires --issue KEY" >&2
+    exit 1
+  fi
+  if [[ -z "${UNSHIFT_CONTEXT_FILE:-}" ]]; then
+    echo "Error: --retry requires UNSHIFT_CONTEXT_FILE env var to be set" >&2
+    exit 1
+  fi
+fi
 
 # Validate Claude Code authentication
 if [[ -z "${ANTHROPIC_API_KEY:-}" && -z "${CLAUDE_CODE_USE_VERTEX:-}" ]]; then
@@ -79,6 +100,98 @@ fi
 
 # Determine Jira REST API endpoint based on version
 JIRA_API_VERSION="${JIRA_API_VERSION:-3}"
+
+# ---------------------------------------------------------------------------
+# Retry mode: skip Phase 0/1, reuse context, reset prd.json, re-run Phase 2
+# ---------------------------------------------------------------------------
+if [[ "$RETRY_MODE" == true ]]; then
+  ISSUE_KEY="$SINGLE_ISSUE"
+  declare -A RESULTS
+
+  echo "" >&2
+  echo "================================================================" >&2
+  echo "Retrying issue: $ISSUE_KEY" >&2
+  echo "================================================================" >&2
+
+  # Read repo_path and branch_name from the existing context file
+  if [[ ! -f "$CONTEXT_FILE" ]]; then
+    echo "Error: Context file $CONTEXT_FILE not found for retry." >&2
+    exit 1
+  fi
+
+  REPO_PATH="$(jq -r '.repo_path' "$CONTEXT_FILE")"
+  BRANCH_NAME="$(jq -r '.branch_name' "$CONTEXT_FILE")"
+
+  if [[ -z "$REPO_PATH" || "$REPO_PATH" == "null" ]]; then
+    echo "Error: repo_path missing from context file." >&2
+    exit 1
+  fi
+
+  # Ensure we're on the correct branch
+  cd "$REPO_PATH"
+  git checkout "$BRANCH_NAME"
+
+  # Reset all prd.json entries to completed: false
+  if [[ ! -f "${REPO_PATH}/prd.json" ]]; then
+    echo "Error: prd.json not found in ${REPO_PATH}." >&2
+    exit 1
+  fi
+  jq '[.[] | .completed = false]' "${REPO_PATH}/prd.json" > "${REPO_PATH}/prd.json.tmp" \
+    && mv "${REPO_PATH}/prd.json.tmp" "${REPO_PATH}/prd.json"
+
+  # Re-copy ralph.sh from the script directory
+  RALPH_SRC="${SCRIPT_DIR}/ralph/ralph.sh"
+  if [[ ! -f "$RALPH_SRC" ]]; then
+    echo "Error: Cannot find ralph/ralph.sh." >&2
+    exit 1
+  fi
+  cp "$RALPH_SRC" "${REPO_PATH}/ralph.sh"
+  chmod +x "${REPO_PATH}/ralph.sh"
+
+  # Count incomplete entries and run Phase 2
+  INCOMPLETE_COUNT="$(jq '[.[] | select(.completed == false)] | length' "${REPO_PATH}/prd.json")"
+
+  echo "--- Phase 2 (retry): Implementation for $ISSUE_KEY ---" >&2
+  echo "Running ralph.sh with ${INCOMPLETE_COUNT} iteration(s)..." >&2
+
+  if ! ./ralph.sh --auto "$INCOMPLETE_COUNT"; then
+    echo "Error: Phase 2 (ralph.sh) failed for $ISSUE_KEY." >&2
+    RESULTS["$ISSUE_KEY"]="FAILED (Phase 2 - ralph.sh)"
+  else
+    echo "Phase 2 complete." >&2
+
+    # Self-pause for approval before Phase 3
+    echo "" >&2
+    echo "--- Phase 3: PR creation for $ISSUE_KEY ---" >&2
+    kill -STOP $$
+
+    PHASE3_PROMPT="$(cat "${SCRIPT_DIR}/prompts/phase3.md")"
+    PHASE3_PROMPT="${PHASE3_PROMPT//CONTEXT_FILE_PATH/$CONTEXT_FILE}"
+
+    cd "$REPO_PATH"
+    if ! claude -p --permission-mode bypassPermissions --add-dir="$REPO_PATH" "$PHASE3_PROMPT"; then
+      echo "Error: Phase 3 failed for $ISSUE_KEY." >&2
+      RESULTS["$ISSUE_KEY"]="FAILED (Phase 3)"
+    else
+      RESULTS["$ISSUE_KEY"]="SUCCESS"
+      echo "Issue $ISSUE_KEY completed successfully." >&2
+    fi
+  fi
+
+  # Summary for retry
+  rm -f "$CONTEXT_FILE"
+  echo "" >&2
+  echo "================================================================" >&2
+  echo "=== unshift retry run complete ===" >&2
+  echo "================================================================" >&2
+  echo "" >&2
+  echo "  $ISSUE_KEY: ${RESULTS[$ISSUE_KEY]:-UNKNOWN}" >&2
+
+  if [[ "${RESULTS[$ISSUE_KEY]:-}" != "SUCCESS" ]]; then
+    exit 1
+  fi
+  exit 0
+fi
 
 # ---------------------------------------------------------------------------
 # Phase 0 - Pre-flight checks and Jira discovery

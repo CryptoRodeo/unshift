@@ -1,7 +1,7 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { randomUUID } from "node:crypto";
-import { readFile, unlink } from "node:fs/promises";
+import { readFile, writeFile, unlink } from "node:fs/promises";
 import path from "node:path";
 import kill from "tree-kill";
 
@@ -140,6 +140,61 @@ export class UnshiftRunner extends EventEmitter {
     return { runs, errors };
   }
 
+  /** Retry a run that is in a terminal state (rejected, failed, or stopped process) */
+  async retryRun(id: string): Promise<Run | { error: string }> {
+    const sourceRun = this.runs.get(id);
+    if (!sourceRun) {
+      return { error: "Run not found" };
+    }
+
+    const terminalStates: RunPhase[] = ["rejected", "failed"];
+    const isTerminal = terminalStates.includes(sourceRun.status);
+    const hasActiveProcess = this.processes.has(id);
+
+    if (!isTerminal && hasActiveProcess) {
+      return { error: `Run is not in a terminal state (status: ${sourceRun.status})` };
+    }
+
+    if (this.activeIssueKeys.has(sourceRun.issueKey)) {
+      return { error: `Issue ${sourceRun.issueKey} already has an active run` };
+    }
+
+    const contextData = sourceRun.context;
+    if (!contextData) {
+      return { error: "Source run has no context data to retry from" };
+    }
+
+    const newId = randomUUID();
+    const contextFile = `/tmp/unshift_context_${newId}.json`;
+    const run: Run = {
+      id: newId,
+      issueKey: sourceRun.issueKey,
+      status: "pending",
+      startedAt: new Date().toISOString(),
+      repoPath: sourceRun.repoPath,
+      branchName: sourceRun.branchName,
+      context: { ...contextData },
+      prd: [],
+      logs: [],
+    };
+
+    // Write context file from source run's preserved context
+    const contextFileData = {
+      issue_key: contextData.issueKey,
+      summary: contextData.summary,
+      repo_path: contextData.repoPath,
+      branch_name: contextData.branchName,
+    };
+    await writeFile(contextFile, JSON.stringify(contextFileData, null, 2));
+
+    this.runs.set(newId, run);
+    this.activeIssueKeys.add(sourceRun.issueKey);
+    this.contextFiles.set(newId, contextFile);
+    this.emit("run:created", run);
+    this.spawn(run, contextFile, true);
+    return run;
+  }
+
   stopRun(id: string): void {
     const proc = this.processes.get(id);
     if (proc?.pid) {
@@ -181,8 +236,11 @@ export class UnshiftRunner extends EventEmitter {
     return true;
   }
 
-  private spawn(run: Run, contextFile: string): void {
-    const proc = spawn("bash", [this.scriptPath, "--issue", run.issueKey], {
+  private spawn(run: Run, contextFile: string, retry = false): void {
+    const args = retry
+      ? [this.scriptPath, "--retry", "--issue", run.issueKey]
+      : [this.scriptPath, "--issue", run.issueKey];
+    const proc = spawn("bash", args, {
       cwd: path.dirname(this.scriptPath),
       stdio: ["ignore", "pipe", "pipe"],
       detached: true,
