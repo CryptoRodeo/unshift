@@ -5,7 +5,7 @@ import { readFile, writeFile, unlink } from "node:fs/promises";
 import path from "node:path";
 import kill from "tree-kill";
 
-import type { RunContext, Run, RunError, PrdEntry } from "../../shared/types";
+import type { RunContext, Run, RunError, PrdEntry, LogEntry, RunPhase } from "../../shared/types";
 import { isTerminal, isCompleted, isRunError } from "../../shared/types";
 import { RunRepository } from "./runRepository";
 
@@ -51,11 +51,11 @@ export class UnshiftRunner extends EventEmitter {
     return this.repository.getProgressTxt(id);
   }
 
-  getRunLogs(id: string): import("../../shared/types").LogEntry[] {
+  getRunLogs(id: string): LogEntry[] {
     return this.repository.getRunLogs(id);
   }
 
-  getRunLogsSince(id: string, sinceId: number): { id: number; phase: import("../../shared/types").RunPhase; line: string }[] {
+  getRunLogsSince(id: string, sinceId: number): { id: number; phase: RunPhase; line: string }[] {
     return this.repository.getRunLogsSince(id, sinceId);
   }
 
