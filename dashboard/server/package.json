@@ -7,11 +7,13 @@
     "start": "node dist/index.mjs"
   },
   "dependencies": {
+    "better-sqlite3": "^12.8.0",
     "express": "^5.1.0",
     "tree-kill": "^1.2.2",
     "ws": "^8.18.2"
   },
   "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
     "@types/express": "^5.0.2",
     "@types/ws": "^8.18.1",
     "tsup": "^8.5.1",
