@@ -151,7 +151,7 @@ if [[ "$RETRY_MODE" == true ]]; then
   # Count incomplete entries and run Phase 2
   INCOMPLETE_COUNT="$(jq '[.[] | select(.completed == false)] | length' "${REPO_PATH}/prd.json")"
 
-  echo "--- Phase 2 (retry): Implementation for $ISSUE_KEY ---" >&2
+  echo "--- Phase 2: Implementation (retry) for $ISSUE_KEY ---" >&2
   echo "Running ralph.sh with ${INCOMPLETE_COUNT} iteration(s)..." >&2
 
   if ! ./ralph.sh --auto "$INCOMPLETE_COUNT"; then
