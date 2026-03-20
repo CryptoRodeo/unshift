@@ -195,9 +195,15 @@ Use the Jira MCP tools:
 
 2. **Comment with PR URL**: Use `mcp__jira__addCommentToJiraIssue` with body: `"PR created: <PR_URL>"`
 
-3. **Comment with implementation plan**: Use `mcp__jira__addCommentToJiraIssue` with the contents of `prd.json` under heading "Implementation Plan".
+3. **Comment on PR/MR with implementation plan**: Post the contents of `prd.json` as a comment on the PR/MR (not Jira) under heading "Implementation Plan".
 
-4. **Comment with execution log**: Use `mcp__jira__addCommentToJiraIssue` with the contents of `progress.txt` under heading "Execution Log".
+   **GitHub**: `gh pr comment <branch_name> --body "## Implementation Plan\n\`\`\`json\n<contents of prd.json>\n\`\`\`"`
+   **GitLab**: `glab mr note <branch_name> --message "## Implementation Plan\n\`\`\`json\n<contents of prd.json>\n\`\`\`"`
+
+4. **Comment on PR/MR with execution log**: Post the contents of `progress.txt` as a comment on the PR/MR (not Jira) under heading "Execution Log".
+
+   **GitHub**: `gh pr comment <branch_name> --body "## Execution Log\n<contents of progress.txt>"`
+   **GitLab**: `glab mr note <branch_name> --message "## Execution Log\n<contents of progress.txt>"`
 
 ### 3.5 Cleanup
 
