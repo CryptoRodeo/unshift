@@ -407,11 +407,12 @@ export class UnshiftRunner extends EventEmitter {
     }
     try {
       const raw = await readFile(contextPath, "utf-8");
-      const ctx = JSON.parse(raw);
+      const ctx: Record<string, unknown> = JSON.parse(raw);
       run.context = this.deserializeContext(ctx, run);
       this.emit("run:context", run.id, run.context);
-    } catch (err: any) {
-      if (err?.code !== "ENOENT") {
+    } catch (err: unknown) {
+      const code = typeof err === "object" && err !== null && "code" in err ? (err as { code: string }).code : undefined;
+      if (code !== "ENOENT") {
         console.warn(`Failed to read context file for run ${run.id} at ${contextPath}:`, err);
       }
     }
