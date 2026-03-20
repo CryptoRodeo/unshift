@@ -7,4 +7,5 @@ issues.md
 ralph.sh
 node_modules/
 **/dist/
+.claude/settings.local.json
 
