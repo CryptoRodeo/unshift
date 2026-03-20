@@ -198,5 +198,10 @@ export function useWebSocket() {
     await fetch(`/api/runs/${runId}/reject`, { method: "POST" });
   }, []);
 
-  return { runs, connected, startRun, stopRun, approveRun, rejectRun };
+  const retryRun = useCallback(async (runId: string) => {
+    const res = await fetch(`/api/runs/${runId}/retry`, { method: "POST" });
+    return res.json();
+  }, []);
+
+  return { runs, connected, startRun, stopRun, approveRun, rejectRun, retryRun };
 }

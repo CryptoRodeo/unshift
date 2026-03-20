@@ -13,7 +13,7 @@ import {
   CardBody,
   Alert,
 } from "@patternfly/react-core";
-import { ArrowLeftIcon } from "@patternfly/react-icons";
+import { ArrowLeftIcon, RedoIcon } from "@patternfly/react-icons";
 import { useWebSocket } from "../hooks/useWebSocket";
 import { PhaseProgress } from "../components/PhaseProgress";
 import { StatusLabel } from "../components/StatusLabel";
@@ -25,7 +25,7 @@ import { PrdStatusCard } from "../components/PrdStatusCard";
 export function RunDetailPage() {
   const { runId } = useParams<{ runId: string }>();
   const navigate = useNavigate();
-  const { runs, stopRun, approveRun, rejectRun } = useWebSocket();
+  const { runs, stopRun, approveRun, rejectRun, retryRun } = useWebSocket();
 
   const run = runId ? runs.get(runId) : undefined;
   const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set());
@@ -62,6 +62,14 @@ export function RunDetailPage() {
   }
 
   const isActive = !["success", "failed", "rejected"].includes(run.status);
+  const isTerminal = ["failed", "rejected", "success"].includes(run.status);
+
+  const handleRetry = async () => {
+    const result = await retryRun(run.id);
+    if (result.id) {
+      navigate(`/runs/${result.id}`);
+    }
+  };
 
   return (
     <>
@@ -74,13 +82,20 @@ export function RunDetailPage() {
               <StatusLabel status={run.status} />
             </Flex>
           </FlexItem>
-          {isActive && (
-            <FlexItem>
-              <Button variant="danger" onClick={() => stopRun(run.id)}>
-                Stop
-              </Button>
-            </FlexItem>
-          )}
+          <FlexItem>
+            <Flex gap={{ default: "gapMd" }}>
+              {isTerminal && (
+                <Button variant="secondary" icon={<RedoIcon />} onClick={handleRetry}>
+                  Retry
+                </Button>
+              )}
+              {isActive && (
+                <Button variant="danger" onClick={() => stopRun(run.id)}>
+                  Stop
+                </Button>
+              )}
+            </Flex>
+          </FlexItem>
         </Flex>
       </PageSection>
 
