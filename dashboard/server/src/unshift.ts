@@ -5,10 +5,8 @@ import { readFile, writeFile, unlink } from "node:fs/promises";
 import path from "node:path";
 import kill from "tree-kill";
 
-import type { PrdEntry, RunPhase, LogEntry, RunContext, Run, RunErrorCode, RunError } from "../../shared/types";
+import type { RunContext, Run, RunError } from "../../shared/types";
 import { isTerminal, isCompleted } from "../../shared/types";
-export type { PrdEntry, RunPhase, LogEntry, RunContext, Run, RunErrorCode, RunError };
-export { isTerminal, isCompleted };
 
 /**
  * Spawns one `unshift.sh --issue <KEY>` per Jira ticket, each as its own Run
@@ -169,6 +167,7 @@ export class UnshiftRunner extends EventEmitter {
     }
     const proc = this.processes.get(id);
     if (proc?.pid) {
+      // Mark as stopping; the process `close` handler will finalize status to "stopped"
       this.stoppingRuns.add(id);
       kill(proc.pid);
     } else if (run && !isCompleted(run.status)) {
@@ -362,38 +361,47 @@ export class UnshiftRunner extends EventEmitter {
     }
   }
 
+  /** Mapping from RunContext camelCase keys to snake_case context file keys */
+  private static readonly CONTEXT_KEY_MAP: [keyof RunContext, string][] = [
+    ["issueKey", "issue_key"],
+    ["summary", "summary"],
+    ["repoPath", "repo_path"],
+    ["branchName", "branch_name"],
+    ["description", "description"],
+    ["issueType", "issue_type"],
+    ["defaultBranch", "default_branch"],
+    ["host", "host"],
+    ["commitPrefix", "commit_prefix"],
+  ];
+
   private serializeContext(ctx: RunContext): Record<string, string | undefined> {
-    return {
-      issue_key: ctx.issueKey,
-      summary: ctx.summary,
-      repo_path: ctx.repoPath,
-      branch_name: ctx.branchName,
-      description: ctx.description,
-      issue_type: ctx.issueType,
-      default_branch: ctx.defaultBranch,
-      host: ctx.host,
-      commit_prefix: ctx.commitPrefix,
-    };
+    const result: Record<string, string | undefined> = {};
+    for (const [camel, snake] of UnshiftRunner.CONTEXT_KEY_MAP) {
+      result[snake] = ctx[camel];
+    }
+    return result;
   }
 
   private deserializeContext(raw: Record<string, unknown>, run: Run): RunContext {
-    return {
-      issueKey: (raw.issue_key as string) ?? run.issueKey,
-      summary: (raw.summary as string) ?? "",
-      repoPath: (raw.repo_path as string) ?? run.repoPath ?? "",
-      branchName: (raw.branch_name as string) ?? run.branchName ?? "",
-      description: raw.description as string | undefined,
-      issueType: raw.issue_type as string | undefined,
-      defaultBranch: raw.default_branch as string | undefined,
-      host: raw.host as string | undefined,
-      commitPrefix: raw.commit_prefix as string | undefined,
+    const fallbacks: Record<string, string> = {
+      issueKey: run.issueKey,
+      summary: "",
+      repoPath: run.repoPath ?? "",
+      branchName: run.branchName ?? "",
     };
+    const result: Record<string, string | undefined> = {};
+    for (const [camel, snake] of UnshiftRunner.CONTEXT_KEY_MAP) {
+      result[camel] = (raw[snake] as string | undefined) ?? fallbacks[camel];
+    }
+    return result as unknown as RunContext;
   }
 
   private async readContextFile(run: Run): Promise<void> {
-    const contextPath = this.contextFiles.get(run.id)
-      ?? process.env.UNSHIFT_CONTEXT_FILE
-      ?? "/tmp/unshift_context.json";
+    const contextPath = this.contextFiles.get(run.id);
+    if (!contextPath) {
+      console.warn(`No context file path registered for run ${run.id}`);
+      return;
+    }
     try {
       const raw = await readFile(contextPath, "utf-8");
       const ctx = JSON.parse(raw);

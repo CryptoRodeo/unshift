@@ -1,7 +1,8 @@
 import express from "express";
 import http from "node:http";
 import { WebSocketServer, WebSocket } from "ws";
-import { UnshiftRunner, type RunErrorCode } from "./unshift";
+import { UnshiftRunner } from "./unshift";
+import type { RunErrorCode } from "../../shared/types";
 
 const app = express();
 app.use(express.json());
