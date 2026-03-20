@@ -5,7 +5,7 @@ import { readFile, writeFile, unlink } from "node:fs/promises";
 import path from "node:path";
 import kill from "tree-kill";
 
-import type { RunContext, Run, RunError } from "../../shared/types";
+import type { RunContext, Run, RunError, PrdEntry } from "../../shared/types";
 import { isTerminal, isCompleted } from "../../shared/types";
 
 /**
@@ -383,17 +383,20 @@ export class UnshiftRunner extends EventEmitter {
   }
 
   private deserializeContext(raw: Record<string, unknown>, run: Run): RunContext {
-    const fallbacks: Record<string, string> = {
-      issueKey: run.issueKey,
-      summary: "",
-      repoPath: run.repoPath ?? "",
-      branchName: run.branchName ?? "",
+    const get = (key: string, fallback = ""): string =>
+      (raw[key] as string | undefined) ?? fallback;
+
+    return {
+      issueKey: get("issue_key", run.issueKey),
+      summary: get("summary"),
+      repoPath: get("repo_path", run.repoPath ?? ""),
+      branchName: get("branch_name", run.branchName ?? ""),
+      description: raw["description"] as string | undefined,
+      issueType: raw["issue_type"] as string | undefined,
+      defaultBranch: raw["default_branch"] as string | undefined,
+      host: raw["host"] as string | undefined,
+      commitPrefix: raw["commit_prefix"] as string | undefined,
     };
-    const result: Record<string, string | undefined> = {};
-    for (const [camel, snake] of UnshiftRunner.CONTEXT_KEY_MAP) {
-      result[camel] = (raw[snake] as string | undefined) ?? fallbacks[camel];
-    }
-    return result as unknown as RunContext;
   }
 
   private async readContextFile(run: Run): Promise<void> {

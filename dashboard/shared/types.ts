@@ -20,12 +20,14 @@ export type RunPhase =
   | "rejected";
 
 /** Runs that cannot be retried or acted upon */
-export const TERMINAL_STATES: ReadonlySet<RunPhase> = new Set(["failed", "stopped", "rejected"] as const);
-export type TerminalStatus = "failed" | "stopped" | "rejected";
+const TERMINAL_LIST = ["failed", "stopped", "rejected"] as const;
+export type TerminalStatus = (typeof TERMINAL_LIST)[number];
+export const TERMINAL_STATES: ReadonlySet<RunPhase> = new Set(TERMINAL_LIST);
 
 /** Runs that have finished (successfully or not) */
-export const COMPLETED_STATES: ReadonlySet<RunPhase> = new Set(["success", "failed", "stopped", "rejected"] as const);
-export type CompletedStatus = "success" | "failed" | "stopped" | "rejected";
+const COMPLETED_LIST = ["success", "failed", "stopped", "rejected"] as const;
+export type CompletedStatus = (typeof COMPLETED_LIST)[number];
+export const COMPLETED_STATES: ReadonlySet<RunPhase> = new Set(COMPLETED_LIST);
 
 export function isTerminal(status: RunPhase): status is TerminalStatus {
   return TERMINAL_STATES.has(status);
