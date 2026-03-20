@@ -208,6 +208,10 @@ export class UnshiftRunner extends EventEmitter {
       throw err;
     }
 
+    // Clean up the old source run's context file now that we have a new one
+    const oldContextFile = `/tmp/unshift_context_${id}.json`;
+    unlink(oldContextFile).catch(() => {});
+
     this.runs.set(newId, run);
     this.contextFiles.set(newId, contextFile);
     this.emit("run:created", run);
@@ -340,7 +344,11 @@ export class UnshiftRunner extends EventEmitter {
     this.processes.delete(id);
     const contextFile = this.contextFiles.get(id);
     if (contextFile) {
-      unlink(contextFile).catch(() => {});
+      // Only delete the context file on success; keep it for failed/rejected
+      // runs so retry has a fallback if in-memory context was not captured
+      if (run?.status === "success") {
+        unlink(contextFile).catch(() => {});
+      }
       this.contextFiles.delete(id);
     }
   }

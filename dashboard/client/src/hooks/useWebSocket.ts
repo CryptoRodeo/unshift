@@ -200,7 +200,11 @@ export function useWebSocket() {
 
   const retryRun = useCallback(async (runId: string) => {
     const res = await fetch(`/api/runs/${runId}/retry`, { method: "POST" });
-    return res.json();
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.error || "Failed to retry run");
+    }
+    return data;
   }, []);
 
   return { runs, connected, startRun, stopRun, approveRun, rejectRun, retryRun };
