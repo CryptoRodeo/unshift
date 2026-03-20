@@ -91,6 +91,56 @@ if [[ "$JIRA_AUTH_TYPE" == "basic" && -z "${JIRA_USER_EMAIL:-}" ]]; then
   exit 1
 fi
 
+# ---------------------------------------------------------------------------
+# Shared function: Phase 2 (ralph.sh) + Phase 3 (PR creation)
+# Expects: ISSUE_KEY, REPO_PATH, CONTEXT_FILE, SCRIPT_DIR, RESULTS (assoc array)
+# ---------------------------------------------------------------------------
+run_phase2_and_phase3() {
+  local issue_key="$1"
+  local repo_path="$2"
+  local context_file="$3"
+  local entry_count="$4"
+
+  echo "" >&2
+  echo "--- Phase 2: Implementation for $issue_key ---" >&2
+
+  if [[ "$entry_count" -eq 0 ]]; then
+    echo "prd.json has no entries to implement. Skipping Phase 2." >&2
+  else
+    echo "Running ralph.sh with ${entry_count} iteration(s)..." >&2
+    cd "$repo_path"
+    if ! ./ralph.sh --auto "$entry_count"; then
+      echo "Error: Phase 2 (ralph.sh) failed for $issue_key." >&2
+      RESULTS["$issue_key"]="FAILED (Phase 2 - ralph.sh)"
+      return 1
+    fi
+  fi
+
+  echo "Phase 2 complete." >&2
+
+  # Phase 3 - Verify, commit, push, PR, Jira update, cleanup
+  echo "" >&2
+  echo "--- Phase 3: PR creation for $issue_key ---" >&2
+
+  # Self-pause before Phase 3 execution so the dashboard can gate on approval.
+  # The dashboard will send SIGCONT to resume once the user approves.
+  kill -STOP $$
+
+  PHASE3_PROMPT="$(cat "${SCRIPT_DIR}/prompts/phase3.md")"
+  PHASE3_PROMPT="${PHASE3_PROMPT//CONTEXT_FILE_PATH/$context_file}"
+
+  cd "$repo_path"
+  if ! claude -p --permission-mode bypassPermissions --add-dir="$repo_path" "$PHASE3_PROMPT"; then
+    echo "Error: Phase 3 failed for $issue_key." >&2
+    RESULTS["$issue_key"]="FAILED (Phase 3)"
+    return 1
+  fi
+
+  RESULTS["$issue_key"]="SUCCESS"
+  echo "Issue $issue_key completed successfully." >&2
+  return 0
+}
+
 # Build curl auth flags based on auth type
 if [[ "$JIRA_AUTH_TYPE" == "bearer" ]]; then
   CURL_AUTH=(-H "Authorization: Bearer ${JIRA_API_TOKEN}")
@@ -172,42 +222,9 @@ if [[ "$RETRY_MODE" == true ]]; then
   cp "$RALPH_SRC" "${REPO_PATH}/ralph.sh"
   chmod +x "${REPO_PATH}/ralph.sh"
 
-  # Count entries and run Phase 2
+  # Count entries and run Phase 2 + Phase 3 via shared function
   ENTRY_COUNT="$(jq 'length' "${REPO_PATH}/prd.json")"
-
-  echo "--- Phase 2: Implementation (retry) for $ISSUE_KEY ---" >&2
-
-  if [[ "$ENTRY_COUNT" -eq 0 ]]; then
-    echo "prd.json has no entries. Nothing to implement." >&2
-  else
-    echo "Running ralph.sh with ${ENTRY_COUNT} iteration(s)..." >&2
-
-    if ! ./ralph.sh --auto "$ENTRY_COUNT"; then
-      echo "Error: Phase 2 (ralph.sh) failed for $ISSUE_KEY." >&2
-      RESULTS["$ISSUE_KEY"]="FAILED (Phase 2 - ralph.sh)"
-    fi
-  fi
-
-  if [[ "${RESULTS[$ISSUE_KEY]:-}" != *"FAILED"* ]]; then
-    echo "Phase 2 complete." >&2
-
-    # Self-pause for approval before Phase 3
-    echo "" >&2
-    echo "--- Phase 3: PR creation for $ISSUE_KEY ---" >&2
-    kill -STOP $$
-
-    PHASE3_PROMPT="$(cat "${SCRIPT_DIR}/prompts/phase3.md")"
-    PHASE3_PROMPT="${PHASE3_PROMPT//CONTEXT_FILE_PATH/$CONTEXT_FILE}"
-
-    cd "$REPO_PATH"
-    if ! claude -p --permission-mode bypassPermissions --add-dir="$REPO_PATH" "$PHASE3_PROMPT"; then
-      echo "Error: Phase 3 failed for $ISSUE_KEY." >&2
-      RESULTS["$ISSUE_KEY"]="FAILED (Phase 3)"
-    else
-      RESULTS["$ISSUE_KEY"]="SUCCESS"
-      echo "Issue $ISSUE_KEY completed successfully." >&2
-    fi
-  fi
+  run_phase2_and_phase3 "$ISSUE_KEY" "$REPO_PATH" "$CONTEXT_FILE" "$ENTRY_COUNT"
 
   # Summary for retry
   rm -f "$CONTEXT_FILE"
@@ -330,11 +347,8 @@ for ISSUE_KEY in "${ISSUE_KEYS[@]}"; do
   echo "Phase 1 complete. Repo: $REPO_PATH, Branch: $BRANCH_NAME" >&2
 
   # -----------------------------------------------------------------------
-  # Phase 2 - Implementation via ralph.sh
+  # Phase 2 + Phase 3 - Implementation and PR creation
   # -----------------------------------------------------------------------
-  echo "" >&2
-  echo "--- Phase 2: Implementation for $ISSUE_KEY ---" >&2
-
   RALPH_SRC="${SCRIPT_DIR}/ralph/ralph.sh"
 
   if [[ ! -f "$RALPH_SRC" ]]; then
@@ -356,42 +370,9 @@ for ISSUE_KEY in "${ISSUE_KEYS[@]}"; do
 
   INCOMPLETE_COUNT="$(jq '[.[] | select(.completed == false)] | length' "${REPO_PATH}/prd.json")"
 
-  if [[ "$INCOMPLETE_COUNT" -eq 0 ]]; then
-    echo "All prd.json entries already completed. Skipping Phase 2." >&2
-  else
-    echo "Running ralph.sh with ${INCOMPLETE_COUNT} iteration(s)..." >&2
-    cd "$REPO_PATH"
-    if ! ./ralph.sh --auto "$INCOMPLETE_COUNT"; then
-      echo "Error: Phase 2 (ralph.sh) failed for $ISSUE_KEY. Skipping to next issue." >&2
-      RESULTS["$ISSUE_KEY"]="FAILED (Phase 2 - ralph.sh)"
-      continue
-    fi
-  fi
-
-  echo "Phase 2 complete." >&2
-
-  # -----------------------------------------------------------------------
-  # Phase 3 - Verify, commit, push, PR, Jira update, cleanup
-  # -----------------------------------------------------------------------
-  echo "" >&2
-  echo "--- Phase 3: PR creation for $ISSUE_KEY ---" >&2
-
-  # Self-pause before Phase 3 execution so the dashboard can gate on approval.
-  # The dashboard will send SIGCONT to resume once the user approves.
-  kill -STOP $$
-
-  PHASE3_PROMPT="$(cat "${SCRIPT_DIR}/prompts/phase3.md")"
-  PHASE3_PROMPT="${PHASE3_PROMPT//CONTEXT_FILE_PATH/$CONTEXT_FILE}"
-
-  cd "$REPO_PATH"
-  if ! claude -p --permission-mode bypassPermissions --add-dir="$REPO_PATH" "$PHASE3_PROMPT"; then
-    echo "Error: Phase 3 failed for $ISSUE_KEY." >&2
-    RESULTS["$ISSUE_KEY"]="FAILED (Phase 3)"
+  if ! run_phase2_and_phase3 "$ISSUE_KEY" "$REPO_PATH" "$CONTEXT_FILE" "$INCOMPLETE_COUNT"; then
     continue
   fi
-
-  RESULTS["$ISSUE_KEY"]="SUCCESS"
-  echo "Issue $ISSUE_KEY completed successfully." >&2
 
 done
 
