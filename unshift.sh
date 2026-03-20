@@ -4,7 +4,7 @@
 #
 # --discover   Print all llm-candidate Jira issue keys to stdout and exit.
 # --issue KEY  Process a single Jira issue instead of discovering all.
-# --retry      Skip Phase 0/1, reset prd.json, re-copy ralph.sh, re-run Phase 2.
+# --retry      Skip Phase 0/1, resume from prd.json, re-copy ralph.sh, re-run Phase 2.
 #              Requires --issue KEY and UNSHIFT_CONTEXT_FILE env var.
 # (no flags)   Discover and process ALL llm-candidate issues sequentially.
 
@@ -19,7 +19,7 @@ usage() {
   echo "Options:" >&2
   echo "  --discover   Print llm-candidate issue keys to stdout and exit" >&2
   echo "  --issue KEY  Process a single Jira issue" >&2
-  echo "  --retry      Skip Phase 0/1, reset prd.json, re-copy ralph.sh, re-run Phase 2" >&2
+  echo "  --retry      Skip Phase 0/1, resume from prd.json, re-copy ralph.sh, re-run Phase 2" >&2
   echo "               Requires --issue KEY and UNSHIFT_CONTEXT_FILE env var" >&2
   echo "  (no flags)   Discover and process all llm-candidate issues" >&2
   echo "" >&2
@@ -153,12 +153,19 @@ if [[ "$RETRY_MODE" == true ]]; then
   INCOMPLETE_COUNT="$(jq '[.[] | select(.completed == false)] | length' "${REPO_PATH}/prd.json")"
 
   echo "--- Phase 2: Implementation (retry) for $ISSUE_KEY ---" >&2
-  echo "Running ralph.sh with ${INCOMPLETE_COUNT} iteration(s)..." >&2
 
-  if ! ./ralph.sh --auto "$INCOMPLETE_COUNT"; then
-    echo "Error: Phase 2 (ralph.sh) failed for $ISSUE_KEY." >&2
-    RESULTS["$ISSUE_KEY"]="FAILED (Phase 2 - ralph.sh)"
+  if [[ "$INCOMPLETE_COUNT" -eq 0 ]]; then
+    echo "All prd.json entries already completed. Skipping Phase 2." >&2
   else
+    echo "Running ralph.sh with ${INCOMPLETE_COUNT} iteration(s)..." >&2
+
+    if ! ./ralph.sh --auto "$INCOMPLETE_COUNT"; then
+      echo "Error: Phase 2 (ralph.sh) failed for $ISSUE_KEY." >&2
+      RESULTS["$ISSUE_KEY"]="FAILED (Phase 2 - ralph.sh)"
+    fi
+  fi
+
+  if [[ "${RESULTS[$ISSUE_KEY]:-}" != *"FAILED"* ]]; then
     echo "Phase 2 complete." >&2
 
     # Self-pause for approval before Phase 3

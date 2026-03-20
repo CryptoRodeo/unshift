@@ -178,6 +178,9 @@ export class UnshiftRunner extends EventEmitter {
       logs: [],
     };
 
+    // Reserve the issue key before any async work to prevent races
+    this.activeIssueKeys.set(sourceRun.issueKey, newId);
+
     // Write context file from source run's preserved context
     const contextFileData = {
       issue_key: contextData.issueKey,
@@ -185,10 +188,15 @@ export class UnshiftRunner extends EventEmitter {
       repo_path: contextData.repoPath,
       branch_name: contextData.branchName,
     };
-    await writeFile(contextFile, JSON.stringify(contextFileData, null, 2));
+    try {
+      await writeFile(contextFile, JSON.stringify(contextFileData, null, 2));
+    } catch (err) {
+      // Roll back reservation on failure
+      this.activeIssueKeys.delete(sourceRun.issueKey);
+      throw err;
+    }
 
     this.runs.set(newId, run);
-    this.activeIssueKeys.set(sourceRun.issueKey, newId);
     this.contextFiles.set(newId, contextFile);
     this.emit("run:created", run);
     this.spawn(run, contextFile, true);
