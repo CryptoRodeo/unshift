@@ -1,5 +1,6 @@
 import { useEffect, useRef, useCallback, useReducer, useState } from "react";
 import type { WsMessage, Run, RunContext, PrdEntry, RunPhase, CompletedStatus } from "../types";
+import { isTerminal } from "../types";
 
 export interface SkippedTicket {
   issueKey: string;
@@ -110,6 +111,26 @@ export function useWebSocket() {
       .then((res) => res.json())
       .then((existing: Run[]) => {
         dispatch({ type: "BulkLoad", runs: existing });
+
+        const activeRuns = existing.filter((r) => !isTerminal(r.status));
+        Promise.all(
+          activeRuns.map((r) =>
+            fetch(`/api/runs/${r.id}/progress`)
+              .then((res) => (res.ok ? res.text() : null))
+              .catch(() => null)
+              .then((content) => content ? { runId: r.id, content } : null)
+          )
+        ).then((results) => {
+          const entries = results.filter(Boolean) as { runId: string; content: string }[];
+          if (entries.length === 0) return;
+          setProgressMap((prev) => {
+            const next = new Map(prev);
+            for (const { runId, content } of entries) {
+              next.set(runId, content);
+            }
+            return next;
+          });
+        });
       })
       .catch(() => {});
   }, []);
@@ -179,6 +200,12 @@ export function useWebSocket() {
               type: "RunCompleted",
               runId: msg.runId,
               status: msg.status,
+            });
+            setProgressMap((prev) => {
+              if (!prev.has(msg.runId)) return prev;
+              const next = new Map(prev);
+              next.delete(msg.runId);
+              return next;
             });
             break;
           case "run:progress":

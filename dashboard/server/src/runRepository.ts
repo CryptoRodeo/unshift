@@ -159,7 +159,7 @@ export class RunRepository {
       context: row.context_json ? JSON.parse(row.context_json) : undefined,
       prd: row.prd_json ? JSON.parse(row.prd_json) : [],
       logs: logs.map((l) => ({ phase: l.phase as RunPhase, line: l.line })),
-      retryCount: row.retry_count || undefined,
+      retryCount: row.retry_count ?? undefined,
       sourceRunId: row.source_run_id ?? undefined,
     };
   }
@@ -178,5 +178,4 @@ interface RunRow {
   prd_json: string | null;
   retry_count: number;
   source_run_id: string | null;
-  progress_txt: string | null;
 }

@@ -27,8 +27,7 @@ export function initDb(): Database.Database {
       context_json TEXT,
       prd_json TEXT,
       retry_count INTEGER NOT NULL DEFAULT 0,
-      source_run_id TEXT,
-      progress_txt TEXT
+      source_run_id TEXT
     );
 
     CREATE TABLE IF NOT EXISTS run_logs (

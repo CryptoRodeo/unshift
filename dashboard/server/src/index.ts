@@ -68,7 +68,8 @@ app.get("/api/runs/:id", (req, res) => {
 });
 
 app.get("/api/runs/:id/logs", (req, res) => {
-  const since = req.query.since ? parseInt(req.query.since as string, 10) : undefined;
+  const parsed = req.query.since ? parseInt(req.query.since as string, 10) : NaN;
+  const since = Number.isNaN(parsed) ? undefined : parsed;
   if (since !== undefined) {
     res.json(runner.getRunLogsSince(req.params.id, since));
   } else {
