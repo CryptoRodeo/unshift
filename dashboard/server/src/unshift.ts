@@ -172,14 +172,16 @@ export class UnshiftRunner extends EventEmitter {
       return { error: `Run is not in a terminal state (status: ${sourceRun.status})`, code: 'INVALID_STATE' };
     }
 
+    // If the run was stopped before context was built, start a fresh run
+    if (!sourceRun.context) {
+      return this.startRun(sourceRun.issueKey);
+    }
+
     if (this.activeIssueKeys.has(sourceRun.issueKey)) {
       return { error: `Issue ${sourceRun.issueKey} already has an active run`, code: 'CONFLICT' };
     }
 
     const contextData = sourceRun.context;
-    if (!contextData) {
-      return { error: "Source run has no context data to retry from", code: 'BAD_REQUEST' };
-    }
 
     const newId = randomUUID();
     const contextFile = `/tmp/unshift_context_${newId}.json`;
@@ -455,8 +457,10 @@ export class UnshiftRunner extends EventEmitter {
       const ctx = JSON.parse(raw);
       run.context = this.deserializeContext(ctx, run);
       this.emit("run:context", run.id, run.context);
-    } catch (err) {
-      console.warn(`Failed to read context file for run ${run.id} at ${contextPath}:`, err);
+    } catch (err: any) {
+      if (err?.code !== "ENOENT") {
+        console.warn(`Failed to read context file for run ${run.id} at ${contextPath}:`, err);
+      }
     }
   }
 
