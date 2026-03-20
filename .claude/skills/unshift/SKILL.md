@@ -143,7 +143,7 @@ Determine the commit prefix from the issue type:
 
 ```bash
 cd <repo_path>
-git add -A -- ':!prd.json' ':!progress.txt'
+git add -A -- ':!prd.json' ':!progress.txt' ':!ralph.sh'
 git commit -m "<prefix> <KEY> <concise-description>"
 ```
 
@@ -203,7 +203,7 @@ Use the Jira MCP tools:
 
 ```bash
 cd <repo_path>
-rm -f prd.json progress.txt
+rm -f prd.json progress.txt ralph.sh
 ```
 
 ## Summary
