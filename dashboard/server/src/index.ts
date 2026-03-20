@@ -76,8 +76,8 @@ app.post("/api/runs", async (req, res) => {
   }
 });
 
-app.post("/api/runs/:id/stop", (req, res) => {
-  runner.stopRun(req.params.id);
+app.post("/api/runs/:id/stop", async (req, res) => {
+  await runner.stopRun(req.params.id);
   res.json({ ok: true });
 });
 
@@ -86,8 +86,8 @@ app.post("/api/runs/:id/approve", (req, res) => {
   res.json(result);
 });
 
-app.post("/api/runs/:id/reject", (req, res) => {
-  const ok = runner.rejectRun(req.params.id);
+app.post("/api/runs/:id/reject", async (req, res) => {
+  const ok = await runner.rejectRun(req.params.id);
   res.json({ ok });
 });
 

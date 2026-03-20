@@ -195,7 +195,12 @@ export class UnshiftRunner extends EventEmitter {
     return run;
   }
 
-  stopRun(id: string): void {
+  async stopRun(id: string): Promise<void> {
+    const run = this.runs.get(id);
+    // Preserve context data before killing so retry can reuse it
+    if (run && !run.context) {
+      await this.readContextFile(run);
+    }
     const proc = this.processes.get(id);
     if (proc?.pid) {
       kill(proc.pid);
@@ -220,10 +225,14 @@ export class UnshiftRunner extends EventEmitter {
     return { ok: true };
   }
 
-  rejectRun(id: string): boolean {
+  async rejectRun(id: string): Promise<boolean> {
     const run = this.runs.get(id);
     const proc = this.processes.get(id);
     if (!run || run.status !== "awaiting_approval") return false;
+    // Preserve context data before cleanup so retry can reuse it
+    if (!run.context) {
+      await this.readContextFile(run);
+    }
     run.status = "rejected";
     run.completedAt = new Date().toISOString();
     this.emit("run:complete", run.id, "rejected");
