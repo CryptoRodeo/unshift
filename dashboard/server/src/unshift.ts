@@ -285,23 +285,29 @@ export class UnshiftRunner extends EventEmitter {
       for (const line of lines) handleLine(line);
     });
 
-    proc.on("close", async (code) => {
+    proc.on("close", (code) => {
       // Flush remaining buffered output
       if (stdoutBuf) handleLine(stdoutBuf);
       if (stderrBuf) handleLine(stderrBuf);
 
-      // Don't overwrite status if already set (e.g. rejected)
-      if (run.status !== "rejected") {
-        const status = code === 0 ? "success" : "failed";
-        // Preserve context before cleanup so retry can reuse it
-        if (status === "failed" && !run.context) {
-          await this.readContextFile(run);
+      const finish = () => {
+        // Don't overwrite status if already set (e.g. rejected)
+        if (run.status !== "rejected") {
+          const status = code === 0 ? "success" : "failed";
+          run.status = status;
+          run.completedAt = new Date().toISOString();
+          this.emit("run:complete", run.id, status);
         }
-        run.status = status;
-        run.completedAt = new Date().toISOString();
-        this.emit("run:complete", run.id, status);
+        this.cleanupRun(run.id);
+      };
+
+      // Preserve context before cleanup so retry can reuse it
+      const failed = code !== 0 && run.status !== "rejected";
+      if (failed && !run.context) {
+        this.readContextFile(run).catch(() => {}).finally(finish);
+      } else {
+        finish();
       }
-      this.cleanupRun(run.id);
     });
   }
 

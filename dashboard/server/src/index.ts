@@ -77,8 +77,13 @@ app.post("/api/runs", async (req, res) => {
 });
 
 app.post("/api/runs/:id/stop", async (req, res) => {
-  await runner.stopRun(req.params.id);
-  res.json({ ok: true });
+  try {
+    await runner.stopRun(req.params.id);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error("Failed to stop run:", err);
+    res.status(500).json({ ok: false, error: "Failed to stop run" });
+  }
 });
 
 app.post("/api/runs/:id/approve", (req, res) => {
@@ -87,8 +92,13 @@ app.post("/api/runs/:id/approve", (req, res) => {
 });
 
 app.post("/api/runs/:id/reject", async (req, res) => {
-  const ok = await runner.rejectRun(req.params.id);
-  res.json({ ok });
+  try {
+    const ok = await runner.rejectRun(req.params.id);
+    res.json({ ok });
+  } catch (err) {
+    console.error("Failed to reject run:", err);
+    res.status(500).json({ ok: false, error: "Failed to reject run" });
+  }
 });
 
 app.post("/api/runs/:id/retry", async (req, res) => {
