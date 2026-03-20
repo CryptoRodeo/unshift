@@ -204,6 +204,12 @@ export class UnshiftRunner extends EventEmitter {
     const proc = this.processes.get(id);
     if (proc?.pid) {
       kill(proc.pid);
+    } else if (run && !["success", "failed", "rejected"].includes(run.status)) {
+      // No process found — mark as failed and clean up so retry is possible
+      run.status = "failed";
+      run.completedAt = new Date().toISOString();
+      this.emit("run:complete", run.id, "failed");
+      this.cleanupRun(id);
     }
   }
 
@@ -388,8 +394,8 @@ export class UnshiftRunner extends EventEmitter {
         branchName: ctx.branch_name ?? run.branchName ?? "",
       };
       this.emit("run:context", run.id, run.context);
-    } catch {
-      // Context file may not exist yet or be unreadable; skip silently
+    } catch (err) {
+      console.warn(`Failed to read context file for run ${run.id} at ${contextPath}:`, err);
     }
   }
 

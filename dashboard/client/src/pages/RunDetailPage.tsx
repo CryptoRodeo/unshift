@@ -62,7 +62,7 @@ export function RunDetailPage() {
   }
 
   const isActive = !["success", "failed", "rejected"].includes(run.status);
-  const isTerminal = ["failed", "rejected", "success"].includes(run.status);
+  const isTerminal = ["failed", "rejected"].includes(run.status);
 
   const handleRetry = async () => {
     const result = await retryRun(run.id);
