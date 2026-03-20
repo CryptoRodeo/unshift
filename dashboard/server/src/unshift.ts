@@ -149,9 +149,8 @@ export class UnshiftRunner extends EventEmitter {
 
     const terminalStates: RunPhase[] = ["rejected", "failed"];
     const isTerminal = terminalStates.includes(sourceRun.status);
-    const hasActiveProcess = this.processes.has(id);
 
-    if (!isTerminal && hasActiveProcess) {
+    if (!isTerminal) {
       return { error: `Run is not in a terminal state (status: ${sourceRun.status})` };
     }
 
@@ -286,7 +285,7 @@ export class UnshiftRunner extends EventEmitter {
       for (const line of lines) handleLine(line);
     });
 
-    proc.on("close", (code) => {
+    proc.on("close", async (code) => {
       // Flush remaining buffered output
       if (stdoutBuf) handleLine(stdoutBuf);
       if (stderrBuf) handleLine(stderrBuf);
@@ -294,6 +293,10 @@ export class UnshiftRunner extends EventEmitter {
       // Don't overwrite status if already set (e.g. rejected)
       if (run.status !== "rejected") {
         const status = code === 0 ? "success" : "failed";
+        // Preserve context before cleanup so retry can reuse it
+        if (status === "failed" && !run.context) {
+          await this.readContextFile(run);
+        }
         run.status = status;
         run.completedAt = new Date().toISOString();
         this.emit("run:complete", run.id, status);

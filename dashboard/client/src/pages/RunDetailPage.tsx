@@ -30,6 +30,7 @@ export function RunDetailPage() {
   const run = runId ? runs.get(runId) : undefined;
   const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set());
   const [approveError, setApproveError] = useState<string | null>(null);
+  const [retryError, setRetryError] = useState<string | null>(null);
 
   const handleApprove = async () => {
     setApproveError(null);
@@ -65,9 +66,12 @@ export function RunDetailPage() {
   const isTerminal = ["failed", "rejected"].includes(run.status);
 
   const handleRetry = async () => {
+    setRetryError(null);
     const result = await retryRun(run.id);
     if (result.id) {
       navigate(`/runs/${result.id}`);
+    } else if (result.error) {
+      setRetryError(result.error);
     }
   };
 
@@ -98,6 +102,14 @@ export function RunDetailPage() {
           </FlexItem>
         </Flex>
       </PageSection>
+
+      {retryError && (
+        <PageSection>
+          <Alert variant="danger" title="Retry failed" isInline>
+            {retryError}
+          </Alert>
+        </PageSection>
+      )}
 
       <PageSection>
         <PhaseProgress status={run.status} />
