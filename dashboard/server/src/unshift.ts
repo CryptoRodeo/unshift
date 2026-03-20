@@ -199,17 +199,7 @@ export class UnshiftRunner extends EventEmitter {
     this.activeIssueKeys.set(sourceRun.issueKey, newId);
 
     // Write context file from source run's preserved context
-    const contextFileData: Record<string, string | undefined> = {
-      issue_key: contextData.issueKey,
-      summary: contextData.summary,
-      repo_path: contextData.repoPath,
-      branch_name: contextData.branchName,
-      description: contextData.description,
-      issue_type: contextData.issueType,
-      default_branch: contextData.defaultBranch,
-      host: contextData.host,
-      commit_prefix: contextData.commitPrefix,
-    };
+    const contextFileData = this.serializeContext(contextData);
     try {
       await writeFile(contextFile, JSON.stringify(contextFileData, null, 2));
     } catch (err) {
@@ -420,6 +410,34 @@ export class UnshiftRunner extends EventEmitter {
     }
   }
 
+  private serializeContext(ctx: RunContext): Record<string, string | undefined> {
+    return {
+      issue_key: ctx.issueKey,
+      summary: ctx.summary,
+      repo_path: ctx.repoPath,
+      branch_name: ctx.branchName,
+      description: ctx.description,
+      issue_type: ctx.issueType,
+      default_branch: ctx.defaultBranch,
+      host: ctx.host,
+      commit_prefix: ctx.commitPrefix,
+    };
+  }
+
+  private deserializeContext(raw: Record<string, unknown>, run: Run): RunContext {
+    return {
+      issueKey: (raw.issue_key as string) ?? run.issueKey,
+      summary: (raw.summary as string) ?? "",
+      repoPath: (raw.repo_path as string) ?? run.repoPath ?? "",
+      branchName: (raw.branch_name as string) ?? run.branchName ?? "",
+      description: raw.description as string | undefined,
+      issueType: raw.issue_type as string | undefined,
+      defaultBranch: raw.default_branch as string | undefined,
+      host: raw.host as string | undefined,
+      commitPrefix: raw.commit_prefix as string | undefined,
+    };
+  }
+
   private async readContextFile(run: Run): Promise<void> {
     const contextPath = this.contextFiles.get(run.id)
       ?? process.env.UNSHIFT_CONTEXT_FILE
@@ -427,17 +445,7 @@ export class UnshiftRunner extends EventEmitter {
     try {
       const raw = await readFile(contextPath, "utf-8");
       const ctx = JSON.parse(raw);
-      run.context = {
-        issueKey: ctx.issue_key ?? run.issueKey,
-        summary: ctx.summary ?? "",
-        repoPath: ctx.repo_path ?? run.repoPath ?? "",
-        branchName: ctx.branch_name ?? run.branchName ?? "",
-        description: ctx.description,
-        issueType: ctx.issue_type,
-        defaultBranch: ctx.default_branch,
-        host: ctx.host,
-        commitPrefix: ctx.commit_prefix,
-      };
+      run.context = this.deserializeContext(ctx, run);
       this.emit("run:context", run.id, run.context);
     } catch (err) {
       console.warn(`Failed to read context file for run ${run.id} at ${contextPath}:`, err);
