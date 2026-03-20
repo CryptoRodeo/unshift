@@ -134,17 +134,33 @@ curl -s -X POST \
   -d '{"body": "PR created: <PR_URL>"}'
 ```
 
-### 3. Add a comment with the contents of `prd.json` under the heading "Implementation Plan"
+### 3. Add implementation plan and execution log as PR/MR comments
 
-Read `prd.json` and format it as a comment. Use the same API version logic as step 2:
-- **API v3**: Wrap content in ADF format with a heading node ("Implementation Plan") followed by a codeBlock node containing the JSON.
-- **API v2**: Use plain text: `"## Implementation Plan\n<contents of prd.json>"`.
+Post the implementation plan and execution log as comments on the PR/MR (not on the Jira ticket).
 
-### 4. Add a comment with the contents of `progress.txt` under the heading "Execution Log"
+Read `prd.json` and `progress.txt`, then post them as separate comments on the PR/MR.
 
-Read `progress.txt` and format it as a comment. Use the same API version logic as step 2:
-- **API v3**: Wrap content in ADF format with a heading node ("Execution Log") followed by a codeBlock node containing the text.
-- **API v2**: Use plain text: `"## Execution Log\n<contents of progress.txt>"`.
+**GitHub** (host == "github"):
+```bash
+gh pr comment <branch_name> --body "## Implementation Plan
+\`\`\`json
+$(cat prd.json)
+\`\`\`"
+
+gh pr comment <branch_name> --body "## Execution Log
+$(cat progress.txt)"
+```
+
+**GitLab** (host == "gitlab"):
+```bash
+glab mr note <branch_name> --message "## Implementation Plan
+\`\`\`json
+$(cat prd.json)
+\`\`\`"
+
+glab mr note <branch_name> --message "## Execution Log
+$(cat progress.txt)"
+```
 
 ## Step 6: Cleanup
 
