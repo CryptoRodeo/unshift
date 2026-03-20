@@ -124,9 +124,15 @@ if [[ "$RETRY_MODE" == true ]]; then
 
   REPO_PATH="$(jq -r '.repo_path' "$CONTEXT_FILE")"
   BRANCH_NAME="$(jq -r '.branch_name' "$CONTEXT_FILE")"
+  DEFAULT_BRANCH="$(jq -r '.default_branch // empty' "$CONTEXT_FILE")"
 
   if [[ -z "$REPO_PATH" || "$REPO_PATH" == "null" ]]; then
     echo "Error: repo_path missing from context file." >&2
+    exit 1
+  fi
+
+  if [[ -z "$DEFAULT_BRANCH" ]]; then
+    echo "Error: default_branch missing from context file." >&2
     exit 1
   fi
 
@@ -134,11 +140,28 @@ if [[ "$RETRY_MODE" == true ]]; then
   cd "$REPO_PATH"
   git checkout "$BRANCH_NAME"
 
-  # Verify prd.json exists (completed entries are preserved so retry picks up where it left off)
-  if [[ ! -f "${REPO_PATH}/prd.json" ]]; then
+  # Reset branch to the merge-base with the default branch,
+  # undoing all Phase 2 implementation commits from the previous attempt.
+  # prd.json and progress.txt are untracked worktree files, so they survive the reset.
+  MERGE_BASE="$(git merge-base "$DEFAULT_BRANCH" HEAD)"
+  if [[ -z "$MERGE_BASE" ]]; then
+    echo "Error: Could not find merge-base between $DEFAULT_BRANCH and $BRANCH_NAME." >&2
+    exit 1
+  fi
+  echo "Resetting branch to merge-base with $DEFAULT_BRANCH: ${MERGE_BASE:0:12}" >&2
+  git reset --hard "$MERGE_BASE"
+
+  # Reset prd.json entries to incomplete so Phase 2 re-implements everything
+  if [[ -f "${REPO_PATH}/prd.json" ]]; then
+    jq '[.[] | .completed = false]' "${REPO_PATH}/prd.json" > "${REPO_PATH}/prd.json.tmp"
+    mv "${REPO_PATH}/prd.json.tmp" "${REPO_PATH}/prd.json"
+  else
     echo "Error: prd.json not found in ${REPO_PATH}." >&2
     exit 1
   fi
+
+  # Reset progress.txt for a fresh start
+  > "${REPO_PATH}/progress.txt"
 
   # Re-copy ralph.sh from the script directory
   RALPH_SRC="${SCRIPT_DIR}/ralph/ralph.sh"
@@ -149,17 +172,17 @@ if [[ "$RETRY_MODE" == true ]]; then
   cp "$RALPH_SRC" "${REPO_PATH}/ralph.sh"
   chmod +x "${REPO_PATH}/ralph.sh"
 
-  # Count incomplete entries and run Phase 2
-  INCOMPLETE_COUNT="$(jq '[.[] | select(.completed == false)] | length' "${REPO_PATH}/prd.json")"
+  # Count entries and run Phase 2
+  ENTRY_COUNT="$(jq 'length' "${REPO_PATH}/prd.json")"
 
   echo "--- Phase 2: Implementation (retry) for $ISSUE_KEY ---" >&2
 
-  if [[ "$INCOMPLETE_COUNT" -eq 0 ]]; then
-    echo "All prd.json entries already completed. Skipping Phase 2." >&2
+  if [[ "$ENTRY_COUNT" -eq 0 ]]; then
+    echo "prd.json has no entries. Nothing to implement." >&2
   else
-    echo "Running ralph.sh with ${INCOMPLETE_COUNT} iteration(s)..." >&2
+    echo "Running ralph.sh with ${ENTRY_COUNT} iteration(s)..." >&2
 
-    if ! ./ralph.sh --auto "$INCOMPLETE_COUNT"; then
+    if ! ./ralph.sh --auto "$ENTRY_COUNT"; then
       echo "Error: Phase 2 (ralph.sh) failed for $ISSUE_KEY." >&2
       RESULTS["$ISSUE_KEY"]="FAILED (Phase 2 - ralph.sh)"
     fi

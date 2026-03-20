@@ -35,6 +35,11 @@ export interface RunContext {
   summary: string;
   repoPath: string;
   branchName: string;
+  description?: string;
+  issueType?: string;
+  defaultBranch?: string;
+  host?: string;
+  commitPrefix?: string;
 }
 
 export interface Run {
@@ -182,11 +187,16 @@ export class UnshiftRunner extends EventEmitter {
     this.activeIssueKeys.set(sourceRun.issueKey, newId);
 
     // Write context file from source run's preserved context
-    const contextFileData = {
+    const contextFileData: Record<string, string | undefined> = {
       issue_key: contextData.issueKey,
       summary: contextData.summary,
       repo_path: contextData.repoPath,
       branch_name: contextData.branchName,
+      description: contextData.description,
+      issue_type: contextData.issueType,
+      default_branch: contextData.defaultBranch,
+      host: contextData.host,
+      commit_prefix: contextData.commitPrefix,
     };
     try {
       await writeFile(contextFile, JSON.stringify(contextFileData, null, 2));
@@ -410,6 +420,11 @@ export class UnshiftRunner extends EventEmitter {
         summary: ctx.summary ?? "",
         repoPath: ctx.repo_path ?? run.repoPath ?? "",
         branchName: ctx.branch_name ?? run.branchName ?? "",
+        description: ctx.description,
+        issueType: ctx.issue_type,
+        defaultBranch: ctx.default_branch,
+        host: ctx.host,
+        commitPrefix: ctx.commit_prefix,
       };
       this.emit("run:context", run.id, run.context);
     } catch (err) {
