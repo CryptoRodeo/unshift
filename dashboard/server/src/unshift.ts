@@ -5,68 +5,16 @@ import { readFile, writeFile, unlink } from "node:fs/promises";
 import path from "node:path";
 import kill from "tree-kill";
 
-export interface PrdEntry {
-  id: number;
-  category: string;
-  description: string;
-  steps: string[];
-  validation: string[];
-  completed: boolean;
-}
-
-export type RunPhase =
-  | "pending"
-  | "phase0"
-  | "phase1"
-  | "phase2"
-  | "awaiting_approval"
-  | "phase3"
-  | "success"
-  | "failed"
-  | "rejected";
-
-/** Runs that cannot be retried or acted upon */
-export const TERMINAL_STATES: readonly RunPhase[] = ["failed", "rejected"] as const;
-
-/** Runs that have finished (successfully or not) */
-export const COMPLETED_STATES: readonly RunPhase[] = ["success", "failed", "rejected"] as const;
-
-export interface LogEntry {
-  phase: RunPhase;
-  line: string;
-}
-
-export interface RunContext {
-  issueKey: string;
-  summary: string;
-  repoPath: string;
-  branchName: string;
-  description?: string;
-  issueType?: string;
-  defaultBranch?: string;
-  host?: string;
-  commitPrefix?: string;
-}
+export type { PrdEntry, RunPhase, LogEntry, RunContext, Run } from "../../shared/types";
+export { TERMINAL_STATES, COMPLETED_STATES } from "../../shared/types";
+import type { PrdEntry, RunPhase, LogEntry, RunContext, Run } from "../../shared/types";
+import { TERMINAL_STATES, COMPLETED_STATES } from "../../shared/types";
 
 export type RunErrorCode = 'NOT_FOUND' | 'CONFLICT' | 'BAD_REQUEST' | 'INVALID_STATE';
 
 export interface RunError {
   error: string;
   code: RunErrorCode;
-}
-
-export interface Run {
-  id: string;
-  issueKey: string;
-  status: RunPhase;
-  startedAt: string;
-  completedAt?: string;
-  repoPath?: string;
-  branchName?: string;
-  prUrl?: string;
-  context?: RunContext;
-  prd: PrdEntry[];
-  logs: LogEntry[];
 }
 
 /**
@@ -79,6 +27,7 @@ export class UnshiftRunner extends EventEmitter {
   private contextFiles = new Map<string, string>();
   /** Maps issueKey → owning runId to prevent duplicate runs */
   private activeIssueKeys = new Map<string, string>();
+  private stoppingRuns = new Set<string>();
 
   /** Path to unshift.sh - two directories up from server/src/ */
   private scriptPath: string;
@@ -229,12 +178,13 @@ export class UnshiftRunner extends EventEmitter {
     }
     const proc = this.processes.get(id);
     if (proc?.pid) {
+      this.stoppingRuns.add(id);
       kill(proc.pid);
     } else if (run && !COMPLETED_STATES.includes(run.status)) {
-      // No process found — mark as failed and clean up so retry is possible
-      run.status = "failed";
+      // No process found — mark as stopped and clean up so retry is possible
+      run.status = "stopped";
       run.completedAt = new Date().toISOString();
-      this.emit("run:complete", run.id, "failed");
+      this.emit("run:complete", run.id, "stopped");
       this.cleanupRun(id);
     }
   }
@@ -320,7 +270,8 @@ export class UnshiftRunner extends EventEmitter {
       const finish = () => {
         // Don't overwrite status if already set (e.g. rejected)
         if (run.status !== "rejected") {
-          const status = code === 0 ? "success" : "failed";
+          const wasStopped = this.stoppingRuns.delete(run.id);
+          const status = code === 0 ? "success" : wasStopped ? "stopped" : "failed";
           run.status = status;
           run.completedAt = new Date().toISOString();
           this.emit("run:complete", run.id, status);
@@ -346,7 +297,7 @@ export class UnshiftRunner extends EventEmitter {
     this.processes.delete(id);
     const contextFile = this.contextFiles.get(id);
     if (contextFile) {
-      // Only delete the context file on success; keep it for failed/rejected
+      // Only delete the context file on success; keep it for failed/stopped/rejected
       // runs so retry has a fallback if in-memory context was not captured
       if (run?.status === "success") {
         unlink(contextFile).catch(() => {});

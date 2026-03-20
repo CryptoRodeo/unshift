@@ -10,6 +10,7 @@ export function StatusLabel({ status }: { status: string }) {
     phase3: "blue",
     success: "green",
     failed: "red",
+    stopped: "orange",
     rejected: "red",
   };
 

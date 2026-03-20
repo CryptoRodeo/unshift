@@ -8,7 +8,7 @@ type RunsAction =
   | { type: "LogAppended"; runId: string; phase: RunPhase; line: string }
   | { type: "ContextUpdated"; runId: string; context: RunContext }
   | { type: "PrdUpdated"; runId: string; prd: PrdEntry[] }
-  | { type: "RunCompleted"; runId: string; status: "success" | "failed" | "rejected" };
+  | { type: "RunCompleted"; runId: string; status: Extract<WsMessage, { type: "run:complete" }>["status"] };
 
 function runsReducer(
   state: Map<string, Run>,
