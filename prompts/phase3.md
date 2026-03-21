@@ -19,7 +19,7 @@ Determine the conventional commit type from the `issue_type` field:
 - Story or Task → `feat`
 - Anything else → `chore`
 
-Write a concise commit message in conventional commit format. Do NOT copy the Jira summary verbatim — instead, write a short, lowercase description that captures the essence of the change.
+Write a concise commit message in conventional commit format. Do NOT copy the Jira summary verbatim  - instead, write a short, lowercase description that captures the essence of the change.
 
 ```bash
 git add -A -- ':!prd.json' ':!progress.txt' ':!ralph.sh'
@@ -38,7 +38,7 @@ git push origin <branch_name>
 
 Based on the `host` field:
 
-Use the same conventional commit type as Step 2 (`fix`, `feat`, or `chore` based on `issue_type`). The PR/MR title must be in conventional commit format with a concise summary — do NOT copy the Jira ticket title verbatim. Instead, write a short description that captures the intent of the changes.
+Use the same conventional commit type as Step 2 (`fix`, `feat`, or `chore` based on `issue_type`). The PR/MR title must be in conventional commit format with a concise summary  - do NOT copy the Jira ticket title verbatim. Instead, write a short description that captures the intent of the changes.
 
 **GitHub** (host == "github"):
 ```bash
@@ -81,11 +81,11 @@ Capture the PR/MR URL from the output.
 ## Step 5: Update Jira
 
 Use the Jira REST API via curl. Authentication uses environment variables already set by unshift.sh:
-- `JIRA_BASE_URL` — Jira instance URL (e.g. `https://mycompany.atlassian.net`)
-- `JIRA_USER_EMAIL` — user email (required for Basic auth)
-- `JIRA_API_TOKEN` — API token or PAT
-- `JIRA_AUTH_TYPE` — `basic` (default, Jira Cloud) or `bearer` (Data Center PATs)
-- `JIRA_API_VERSION` — `3` (default) or `2`
+- `JIRA_BASE_URL`  - Jira instance URL (e.g. `https://mycompany.atlassian.net`)
+- `JIRA_USER_EMAIL`  - user email (required for Basic auth)
+- `JIRA_API_TOKEN`  - API token or PAT
+- `JIRA_AUTH_TYPE`  - `basic` (default, Jira Cloud) or `bearer` (Data Center PATs)
+- `JIRA_API_VERSION`  - `3` (default) or `2`
 
 Build the auth header based on `JIRA_AUTH_TYPE`:
 - **basic**: `-u "${JIRA_USER_EMAIL}:${JIRA_API_TOKEN}"`

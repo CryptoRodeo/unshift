@@ -32,9 +32,9 @@ Each entry has: `jira_projects` (array of project keys), `component` (nullable),
 
 Match the issue's Jira project key to find the correct repository entry. An entry matches if the issue's project key is contained in its `jira_projects` array. When multiple entries match, disambiguate using these rules in order:
 
-1. **By component** — pick the entry whose `component` matches one of the issue's components.
-2. **By label** — if the issue has no matching component, check the issue's labels. Pick the entry whose `labels` array contains at least one label that also appears on the issue.
-3. **Fallback** — if neither component nor label narrows it down, pick the entry with `component: null` and an empty `labels` array.
+1. **By component**  - pick the entry whose `component` matches one of the issue's components.
+2. **By label**  - if the issue has no matching component, check the issue's labels. Pick the entry whose `labels` array contains at least one label that also appears on the issue.
+3. **Fallback**  - if neither component nor label narrows it down, pick the entry with `component: null` and an empty `labels` array.
 
 If no entry matches, fail with: "Could not determine repository for issue `<ISSUE_KEY>`."
 

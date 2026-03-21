@@ -5,7 +5,7 @@ disable-model-invocation: true
 argument-hint: "[optional-issue-key]"
 ---
 
-# Unshift — Jira-to-PR Automation
+# Unshift  - Jira-to-PR Automation
 
 You are running the unshift workflow: find Jira issues labeled `llm-candidate`, implement them, and open pull requests.
 
@@ -15,9 +15,9 @@ If `$ARGUMENTS` contains a Jira issue key (e.g. `PROJ-123`), process only that i
 
 The project-to-repository mapping is in `repos.json` at the repo root (`${CLAUDE_SKILL_DIR}/../../../repos.json`). Read it before starting. Each entry has:
 
-- `jira_projects` — array of Jira project keys
-- `component` — nullable, for disambiguation
-- `labels` — array, for disambiguation when component is null
+- `jira_projects`  - array of Jira project keys
+- `component`  - nullable, for disambiguation
+- `labels`  - array, for disambiguation when component is null
 - `repo_url`, `local_dir`, `default_branch`, `host` (GitHub or GitLab), `validation` (array of shell commands)
 
 **Matching rules** (in order):
@@ -147,7 +147,7 @@ git add -A -- ':!prd.json' ':!progress.txt' ':!ralph.sh'
 git commit -m "<prefix> <KEY> <concise-description>"
 ```
 
-Write a concise description — do NOT copy the Jira summary verbatim.
+Write a concise description  - do NOT copy the Jira summary verbatim.
 
 ### 3.3 Push and create PR
 
