@@ -1,6 +1,6 @@
 # Unshift
 
-An automation tool that picks up Jira issues labeled llm-candidate, implements them using Claude, and opens a pull request.
+An automation tool that picks up Jira issues labeled `llm-candidate`, implements them using Claude, and opens a pull request.
 
 > This project uses [Claude Code](https://docs.anthropic.com/en/docs/claude-code) as its runtime. All phases are executed via `claude -p` sessions, so a working Claude Code installation is required.
 
