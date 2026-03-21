@@ -6,25 +6,11 @@ An automation tool that picks up Jira issues labeled llm-candidate, implements t
 
 ## How it works
 
-Unshift uses a three-phase architecture orchestrated by `unshift.sh`:
+`unshift.sh` runs three phases, each in its own `claude -p` session:
 
-1. **Phase 1 (Planning)** - A `claude -p` session queries Jira via `acli` for `llm-candidate` issues, reads the issue details, maps it to the correct repository, creates a branch, and generates an implementation plan (`prd.json`).
-2. **Phase 2 (Implementation)** - `ralph.sh --auto <N>` executes the plan one entry at a time, each in an isolated `claude -p` session.
-3. **Phase 3 (Delivery)** - A `claude -p` session verifies all work is complete, commits, pushes, opens a PR, updates the Jira issue, and cleans up.
-
-Each phase runs in a separate Claude session with minimal context, keeping token usage low and focus tight.
-
-## Ralph loops and context minimization
-
-The implementation phase uses `ralph.sh` to run one `claude -p` invocation per `prd.json` entry. Each iteration:
-
-- Picks the next incomplete entry
-- Implements only that single entry
-- Runs validation commands from the entry
-- Records status in `progress.txt`
-- Marks the entry as completed (or logs failure)
-
-Because each iteration starts a fresh Claude session, there is no accumulated context from previous iterations. Token usage stays flat regardless of how many entries exist, and each entry gets the full context window for its implementation.
+1. **Plan** — Finds `llm-candidate` issues in Jira, maps them to a repo, creates a branch, and builds an implementation plan (`prd.json`).
+2. **Implement** — `ralph.sh` works through the plan one entry at a time, each in a fresh Claude session. This keeps token usage flat and gives every entry the full context window.
+3. **Deliver** — Commits, pushes, opens a PR, updates Jira, and cleans up.
 
 ## Quickstart
 ### Prefer Claude Code Skills?
