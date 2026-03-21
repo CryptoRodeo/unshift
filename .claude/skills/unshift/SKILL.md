@@ -169,7 +169,7 @@ gh pr create \
   --base <default_branch> \
   --head <branch-name> \
   --draft \
-  --label "llm-generated"
+  --label "llm-assisted"
 ```
 
 **GitLab** (`host` == "GitLab"):
@@ -185,7 +185,7 @@ glab mr create \
 <bulleted list from progress.txt>" \
   --target-branch <default_branch> \
   --draft \
-  --label "llm-generated" \
+  --label "llm-assisted" \
   --yes
 ```
 
