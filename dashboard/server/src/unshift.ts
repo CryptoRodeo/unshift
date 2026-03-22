@@ -168,7 +168,7 @@ export class UnshiftRunner extends EventEmitter {
       this.stoppingRuns.add(id);
       kill(proc.pid);
     } else if (run && !isCompleted(run.status)) {
-      // No process found — mark as stopped and clean up so retry is possible
+      // No process found  - mark as stopped and clean up so retry is possible
       run.status = "stopped";
       run.completedAt = new Date().toISOString();
       this.emit("run:complete", run.id, "stopped");
@@ -343,14 +343,14 @@ export class UnshiftRunner extends EventEmitter {
       }
     }
 
-    // Phase 2 complete — read final prd.json state
+    // Phase 2 complete  - read final prd.json state
     if (line.includes("Phase 2 complete")) {
       if (run.repoPath) {
         this.readPrdFile(run);
       }
     }
 
-    // Phase 3 — the script self-pauses (kill -STOP $$) after printing this line,
+    // Phase 3  - the script self-pauses (kill -STOP $$) after printing this line,
     // so we only need to transition to awaiting_approval. The dashboard sends
     // SIGCONT when the user approves.
     if (line.includes("Phase 3:")) {
