@@ -6,15 +6,14 @@ An automation tool that picks up Jira issues labeled `llm-candidate`, implements
 
 ## How it works
 
-`unshift.sh` runs three phases, each in its own `claude -p` session:
+`unshift.sh` runs four phases per issue:
 
-1. **Plan**  - Finds `llm-candidate` issues in Jira, maps them to a repo, creates a branch, and builds an implementation plan (`prd.json`).
-2. **Implement**  - `ralph.sh` works through the plan one entry at a time, each in a fresh Claude session. This keeps token usage flat and gives every entry the full context window.
-3. **Deliver**  - Commits, pushes, opens a PR, updates Jira, and cleans up.
+0. **Discover** - Queries the Jira REST API for issues labeled `llm-candidate`, checks required tools are installed, and determines which issues to process.
+1. **Plan** - Reads the Jira issue, maps it to a repo via `repos.json`, creates a branch, and generates an implementation plan (`prd.json`). Runs in its own `claude -p` session.
+2. **Implement** - `ralph.sh` works through the plan one entry at a time, each in a fresh `claude -p` session. If a validation step fails, it automatically retries once with the error context. This keeps token usage flat and gives every entry the full context window.
+3. **Deliver** - Commits, pushes, opens a PR, updates Jira, and cleans up. Runs in its own `claude -p` session. When started from the dashboard, the run pauses here for approval before proceeding.
 
 ## Quickstart
-### Prefer Claude Code Skills?
-We have a skill for this whole workflow. See [Claude Code Skill setup](#claude-code-skill-setup-unshift).
 
 ### 1. Install prerequisites
 
@@ -83,6 +82,8 @@ GH_TOKEN=ghp_...
 
 > **Vertex AI users:** You also need active GCP credentials (`gcloud auth application-default login`). Run `claude` then `/status` to confirm the provider shows "Google Vertex AI".
 
+See [Credentials Reference](#credentials-reference) for how to create each token and for Data Center configuration.
+
 ### 4. Edit the project-to-repository mapping
 
 Open `repos.json` in the repo root and replace the example entries with your own Jira projects and local repo paths.
@@ -106,70 +107,41 @@ Each entry is a JSON object with the following fields:
 ./unshift.sh
 ```
 
+You can also target a single issue or just list what's available:
+
+```bash
+./unshift.sh --issue PROJ-123   # process one issue
+./unshift.sh --discover         # list llm-candidate issues and exit
+./unshift.sh --retry --issue PROJ-123  # retry from prd.json (skips planning)
+```
+
+`--retry` resets the branch to its merge-base, marks all prd.json entries as incomplete, and re-runs Phase 2 and 3. It requires the `UNSHIFT_CONTEXT_FILE` env var to point at the context file from the original run.
+
 Or start a run from the dashboard instead (see "Dashboard" below):
 
 ```bash
 cd dashboard && npm install && npm run dev
 ```
 
-## Jira Integration
+## Credentials Reference
 
-Unshift interacts with Jira through the [Atlassian CLI (`acli`)](https://developer.atlassian.com/cloud/acli/), which is authenticated automatically by `init.sh`. Phase 0 discovery also uses a direct `curl` call to the Jira REST API.
+### Jira API token
 
-### Environment variables
+**Jira Cloud:** Create a token at [Atlassian API token management](https://id.atlassian.com/manage-profile/security/api-tokens). Use the email of the account that created the token as `JIRA_USER_EMAIL`.
 
-Set the following in your `.unshift.env` file (or export them in your shell):
+**Jira Data Center / Server:** Create a Personal Access Token from your Jira profile (Profile > Personal Access Tokens). Set `JIRA_AUTH_TYPE=bearer` and `JIRA_API_VERSION=2` in your `.unshift.env`. You do not need to set `JIRA_USER_EMAIL` when using bearer auth.
 
-| Variable | Purpose |
-|---|---|
-| `JIRA_BASE_URL` | Your Jira instance URL (e.g. `https://mycompany.atlassian.net`) |
-| `JIRA_USER_EMAIL` | Email associated with your Jira account (required for Basic auth; not needed for bearer) |
-| `JIRA_API_TOKEN` | API token for Phase 0 curl discovery and `acli` authentication |
-| `JIRA_AUTH_TYPE` | `basic` (Cloud, default) or `bearer` (Data Center PATs) |
-| `JIRA_API_VERSION` | `3` (Cloud, default) or `2` (Data Center) |
+### GitHub token (`GH_TOKEN`)
 
-### Creating a Jira API token
+Create a token with the **`repo`** scope (classic) or **Contents + Pull requests** read/write (fine-grained) at [GitHub token settings](https://github.com/settings/tokens). The `gh` CLI recognizes `GH_TOKEN` automatically -no separate `gh auth login` is needed.
 
-For **Jira Cloud**: Go to [Atlassian API token management](https://id.atlassian.com/manage-profile/security/api-tokens), click "Create API token", and copy the value. Use the email address of the Atlassian account that created the token as `JIRA_USER_EMAIL`.
+### GitLab token (`GITLAB_TOKEN`)
 
-For **Jira Data Center / Server**: Create a Personal Access Token from your Jira profile (Profile > Personal Access Tokens). Note that the REST API endpoint differs  - see the note below.
-
-> **Jira Data Center / Server note:** Set `JIRA_AUTH_TYPE=bearer` and `JIRA_API_VERSION=2` in your `.unshift.env`. Data Center uses Personal Access Tokens (Bearer auth) and the `/rest/api/2/search` endpoint. You do not need to set `JIRA_USER_EMAIL` when using bearer auth.
-
-## GitHub & GitLab Tokens
-
-Unshift uses the `gh` or `glab` CLI to open pull/merge requests. Each CLI expects a personal access token in a specific environment variable. You only need to configure the one that matches your repositories' `host` field in `repos.json`.
-
-### GitHub (`GH_TOKEN`)
-
-1. Go to [GitHub > Settings > Developer settings > Personal access tokens](https://github.com/settings/tokens).
-2. Click **Generate new token** (classic) or **Generate new token (fine-grained)**.
-3. For classic tokens, select the **`repo`** scope (full control of private repositories).
-   For fine-grained tokens, grant **Contents** (read/write) and **Pull requests** (read/write) on the target repositories.
-4. Copy the token and set it in your `.unshift.env`:
-
-```bash
-GH_TOKEN=ghp_...
-```
-
-The `gh` CLI recognizes `GH_TOKEN` automatically  - no separate `gh auth login` is needed.
-
-### GitLab (`GITLAB_TOKEN`)
-
-1. Go to **GitLab > Preferences > Access Tokens** (or `https://gitlab.com/-/user_settings/personal_access_tokens`).
-2. Click **Add new token**.
-3. Select the **`api`** scope (full API access, required for creating merge requests).
-4. Copy the token and set it in your `.unshift.env`:
-
-```bash
-GITLAB_TOKEN=glpat-...
-```
-
-The `glab` CLI recognizes `GITLAB_TOKEN` automatically  - no separate `glab auth login` is needed.
+Create a token with the **`api`** scope at [GitLab access tokens](https://gitlab.com/-/user_settings/personal_access_tokens). The `glab` CLI recognizes `GITLAB_TOKEN` automatically -no separate `glab auth login` is needed.
 
 ## Dashboard (optional)
 
-The `dashboard/` directory contains a web UI for monitoring unshift runs in real time. It is not required to use unshift  - the CLI works on its own.
+The `dashboard/` directory contains a web UI for monitoring unshift runs in real time. It is not required -the CLI works on its own.
 
 ### Setup
 
@@ -186,15 +158,13 @@ npm run dev
 
 This starts both the Express/WebSocket server and the Vite dev server using `concurrently`. The client is available at `http://localhost:5173` and the API server runs on `http://localhost:3000`.
 
-From the dashboard you can start and stop runs, view per-phase progress, and stream logs.
+From the dashboard you can start and stop runs, view per-phase progress, and stream logs. After Phase 2 completes, the run pauses for your approval. You can review the changes and then approve, reject, or retry before Phase 3 creates the PR.
 
-## Claude Code Skill setup (`/unshift`)
+## Claude Code Skill (`/unshift`)
 
 Unshift also ships as a Claude Code [custom skill](https://docs.anthropic.com/en/docs/claude-code/skills) that you can invoke inside any Claude Code session with `/unshift`. The skill uses Jira MCP tools directly (instead of `acli`) and runs the full Jira-to-PR workflow from within Claude Code.
 
-### Prerequisites
-
-The skill uses the `gh` or `glab` CLI to create pull/merge requests. Make sure the relevant CLI is installed and its token is configured  - see [Install prerequisites](#1-install-prerequisites) and [GitHub & GitLab Tokens](#github--gitlab-tokens).
+The skill uses the `gh` or `glab` CLI to create pull/merge requests -see [Install prerequisites](#1-install-prerequisites) and [Credentials Reference](#credentials-reference).
 
 ### Install the skill
 
@@ -206,23 +176,13 @@ curl -fsSL https://raw.githubusercontent.com/CryptoRodeo/unshift/main/.claude/sk
   -o .claude/skills/unshift/SKILL.md
 ```
 
-That's it  - Claude Code automatically discovers skills in `.claude/skills/`.
+Claude Code automatically discovers skills in `.claude/skills/`.
 
 ### Configure the Jira MCP server
 
-The skill communicates with Jira via the [Atlassian MCP server](https://mcp.atlassian.com).
+The skill communicates with Jira via the [Atlassian MCP server](https://support.atlassian.com/atlassian-rovo-mcp-server/docs/getting-started-with-the-atlassian-remote-mcp-server/).
 
-Add the MCP server:
-
-```bash
-claude mcp add --transport http jira https://mcp.atlassian.com/v1/mcp
-```
-
-#### Configure Auth
-
-Generate an API token. (see [Creating a Jira API token](#creating-a-jira-api-token))
-
-Add the following to your `.claude/settings.local.json` (this file should not be committed):
+Add the MCP server with your credentials in `.claude/settings.local.json` (this file should not be committed):
 
 ```json
 {
@@ -238,6 +198,14 @@ Add the following to your `.claude/settings.local.json` (this file should not be
 }
 ```
 
+To generate the Base64 value, run:
+
+```bash
+echo -n "you@company.com:your-jira-api-token" | base64
+```
+
+See [Credentials Reference](#credentials-reference) for how to get the token.
+
 ### Usage
 
 Inside a Claude Code session, run:
@@ -247,15 +215,15 @@ Inside a Claude Code session, run:
 /unshift PROJ-123     # process a specific issue
 ```
 
-The skill reads `repos.json` from this repo's root to map Jira projects to repositories. See the "Edit the project-to-repository mapping" section above for the schema.
+The skill reads `repos.json` from this repo's root to map Jira projects to repositories. See [Edit the project-to-repository mapping](#4-edit-the-project-to-repository-mapping) for the schema.
 
 ## File Reference
 
 | File | Location | Purpose |
 |---|---|---|
-| `unshift.sh` | This repo | Top-level orchestrator  - drives all three phases |
-| `ralph/ralph.sh` | This repo | Implementation loop  - one `claude -p` per prd.json entry |
-| `prompts/phase1.md` | This repo | Phase 1 prompt template for Jira discovery and planning |
+| `unshift.sh` | This repo | Top-level orchestrator  - drives all four phases |
+| `ralph/ralph.sh` | This repo | Implementation loop  - one `claude -p` per prd.json entry, with automatic retry on failure |
+| `prompts/phase1.md` | This repo | Phase 1 prompt template for repo setup and planning |
 | `prompts/phase3.md` | This repo | Phase 3 prompt template for PR creation and Jira update |
 | `init.sh` | This repo | Configures Claude Code permissions and authenticates `acli` |
 | `.claude/skills/unshift/SKILL.md` | This repo | Claude Code custom skill  - run `/unshift` inside a session |
