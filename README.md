@@ -160,6 +160,8 @@ This starts both the Express/WebSocket server and the Vite dev server using `con
 
 From the dashboard you can start and stop runs, view per-phase progress, and stream logs. After Phase 2 completes, the run pauses for your approval. You can review the changes and then approve, reject, or retry before Phase 3 creates the PR.
 
+Run history is stored in a local SQLite database (`dashboard/server/data/runs.db`) and persists across server restarts. Issues that already completed successfully are skipped automatically. To re-run a completed issue from the dashboard, use the force option.
+
 ## Claude Code Skill (`/unshift`)
 
 Unshift also ships as a Claude Code [custom skill](https://docs.anthropic.com/en/docs/claude-code/skills) that you can invoke inside any Claude Code session with `/unshift`. The skill uses Jira MCP tools directly (instead of `acli`) and runs the full Jira-to-PR workflow from within Claude Code.
@@ -229,3 +231,4 @@ The skill reads `repos.json` from this repo's root to map Jira projects to repos
 | `.claude/skills/unshift/SKILL.md` | This repo | Claude Code custom skill  - run `/unshift` inside a session |
 | `prd.json` | Target repo root (at runtime) | Implementation plan, created per issue, cleaned up after |
 | `progress.txt` | Target repo root (at runtime) | Append-only execution log, cleaned up after |
+| `runs.db` | `dashboard/server/data/` (at runtime) | SQLite database storing run history, logs, and progress |
