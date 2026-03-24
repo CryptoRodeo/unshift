@@ -1,8 +1,8 @@
 # Unshift
 
-An automation tool that picks up Jira issues labeled `llm-candidate`, implements them using Claude, and opens a pull request.
+Unshift turns Jira tickets into pull requests. It picks up issues labeled `llm-candidate`, writes the code with [Claude Code](https://docs.anthropic.com/en/docs/claude-code), and opens a PR — no manual coding required.
 
-> This project uses [Claude Code](https://docs.anthropic.com/en/docs/claude-code) as its runtime. All phases are executed via `claude -p` sessions, so a working Claude Code installation is required.
+> Claude Code is required. All phases run via `claude -p` sessions.
 
 ## How it works
 
