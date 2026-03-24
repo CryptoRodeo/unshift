@@ -22,12 +22,12 @@ export class UnshiftRunner extends EventEmitter {
   private stoppingRuns = new Set<string>();
   private repository = new RunRepository();
 
-  /** Path to unshift.sh - two directories up from server/src/ */
+  /** Path to unshift.sh in the cli/ directory */
   private scriptPath: string;
 
   constructor() {
     super();
-    this.scriptPath = process.env.UNSHIFT_SCRIPT_PATH ?? path.resolve(__dirname, "..", "..", "..", "unshift.sh");
+    this.scriptPath = process.env.UNSHIFT_SCRIPT_PATH ?? path.resolve(__dirname, "..", "..", "..", "cli", "unshift.sh");
 
     // Rebuild activeIssueKeys from DB for runs that survived a restart
     for (const run of this.repository.listRuns()) {

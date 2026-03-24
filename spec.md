@@ -4,9 +4,9 @@
 
 An LLM agent that picks up Jira issues labeled `llm-candidate`, implements the work in the corresponding repository, and opens a pull request, fully autonomously with no manual intervention.
 
-The workflow is orchestrated by `unshift.sh`, a shell script that drives four phases:
+The workflow is orchestrated by `cli/unshift.sh`, a shell script that drives four phases:
 
-1. **Phase 0** - Pre-flight checks and Jira discovery, handled directly by `unshift.sh` in bash (Steps 1-2)
+1. **Phase 0** - Pre-flight checks and Jira discovery, handled directly by `cli/unshift.sh` in bash (Steps 1-2)
 2. **Phase 1** - `claude -p` for reading the issue, repo setup, branch creation, and `prd.json` generation (Steps 3-5)
 3. **Phase 2** - `ralph.sh --auto <N>` for implementation, executing one `prd.json` entry per iteration in isolated Claude sessions (Step 6)
 4. **Phase 3** - `claude -p` for verification, commit, push, PR creation, Jira update, and cleanup (Steps 7-10)
@@ -17,14 +17,14 @@ Phase 0 runs once at startup. Phases 1-3 run per issue in a loop. Each `claude -
 
 ## Prerequisites
 
-- `acli` (Atlassian CLI) installed and configured (via `init.sh`)
+- `acli` (Atlassian CLI) installed and configured (via `cli/init.sh`)
 - `JIRA_BASE_URL`, `JIRA_USER_EMAIL`, and `JIRA_API_TOKEN` environment variables set (used by Phase 0 curl discovery and `acli` authentication)
 - `claude` CLI available on the host
 - `gh` CLI for GitHub repositories
 - `glab` CLI for GitLab repositories
 - `jq` for the installer to merge settings and for counting incomplete entries
 - Git credentials configured for push access to target repositories
-- The scripts installed via `init.sh`
+- The scripts installed via `cli/init.sh`
 
 ---
 
@@ -45,9 +45,9 @@ curl -s -u "${JIRA_USER_EMAIL}:${JIRA_API_TOKEN}" -H "Content-Type: application/
 ```
 
 - If no issues are returned, exit gracefully with a message: "No llm-candidate issues found."
-- Process ALL returned issues. The orchestrator (`unshift.sh`) collects all issue keys, then loops through each one, running Phase 1 → Phase 2 (ralph.sh) → Phase 3 per issue. If any phase fails for an issue, log the error and continue to the next issue. A summary of successes and failures is printed at the end.
+- Process ALL returned issues. The orchestrator (`cli/unshift.sh`) collects all issue keys, then loops through each one, running Phase 1 → Phase 2 (ralph.sh) → Phase 3 per issue. If any phase fails for an issue, log the error and continue to the next issue. A summary of successes and failures is printed at the end.
 
-> **Note:** Steps 1 and 2 are handled directly by `unshift.sh` in bash. No `claude -p` session is used.
+> **Note:** Steps 1 and 2 are handled directly by `cli/unshift.sh` in bash. No `claude -p` session is used.
 
 ### Step 3: Read the Jira issue details
 
@@ -151,7 +151,7 @@ Phase 1 also writes a context file (`/tmp/unshift_context.json`) consumed by lat
 
 Implementation is handled by `ralph.sh`, which runs in a loop, one `claude -p` invocation per `prd.json` entry. Each iteration is an isolated Claude session with a strict execution contract.
 
-`unshift.sh` copies `ralph.sh` into the target repo, counts incomplete entries via `jq`, and runs:
+`cli/unshift.sh` copies `ralph.sh` into the target repo, counts incomplete entries via `jq`, and runs:
 
 ```bash
 ./ralph.sh --auto <N>
@@ -282,10 +282,10 @@ rm -f prd.json progress.txt ralph.sh
 
 | Phase | Script / Tool | Steps | Description |
 |---|---|---|---|
-| Phase 0 | `unshift.sh` (bash directly) | 1-2 | Pre-flight checks, Jira discovery |
-| Phase 1 | `claude -p` with `prompts/phase1.md` | 3-5 | Read issue, repo setup, branch, prd.json |
-| Phase 2 | `ralph.sh --auto <N>` | 6 | Implementation loop (one claude -p per entry) |
-| Phase 3 | `claude -p` with `prompts/phase3.md` | 7-10 | Verify, commit, push, PR, Jira update, cleanup |
+| Phase 0 | `cli/unshift.sh` (bash directly) | 1-2 | Pre-flight checks, Jira discovery |
+| Phase 1 | `claude -p` with `cli/prompts/phase1.md` | 3-5 | Read issue, repo setup, branch, prd.json |
+| Phase 2 | `cli/ralph/ralph.sh --auto <N>` | 6 | Implementation loop (one claude -p per entry) |
+| Phase 3 | `claude -p` with `cli/prompts/phase3.md` | 7-10 | Verify, commit, push, PR, Jira update, cleanup |
 
 ---
 
@@ -316,7 +316,7 @@ Use the validation commands from the project mapping table. If none are listed, 
 
 The `dashboard/` directory contains a web UI for monitoring unshift runs in real time. It is a monorepo with two workspaces:
 
-- **`dashboard/server/`** - Express + WebSocket backend. Spawns `unshift.sh` as a subprocess, parses its stderr output to detect phase transitions and metadata (issue key, repo path, branch name), and broadcasts events to connected clients over WebSocket.
+- **`dashboard/server/`** - Express + WebSocket backend. Spawns `cli/unshift.sh` as a subprocess, parses its stderr output to detect phase transitions and metadata (issue key, repo path, branch name), and broadcasts events to connected clients over WebSocket.
 - **`dashboard/client/`** - React + Vite + PatternFly frontend. Displays a list of runs, per-run phase progress, PRD checklist, and streaming logs. Supports starting and stopping runs from the UI.
 
 ### WebSocket events
@@ -343,13 +343,13 @@ The `dashboard/` directory contains a web UI for monitoring unshift runs in real
 
 | File | Location | Purpose |
 |---|---|---|
-| `unshift.sh` | Repo root | Top-level orchestrator, drives all four phases |
-| `ralph/ralph.sh` | `ralph/` | Implementation loop, one `claude -p` per prd.json entry |
-| `prompts/phase1.md` | `prompts/` | Phase 1 prompt template for reading the issue and planning |
-| `prompts/phase3.md` | `prompts/` | Phase 3 prompt template for PR creation and Jira update |
-| `init.sh` | Repo root | Configures Claude Code permissions and authenticates `acli` |
+| `cli/unshift.sh` | `cli/` | Top-level orchestrator, drives all four phases |
+| `cli/ralph/ralph.sh` | `cli/ralph/` | Implementation loop, one `claude -p` per prd.json entry |
+| `cli/prompts/phase1.md` | `cli/prompts/` | Phase 1 prompt template for reading the issue and planning |
+| `cli/prompts/phase3.md` | `cli/prompts/` | Phase 3 prompt template for PR creation and Jira update |
+| `cli/init.sh` | `cli/` | Configures Claude Code permissions and authenticates `acli` |
 | `dashboard/server/src/index.ts` | `dashboard/server/` | Express + WebSocket server |
-| `dashboard/server/src/unshift.ts` | `dashboard/server/` | UnshiftRunner, spawns and parses unshift.sh |
+| `dashboard/server/src/unshift.ts` | `dashboard/server/` | UnshiftRunner, spawns and parses cli/unshift.sh |
 | `dashboard/client/src/` | `dashboard/client/` | React frontend (components, hooks, types) |
 | `prd.json` | Target repo root (at runtime) | Implementation plan, created per issue, cleaned up after |
 | `progress.txt` | Target repo root (at runtime) | Append-only execution log, cleaned up after |

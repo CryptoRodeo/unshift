@@ -6,7 +6,7 @@ An automation tool that picks up Jira issues labeled `llm-candidate`, implements
 
 ## How it works
 
-`unshift.sh` runs four phases per issue:
+Unshift runs four phases per issue:
 
 0. **Discover** - Queries the Jira REST API for issues labeled `llm-candidate`, checks required tools are installed, and determines which issues to process.
 1. **Plan** - Reads the Jira issue, maps it to a repo via `repos.yaml`, creates a branch, and generates an implementation plan (`prd.json`). Runs in its own `claude -p` session.
@@ -37,7 +37,7 @@ Git must be configured with push access to your target repositories (e.g. via SS
 ```bash
 git clone https://github.com/CryptoRodeo/unshift.git
 cd unshift
-./init.sh
+./cli/init.sh
 ```
 
 ### 3. Configure credentials
@@ -103,25 +103,39 @@ Each entry is a YAML object with the following fields:
 
 ### 5. Run
 
+#### Dashboard (recommended)
+
+The dashboard is a web UI for starting, monitoring, and approving unshift runs.
+
 ```bash
-./unshift.sh
+cd dashboard
+npm install
+npm run dev
+```
+
+This starts both the Express/WebSocket server and the Vite dev server using `concurrently`. The client is available at `http://localhost:5173` and the API server runs on `http://localhost:3000`.
+
+From the dashboard you can start and stop runs, view per-phase progress, and stream logs. After Phase 2 completes, the run pauses for your approval. You can review the changes and then approve, reject, or retry before Phase 3 creates the PR.
+
+Run history is stored in a local SQLite database (`dashboard/server/data/runs.db`) and persists across server restarts. Issues that already completed successfully are skipped automatically. To re-run a completed issue from the dashboard, use the force option.
+
+#### CLI (alternative)
+
+The `cli/` directory contains the shell-based orchestrator. It runs the same phases without a web UI.
+
+```bash
+./cli/unshift.sh
 ```
 
 You can also target a single issue or just list what's available:
 
 ```bash
-./unshift.sh --issue PROJ-123   # process one issue
-./unshift.sh --discover         # list llm-candidate issues and exit
-./unshift.sh --retry --issue PROJ-123  # retry from prd.json (skips planning)
+./cli/unshift.sh --issue PROJ-123   # process one issue
+./cli/unshift.sh --discover         # list llm-candidate issues and exit
+./cli/unshift.sh --retry --issue PROJ-123  # retry from prd.json (skips planning)
 ```
 
 `--retry` resets the branch to its merge-base, marks all prd.json entries as incomplete, and re-runs Phase 2 and 3. It requires the `UNSHIFT_CONTEXT_FILE` env var to point at the context file from the original run.
-
-Or start a run from the dashboard instead (see "Dashboard" below):
-
-```bash
-cd dashboard && npm install && npm run dev
-```
 
 ## Credentials Reference
 
@@ -138,29 +152,6 @@ Create a token with the **`repo`** scope (classic) or **Contents + Pull requests
 ### GitLab token (`GITLAB_TOKEN`)
 
 Create a token with the **`api`** scope at [GitLab access tokens](https://gitlab.com/-/user_settings/personal_access_tokens). The `glab` CLI recognizes `GITLAB_TOKEN` automatically -no separate `glab auth login` is needed.
-
-## Dashboard (optional)
-
-The `dashboard/` directory contains a web UI for monitoring unshift runs in real time. It is not required -the CLI works on its own.
-
-### Setup
-
-```bash
-cd dashboard
-npm install
-```
-
-### Run in development mode
-
-```bash
-npm run dev
-```
-
-This starts both the Express/WebSocket server and the Vite dev server using `concurrently`. The client is available at `http://localhost:5173` and the API server runs on `http://localhost:3000`.
-
-From the dashboard you can start and stop runs, view per-phase progress, and stream logs. After Phase 2 completes, the run pauses for your approval. You can review the changes and then approve, reject, or retry before Phase 3 creates the PR.
-
-Run history is stored in a local SQLite database (`dashboard/server/data/runs.db`) and persists across server restarts. Issues that already completed successfully are skipped automatically. To re-run a completed issue from the dashboard, use the force option.
 
 ## Claude Code Skill (`/unshift`)
 
@@ -223,12 +214,14 @@ The skill reads `repos.yaml` from this repo's root to map Jira projects to repos
 
 | File | Location | Purpose |
 |---|---|---|
-| `unshift.sh` | This repo | Top-level orchestrator  - drives all four phases |
-| `ralph/ralph.sh` | This repo | Implementation loop  - one `claude -p` per prd.json entry, with automatic retry on failure |
-| `prompts/phase1.md` | This repo | Phase 1 prompt template for repo setup and planning |
-| `prompts/phase3.md` | This repo | Phase 3 prompt template for PR creation and Jira update |
-| `init.sh` | This repo | Configures Claude Code permissions and authenticates `acli` |
-| `.claude/skills/unshift/SKILL.md` | This repo | Claude Code custom skill  - run `/unshift` inside a session |
+| `dashboard/` | Root | Web UI for starting, monitoring, and approving runs |
+| `cli/unshift.sh` | `cli/` | Shell orchestrator  - drives all four phases |
+| `cli/ralph/ralph.sh` | `cli/` | Implementation loop  - one `claude -p` per prd.json entry, with automatic retry on failure |
+| `cli/prompts/phase1.md` | `cli/` | Phase 1 prompt template for repo setup and planning |
+| `cli/prompts/phase3.md` | `cli/` | Phase 3 prompt template for PR creation and Jira update |
+| `cli/init.sh` | `cli/` | Configures Claude Code permissions and authenticates `acli` |
+| `.claude/skills/unshift/SKILL.md` | Root | Claude Code custom skill  - run `/unshift` inside a session |
+| `repos.yaml` | Root | Project-to-repository mapping (shared by dashboard and CLI) |
 | `prd.json` | Target repo root (at runtime) | Implementation plan, created per issue, cleaned up after |
 | `progress.txt` | Target repo root (at runtime) | Append-only execution log, cleaned up after |
 | `runs.db` | `dashboard/server/data/` (at runtime) | SQLite database storing run history, logs, and progress |

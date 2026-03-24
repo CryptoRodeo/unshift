@@ -95,6 +95,98 @@ fi
 # Shared helpers
 # ---------------------------------------------------------------------------
 
+# Convert repos.yaml to JSON using python3+PyYAML or yq.
+repos_to_json() {
+  local yaml_file="$1"
+  if command -v python3 &>/dev/null && python3 -c "import yaml" 2>/dev/null; then
+    python3 -c "import yaml, json, sys; print(json.dumps(yaml.safe_load(open(sys.argv[1]))))" "$yaml_file"
+  elif command -v yq &>/dev/null; then
+    yq -o=json '.' "$yaml_file"
+  else
+    echo "Error: Need python3 with PyYAML or yq to parse repos.yaml." >&2
+    return 1
+  fi
+}
+
+# Resolve the repo entry for a given Jira issue key.
+# Parses repos.yaml, fetches issue components/labels from Jira, and applies
+# disambiguation rules: component → label → fallback.
+# Outputs a single JSON object for the matched entry.
+resolve_repo() {
+  local issue_key="$1"
+  local project_key="${issue_key%%-*}"
+
+  # Fetch issue components and labels from Jira
+  local issue_url
+  if [[ "$JIRA_API_VERSION" == "2" ]]; then
+    issue_url="${JIRA_BASE_URL}/rest/api/2/issue/${issue_key}?fields=components,labels"
+  else
+    issue_url="${JIRA_BASE_URL}/rest/api/3/issue/${issue_key}?fields=components,labels"
+  fi
+
+  local issue_json
+  issue_json="$(curl -s "${CURL_AUTH[@]}" -H "Content-Type: application/json" "$issue_url")"
+
+  local issue_components issue_labels
+  issue_components="$(echo "$issue_json" | jq '[.fields.components[].name] // []')"
+  issue_labels="$(echo "$issue_json" | jq '[.fields.labels[]] // []')"
+
+  # Parse repos.yaml to JSON
+  local repos_json
+  repos_json="$(repos_to_json "${SCRIPT_DIR}/../repos.yaml")" || return 1
+
+  # Find entries whose jira_projects contain the issue's project key
+  local matching
+  matching="$(echo "$repos_json" | jq --arg pk "$project_key" \
+    '[.[] | select(.jira_projects | index($pk))]')"
+
+  local match_count
+  match_count="$(echo "$matching" | jq 'length')"
+
+  if [[ "$match_count" -eq 0 ]]; then
+    echo "Error: No repo entry found for project key $project_key (issue $issue_key)." >&2
+    return 1
+  fi
+
+  if [[ "$match_count" -eq 1 ]]; then
+    echo "$matching" | jq '.[0]'
+    return 0
+  fi
+
+  # Disambiguate: match by component
+  local by_component
+  by_component="$(jq -n --argjson matching "$matching" --argjson components "$issue_components" \
+    '[$matching[] | select(.component != null and (.component as $c | $components | index($c) != null))]')"
+
+  if [[ "$(echo "$by_component" | jq 'length')" -eq 1 ]]; then
+    echo "$by_component" | jq '.[0]'
+    return 0
+  fi
+
+  # Disambiguate: match by label
+  local by_label
+  by_label="$(jq -n --argjson matching "$matching" --argjson labels "$issue_labels" \
+    '[$matching[] | select((.labels // []) as $el | [$el[] | select(. as $l | $labels | index($l) != null)] | length > 0)]')"
+
+  if [[ "$(echo "$by_label" | jq 'length')" -eq 1 ]]; then
+    echo "$by_label" | jq '.[0]'
+    return 0
+  fi
+
+  # Fallback: entry with null component and empty labels
+  local fallback
+  fallback="$(jq -n --argjson matching "$matching" \
+    '[$matching[] | select((.component == null) and ((.labels // []) | length == 0))]')"
+
+  if [[ "$(echo "$fallback" | jq 'length')" -eq 1 ]]; then
+    echo "$fallback" | jq '.[0]'
+    return 0
+  fi
+
+  echo "Error: Could not disambiguate repo for $issue_key. ${match_count} entries match project $project_key." >&2
+  return 1
+}
+
 # Copy ralph.sh into the target repo. Exits on failure.
 copy_ralph() {
   local repo_path="$1"
@@ -337,6 +429,19 @@ for ISSUE_KEY in "${ISSUE_KEYS[@]}"; do
   rm -f "$CONTEXT_FILE"
 
   # -----------------------------------------------------------------------
+  # Repo resolution (deterministic, done in bash)
+  # -----------------------------------------------------------------------
+  echo "" >&2
+  echo "--- Resolving repo for $ISSUE_KEY ---" >&2
+
+  MATCHED_REPO="$(resolve_repo "$ISSUE_KEY")" || {
+    RESULTS["$ISSUE_KEY"]="FAILED (repo resolution)"
+    continue
+  }
+
+  echo "Matched repo: $(echo "$MATCHED_REPO" | jq -r '.local_dir')" >&2
+
+  # -----------------------------------------------------------------------
   # Phase 1 - Repo setup, branch creation, planning
   # -----------------------------------------------------------------------
   echo "" >&2
@@ -346,9 +451,8 @@ for ISSUE_KEY in "${ISSUE_KEYS[@]}"; do
   PHASE1_PROMPT="${PHASE1_PROMPT//CONTEXT_FILE_PATH/$CONTEXT_FILE}"
   PHASE1_PROMPT="${PHASE1_PROMPT//ISSUE_KEY_VALUE/$ISSUE_KEY}"
 
-  # Inject repos.yaml contents into the prompt
-  REPO_MAPPING="$(cat "${SCRIPT_DIR}/repos.yaml")"
-  PHASE1_PROMPT="${PHASE1_PROMPT//REPO_MAPPING/$REPO_MAPPING}"
+  # Inject the resolved repo entry as JSON
+  PHASE1_PROMPT="${PHASE1_PROMPT//RESOLVED_REPO_JSON/$MATCHED_REPO}"
 
   if ! claude -p --permission-mode bypassPermissions "$PHASE1_PROMPT"; then
     echo "Error: Phase 1 failed for $ISSUE_KEY. Skipping to next issue." >&2
