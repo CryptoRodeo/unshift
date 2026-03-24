@@ -333,38 +333,7 @@ export class UnshiftRunner extends EventEmitter {
 
     this.processes.set(run.id, proc);
 
-    let lastContextEmit = 0;
-    let pendingContextTokens: number | undefined;
-
-    const handleLine = (line: string) => {
-      this.parseLine(run, line);
-      this.repository.appendLog(run.id, run.status, line);
-      this.emit("run:log", run.id, line, run.status);
-
-      const tokenUpdate = parseTokenLine(line);
-      if (tokenUpdate) {
-        // Track contextTokens separately (transient, not persisted)
-        if (tokenUpdate.contextTokens != null) {
-          pendingContextTokens = tokenUpdate.contextTokens;
-        }
-
-        const tokens = this.repository.updateTokens(run.id, tokenUpdate);
-
-        // Attach transient contextTokens to the emitted data
-        const tokensWithContext = pendingContextTokens != null
-          ? { ...tokens, contextTokens: pendingContextTokens }
-          : tokens;
-
-        // Throttle context-only updates to at most once per second
-        const now = Date.now();
-        if (tokenUpdate.contextTokens != null && !tokenUpdate.inputTokens && !tokenUpdate.outputTokens && !tokenUpdate.totalCostUsd) {
-          if (now - lastContextEmit < 1000) return;
-          lastContextEmit = now;
-        }
-
-        this.emit("run:tokens", run.id, tokensWithContext);
-      }
-    };
+    const handleLine = this.createLineHandler(run);
 
     let stdoutBuf = "";
     proc.stdout?.on("data", (chunk: Buffer) => {
@@ -386,37 +355,7 @@ export class UnshiftRunner extends EventEmitter {
       // Flush remaining buffered output
       if (stdoutBuf) handleLine(stdoutBuf);
       if (stderrBuf) handleLine(stderrBuf);
-
-      const finish = () => {
-        // Don't overwrite status if already set (e.g. rejected, stopped)
-        const currentRun = this.repository.getRun(run.id);
-        const currentStatus = currentRun?.status ?? run.status;
-        if (!isCompleted(currentStatus)) {
-          const wasStopping = this.stoppingRuns.delete(run.id);
-          const status = wasStopping ? "stopped" : code === 0 ? "success" : "failed";
-          const completedAt = new Date().toISOString();
-          this.repository.updateRunStatus(run.id, status, completedAt);
-          this.emit("run:complete", run.id, status);
-        } else {
-          this.stoppingRuns.delete(run.id);
-        }
-        this.cleanupRun(run.id, run.issueKey);
-      };
-
-      // Capture progress.txt before cleanup
-      const captureAndFinish = () => {
-        this.readProgressFile(run).catch(() => {}).finally(finish);
-      };
-
-      // Preserve context before cleanup so retry can reuse it
-      const currentRun = this.repository.getRun(run.id);
-      const closingStatus = currentRun?.status ?? run.status;
-      const failed = code !== 0 && !isCompleted(closingStatus);
-      if (failed && !run.context) {
-        this.readContextFile(run).catch(() => {}).finally(captureAndFinish);
-      } else {
-        captureAndFinish();
-      }
+      this.handleProcessExit(run, code ?? 1);
     });
   }
 
@@ -427,11 +366,91 @@ export class UnshiftRunner extends EventEmitter {
 
     this.ptyRuns.add(run.id);
 
+    let lineBuf = "";
+    const handleLine = this.createLineHandler(run);
+
+    const ptyTerm = this.ptyManager.spawn(
+      run.id,
+      "bash",
+      args,
+      path.dirname(this.scriptPath),
+      { UNSHIFT_CONTEXT_FILE: contextFile },
+    );
+
+    // Listen for PTY output — emit terminal data and parse lines for log/phase tracking
+    const onOutput = (id: string, data: string) => {
+      if (id !== run.id) return;
+      this.emit("terminal:output", run.id, data);
+
+      // Parse lines for the log pipeline
+      lineBuf += data;
+      const lines = lineBuf.split("\n");
+      lineBuf = lines.pop()!;
+      for (const line of lines) {
+        // Strip ANSI escape sequences for log parsing
+        handleLine(stripAnsi(line));
+      }
+    };
+    this.ptyManager.on("output", onOutput);
+
+    const onExit = (id: string, exitCode: number) => {
+      if (id !== run.id) return;
+      // Remove listeners to prevent accumulation across runs
+      this.ptyManager.removeListener("output", onOutput);
+      this.ptyManager.removeListener("exit", onExit);
+      // Flush remaining line buffer
+      if (lineBuf) {
+        handleLine(stripAnsi(lineBuf));
+        lineBuf = "";
+      }
+      this.handleProcessExit(run, exitCode, () => this.ptyRuns.delete(run.id));
+    };
+    this.ptyManager.on("exit", onExit);
+  }
+
+  /** Common handler for process close/exit — captures context & progress, finalizes status, and cleans up */
+  private handleProcessExit(run: Run, exitCode: number, extraCleanup?: () => void): void {
+    const finish = () => {
+      const currentRun = this.repository.getRun(run.id);
+      const currentStatus = currentRun?.status ?? run.status;
+      if (!isCompleted(currentStatus)) {
+        const wasStopping = this.stoppingRuns.delete(run.id);
+        const status = wasStopping ? "stopped" : exitCode === 0 ? "success" : "failed";
+        const completedAt = new Date().toISOString();
+        this.repository.updateRunStatus(run.id, status, completedAt);
+        this.emit("run:complete", run.id, status);
+      } else {
+        this.stoppingRuns.delete(run.id);
+      }
+      extraCleanup?.();
+      this.cleanupRun(run.id, run.issueKey);
+    };
+
+    const captureAndFinish = () => {
+      this.readProgressFile(run).catch(() => {}).finally(finish);
+    };
+
+    const currentRun = this.repository.getRun(run.id);
+    const closingStatus = currentRun?.status ?? run.status;
+    const failed = exitCode !== 0 && !isCompleted(closingStatus);
+    if (failed && !run.context) {
+      this.readContextFile(run).catch(() => {}).finally(captureAndFinish);
+    } else {
+      captureAndFinish();
+    }
+  }
+
+  /** Check if a run is using PTY mode */
+  hasPty(id: string): boolean {
+    return this.ptyRuns.has(id);
+  }
+
+  /** Create a line handler for a run that parses phases, logs, and token updates */
+  private createLineHandler(run: Run): (line: string) => void {
     let lastContextEmit = 0;
     let pendingContextTokens: number | undefined;
-    let lineBuf = "";
 
-    const handleLine = (line: string) => {
+    return (line: string) => {
       this.parseLine(run, line);
       this.repository.appendLog(run.id, run.status, line);
       this.emit("run:log", run.id, line, run.status);
@@ -453,72 +472,6 @@ export class UnshiftRunner extends EventEmitter {
         this.emit("run:tokens", run.id, tokensWithContext);
       }
     };
-
-    const ptyTerm = this.ptyManager.spawn(
-      run.id,
-      "bash",
-      args,
-      path.dirname(this.scriptPath),
-      { UNSHIFT_CONTEXT_FILE: contextFile },
-    );
-
-    // Listen for PTY output — emit terminal data and parse lines for log/phase tracking
-    this.ptyManager.on("output", (id: string, data: string) => {
-      if (id !== run.id) return;
-      this.emit("terminal:output", run.id, data);
-
-      // Parse lines for the log pipeline
-      lineBuf += data;
-      const lines = lineBuf.split("\n");
-      lineBuf = lines.pop()!;
-      for (const line of lines) {
-        // Strip ANSI escape sequences for log parsing
-        handleLine(stripAnsi(line));
-      }
-    });
-
-    this.ptyManager.on("exit", (id: string, exitCode: number) => {
-      if (id !== run.id) return;
-      // Flush remaining line buffer
-      if (lineBuf) {
-        handleLine(stripAnsi(lineBuf));
-        lineBuf = "";
-      }
-
-      const finish = () => {
-        const currentRun = this.repository.getRun(run.id);
-        const currentStatus = currentRun?.status ?? run.status;
-        if (!isCompleted(currentStatus)) {
-          const wasStopping = this.stoppingRuns.delete(run.id);
-          const status = wasStopping ? "stopped" : exitCode === 0 ? "success" : "failed";
-          const completedAt = new Date().toISOString();
-          this.repository.updateRunStatus(run.id, status, completedAt);
-          this.emit("run:complete", run.id, status);
-        } else {
-          this.stoppingRuns.delete(run.id);
-        }
-        this.ptyRuns.delete(run.id);
-        this.cleanupRun(run.id, run.issueKey);
-      };
-
-      const captureAndFinish = () => {
-        this.readProgressFile(run).catch(() => {}).finally(finish);
-      };
-
-      const currentRun = this.repository.getRun(run.id);
-      const closingStatus = currentRun?.status ?? run.status;
-      const failed = exitCode !== 0 && !isCompleted(closingStatus);
-      if (failed && !run.context) {
-        this.readContextFile(run).catch(() => {}).finally(captureAndFinish);
-      } else {
-        captureAndFinish();
-      }
-    });
-  }
-
-  /** Check if a run is using PTY mode */
-  hasPty(id: string): boolean {
-    return this.ptyRuns.has(id);
   }
 
   private cleanupRun(id: string, issueKey: string): void {

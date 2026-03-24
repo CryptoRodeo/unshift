@@ -18,6 +18,7 @@ export function LiveTerminal({ runId, isActive, fullScreen }: LiveTerminalProps)
   const rafBufferRef = useRef<string[]>([]);
   const rafIdRef = useRef<number | null>(null);
   const historyCompleteRef = useRef(false);
+  const isActiveRef = useRef(isActive);
   const [connected, setConnected] = useState(false);
 
   const flushBuffer = useCallback(() => {
@@ -102,9 +103,9 @@ export function LiveTerminal({ runId, isActive, fullScreen }: LiveTerminalProps)
       }
     };
 
-    // Send terminal input to server
+    // Send terminal input to server (only when run is active)
     term.onData((data) => {
-      if (ws.readyState === WebSocket.OPEN) {
+      if (ws.readyState === WebSocket.OPEN && isActiveRef.current) {
         ws.send(JSON.stringify({ type: "terminal:input", runId, data }));
       }
     });
@@ -136,6 +137,18 @@ export function LiveTerminal({ runId, isActive, fullScreen }: LiveTerminalProps)
       wsRef.current = null;
     };
   }, [runId, flushBuffer]);
+
+  // When isActive transitions to false, show a banner and disable input
+  const prevActiveRef = useRef(isActive);
+  useEffect(() => {
+    if (prevActiveRef.current && !isActive && termRef.current) {
+      termRef.current.write("\r\n\x1b[33m── Terminal session ended ──\x1b[0m\r\n");
+    }
+    prevActiveRef.current = isActive;
+  }, [isActive]);
+
+  // Keep isActiveRef in sync so the useEffect closure sees the latest value
+  isActiveRef.current = isActive;
 
   const handlePopOut = () => {
     const url = `/terminal/${runId}`;

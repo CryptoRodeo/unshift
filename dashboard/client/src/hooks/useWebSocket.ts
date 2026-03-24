@@ -131,6 +131,7 @@ export function useWebSocket() {
   const backoffRef = useRef(1000);
   const [runs, dispatch] = useReducer(runsReducer, new Map<string, Run>());
   const [connected, setConnected] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [progressMap, setProgressMap] = useState<Map<string, string>>(new Map());
   const onRunEventRef = useRef<RunEventCallback | null>(null);
   const runsRef = useRef(runs);
@@ -141,6 +142,7 @@ export function useWebSocket() {
       .then((res) => res.json())
       .then((existing: Run[]) => {
         dispatch({ type: "BulkLoad", runs: existing });
+        setLoading(false);
 
         const activeRuns = existing.filter((r) => !isTerminal(r.status));
         Promise.all(
@@ -162,7 +164,9 @@ export function useWebSocket() {
           });
         });
       })
-      .catch(() => {});
+      .catch(() => {
+        setLoading(false);
+      });
   }, []);
 
   useEffect(() => {
@@ -190,7 +194,12 @@ export function useWebSocket() {
 
       ws.onmessage = (event) => {
         if (unmounted) return;
-        const msg: WsMessage = JSON.parse(event.data);
+        let msg: WsMessage;
+        try {
+          msg = JSON.parse(event.data);
+        } catch {
+          return;
+        }
 
         switch (msg.type) {
           case "run:created":
@@ -371,6 +380,7 @@ export function useWebSocket() {
 
   return {
     runs,
+    loading,
     connected,
     startRun,
     startRunForIssue,

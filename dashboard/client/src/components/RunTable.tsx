@@ -6,14 +6,13 @@ import { StatusLabel } from "./StatusLabel";
 import { useElapsedTime } from "../hooks/useElapsedTime";
 import type { Run } from "../types";
 import { PHASE_LABELS } from "../types";
-import { formatCost, formatTokenCount } from "../../../shared/pricing";
 import { getRepoName } from "../hooks/useRunFilters";
 
 interface RunTableProps {
   runs: Run[];
 }
 
-type SortableField = "issueKey" | "status" | "startedAt" | "duration" | "cost";
+type SortableField = "issueKey" | "status" | "startedAt" | "duration";
 
 const COLUMNS: { title: string; field: SortableField }[] = [
   { title: "Issue", field: "issueKey" },
@@ -21,7 +20,6 @@ const COLUMNS: { title: string; field: SortableField }[] = [
   { title: "Phase", field: "status" },
   { title: "Repo", field: "issueKey" },
   { title: "Duration", field: "duration" },
-  { title: "Cost", field: "cost" },
   { title: "Started", field: "startedAt" },
 ];
 
@@ -30,13 +28,9 @@ function getDuration(run: Run): number {
   return end - Date.parse(run.startedAt);
 }
 
-function getCost(run: Run): number {
-  return run.tokens?.totalCostUsd ?? 0;
-}
-
 export function RunTable({ runs }: RunTableProps) {
   const navigate = useNavigate();
-  const [sortBy, setSortBy] = useState<ISortBy>({ index: 6, direction: "desc" });
+  const [sortBy, setSortBy] = useState<ISortBy>({ index: 5, direction: "desc" });
 
   const sorted = useMemo(() => {
     if (sortBy.index === undefined || !sortBy.direction) return runs;
@@ -55,15 +49,13 @@ export function RunTable({ runs }: RunTableProps) {
           return dir * (Date.parse(a.startedAt) - Date.parse(b.startedAt));
         case "duration":
           return dir * (getDuration(a) - getDuration(b));
-        case "cost":
-          return dir * (getCost(a) - getCost(b));
         default:
           return 0;
       }
     });
   }, [runs, sortBy]);
 
-  const sortableIndices = [0, 1, 4, 5, 6]; // Issue, Status, Duration, Cost, Started
+  const sortableIndices = [0, 1, 4, 5]; // Issue, Status, Duration, Started
 
   return (
     <Table aria-label="Runs table" variant="compact">
@@ -107,7 +99,6 @@ function RunRow({ run, onClick }: { run: Run; onClick: () => void }) {
       <Td dataLabel="Phase">{PHASE_LABELS[run.status] ?? run.status}</Td>
       <Td dataLabel="Repo">{repo ?? "—"}</Td>
       <Td dataLabel="Duration">{elapsed}</Td>
-      <Td dataLabel="Cost">{run.tokens ? formatCost(run.tokens.totalCostUsd) : "—"}</Td>
       <Td dataLabel="Started">{new Date(run.startedAt).toLocaleString()}</Td>
     </Tr>
   );

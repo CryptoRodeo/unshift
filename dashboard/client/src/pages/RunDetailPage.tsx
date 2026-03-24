@@ -12,25 +12,26 @@ import {
   CardTitle,
   CardBody,
   Alert,
+  Tooltip,
+  Spinner,
+  EmptyState,
 } from "@patternfly/react-core";
 import { ArrowLeftIcon, RedoIcon, TrashIcon, ExternalLinkAltIcon, TerminalIcon } from "@patternfly/react-icons";
 import { useWebSocket } from "../hooks/useWebSocket";
 import { isTerminal, isCompleted, isRunError } from "../types";
 import type { Run } from "../types";
-import { formatCost, formatTokenCount } from "../../../shared/pricing";
 import { PhaseProgress } from "../components/PhaseProgress";
 import { StatusLabel } from "../components/StatusLabel";
 import { RunDetailsCard } from "../components/RunDetailsCard";
 import { RunLogsCard } from "../components/RunLogsCard";
 import { RunContextCard } from "../components/RunContextCard";
 import { PrdStatusCard } from "../components/PrdStatusCard";
-import { ContextProgressBar } from "../components/ContextProgressBar";
 import { LiveTerminal } from "../components/LiveTerminal";
 
 export function RunDetailPage() {
   const { runId } = useParams<{ runId: string }>();
   const navigate = useNavigate();
-  const { runs, stopRun, approveRun, rejectRun, retryRun, deleteRun, openInEditor, fetchRunLogs, fetchProgress, fetchRunHistory, progressMap, startRunForIssue } = useWebSocket();
+  const { runs, loading, stopRun, approveRun, rejectRun, retryRun, deleteRun, openInEditor, fetchRunLogs, fetchProgress, fetchRunHistory, progressMap, startRunForIssue } = useWebSocket();
 
   const run = runId ? runs.get(runId) : undefined;
   const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set());
@@ -82,6 +83,14 @@ export function RunDetailPage() {
       });
     }
   }, [run?.status]);
+
+  if (!run && loading) {
+    return (
+      <PageSection>
+        <EmptyState titleText="Loading run…" headingLevel="h3" icon={Spinner} />
+      </PageSection>
+    );
+  }
 
   if (!run) {
     return (
@@ -164,13 +173,19 @@ export function RunDetailPage() {
           </FlexItem>
           <FlexItem>
             <Flex gap={{ default: "gapMd" }}>
-              <Button
-                variant={showTerminal ? "primary" : "secondary"}
-                icon={<TerminalIcon />}
-                onClick={() => setShowTerminal((v) => !v)}
+              <Tooltip
+                content="Terminal session ended with the run"
+                trigger={!isActive ? "mouseenter focus" : "manual"}
               >
-                {showTerminal ? "Hide Terminal" : "Attach Terminal"}
-              </Button>
+                <Button
+                  variant={showTerminal ? "primary" : "secondary"}
+                  icon={<TerminalIcon />}
+                  onClick={() => setShowTerminal((v) => !v)}
+                  isDisabled={!isActive && !showTerminal}
+                >
+                  {!isActive ? "Terminal (ended)" : showTerminal ? "Hide Terminal" : "Attach Terminal"}
+                </Button>
+              </Tooltip>
               {run.repoPath && (
                 <Button variant="secondary" icon={<ExternalLinkAltIcon />} onClick={handleOpenEditor}>
                   Open in Editor
@@ -227,15 +242,6 @@ export function RunDetailPage() {
 
       <PageSection>
         <PhaseProgress status={run.status} phaseTimestamps={run.phaseTimestamps} completedAt={run.completedAt} />
-        {isActive && run.tokens?.contextTokens != null && run.tokens.contextTokens > 0 && (
-          <div style={{ marginTop: "1rem" }}>
-            <ContextProgressBar
-              contextTokens={run.tokens.contextTokens}
-              model={run.tokens.model}
-              isActive={isActive}
-            />
-          </div>
-        )}
       </PageSection>
 
       {run.context && (
@@ -302,33 +308,6 @@ export function RunDetailPage() {
         <Grid hasGutter>
           <GridItem span={4}>
             <RunDetailsCard run={run} />
-            {run.tokens && (run.tokens.inputTokens > 0 || run.tokens.outputTokens > 0) && (
-              <Card style={{ marginTop: "1rem" }}>
-                <CardTitle>Token Usage</CardTitle>
-                <CardBody>
-                  <dl style={{ display: "grid", gridTemplateColumns: "auto 1fr", gap: "0.25rem 1rem", margin: 0 }}>
-                    {run.tokens.model && (
-                      <>
-                        <dt>Model</dt>
-                        <dd>{run.tokens.model}</dd>
-                      </>
-                    )}
-                    <dt>Input Tokens</dt>
-                    <dd>{formatTokenCount(run.tokens.inputTokens)}</dd>
-                    <dt>Output Tokens</dt>
-                    <dd>{formatTokenCount(run.tokens.outputTokens)}</dd>
-                    <dt>Cache Read</dt>
-                    <dd>{formatTokenCount(run.tokens.cacheReadTokens)}</dd>
-                    <dt>Cache Creation</dt>
-                    <dd>{formatTokenCount(run.tokens.cacheCreationTokens)}</dd>
-                    <dt>Total Tokens</dt>
-                    <dd>{formatTokenCount(run.tokens.inputTokens + run.tokens.outputTokens + run.tokens.cacheReadTokens + run.tokens.cacheCreationTokens)}</dd>
-                    <dt>Estimated Cost</dt>
-                    <dd><strong>{formatCost(run.tokens.totalCostUsd)}</strong></dd>
-                  </dl>
-                </CardBody>
-              </Card>
-            )}
             {run.retryCount != null && run.retryCount > 0 && (
               <Card style={{ marginTop: "1rem" }}>
                 <CardTitle>Retry Info</CardTitle>

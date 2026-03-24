@@ -15,8 +15,10 @@ import {
   FlexItem,
   EmptyState,
   EmptyStateBody,
+  Spinner,
   Alert,
   AlertActionCloseButton,
+  AlertGroup,
   Tooltip,
   ToggleGroup,
   ToggleGroupItem,
@@ -34,7 +36,6 @@ import { RunTable } from "./RunTable";
 import { StatusLabel } from "./StatusLabel";
 import type { Run } from "../types";
 import { PHASE_LABELS } from "../types";
-import { formatCost, formatTokenCount } from "../../../shared/pricing";
 
 interface StartRunSummary {
   started: number;
@@ -83,9 +84,9 @@ const STATUS_LABELS: Record<string, string> = {
 };
 
 export function DashboardPage() {
-  const { runs, connected, startRun, setOnRunEvent } = useWebSocket();
+  const { runs, loading, connected, startRun, setOnRunEvent } = useWebSocket();
   const navigate = useNavigate();
-  const { permission, requestPermission, notify } = useNotifications();
+  const { permission, requestPermission, notify, toasts, dismissToast } = useNotifications();
   const filters = useRunFilters();
   const [isStarting, setIsStarting] = useState(false);
   const [startRunSummary, setStartRunSummary] = useState<StartRunSummary | null>(null);
@@ -96,9 +97,11 @@ export function DashboardPage() {
   const handleRunEvent = useCallback(
     (event: { runId: string; issueKey: string; status: string }) => {
       const label = STATUS_LABELS[event.status] ?? event.status;
+      const isApproval = event.status === "awaiting_approval";
       notify(`${event.issueKey}: ${label}`, {
         body: `Run ${event.issueKey} is now ${label}`,
         onClick: () => navigate(`/runs/${event.runId}`),
+        force: isApproval,
       });
     },
     [notify, navigate]
@@ -139,6 +142,22 @@ export function DashboardPage() {
 
   return (
     <>
+      {toasts.length > 0 && (
+        <AlertGroup isToast isLiveRegion>
+          {toasts.map((t) => (
+            <Alert
+              key={t.id}
+              variant={t.variant}
+              title={t.title}
+              actionClose={<AlertActionCloseButton onClose={() => dismissToast(t.id)} />}
+              onClick={t.onClick}
+              style={t.onClick ? { cursor: "pointer" } : undefined}
+            >
+              {t.body}
+            </Alert>
+          ))}
+        </AlertGroup>
+      )}
       <PageSection>
         <Toolbar>
           <ToolbarContent>
@@ -257,7 +276,9 @@ export function DashboardPage() {
       )}
 
       <PageSection isFilled>
-        {runList.length === 0 ? (
+        {loading ? (
+          <EmptyState titleText="Loading runs…" headingLevel="h3" icon={Spinner} />
+        ) : runList.length === 0 ? (
           <EmptyState titleText="No runs yet" headingLevel="h3">
             <EmptyStateBody>
               Click <strong>Start run</strong> to process llm-candidate Jira
@@ -328,9 +349,6 @@ function RunCard({ run, onClick }: { run: Run; onClick: () => void }) {
             <small>
               Started {new Date(run.startedAt).toLocaleString()} &middot; {elapsed}
               {PHASE_LABELS[run.status] && ` \u00b7 ${PHASE_LABELS[run.status]}`}
-              {run.tokens && run.tokens.totalCostUsd > 0 && (
-                <> &middot; {formatCost(run.tokens.totalCostUsd)} &middot; {formatTokenCount(run.tokens.inputTokens + run.tokens.outputTokens)} tokens</>
-              )}
             </small>
           </FlexItem>
         </Flex>

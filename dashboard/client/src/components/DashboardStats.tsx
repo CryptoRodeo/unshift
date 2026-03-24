@@ -8,7 +8,6 @@ import {
 } from "@patternfly/react-core";
 import type { Run } from "../types";
 import { COMPLETED_STATES } from "../types";
-import { formatCost, formatTokenCount } from "../../../shared/pricing";
 import type { StatusFilter } from "../hooks/useRunFilters";
 
 interface DashboardStatsProps {
@@ -29,9 +28,6 @@ export function DashboardStats({ runs, onStatusClick }: DashboardStatsProps) {
     let awaiting = 0;
     let succeeded = 0;
     let failed = 0;
-    let totalCost = 0;
-    let totalTokens = 0;
-
     for (const run of runs) {
       if (run.status === "awaiting_approval") {
         awaiting++;
@@ -42,13 +38,9 @@ export function DashboardStats({ runs, onStatusClick }: DashboardStatsProps) {
       } else if (!COMPLETED_STATES.has(run.status)) {
         active++;
       }
-      if (run.tokens) {
-        totalCost += run.tokens.totalCostUsd;
-        totalTokens += run.tokens.inputTokens + run.tokens.outputTokens;
-      }
     }
 
-    return { total: runs.length, active, awaiting, succeeded, failed, totalCost, totalTokens };
+    return { total: runs.length, active, awaiting, succeeded, failed };
   }, [runs]);
 
   const items: StatItem[] = [
@@ -57,8 +49,6 @@ export function DashboardStats({ runs, onStatusClick }: DashboardStatsProps) {
     { label: "Awaiting", value: stats.awaiting, filterKey: "awaiting_approval", color: "var(--pf-t--global--color--status--warning--default)" },
     { label: "Succeeded", value: stats.succeeded, filterKey: "succeeded", color: "var(--pf-t--global--color--status--success--default)" },
     { label: "Failed", value: stats.failed, filterKey: "failed", color: "var(--pf-t--global--color--status--danger--default)" },
-    { label: "Cost", value: formatCost(stats.totalCost), filterKey: null },
-    { label: "Tokens", value: formatTokenCount(stats.totalTokens), filterKey: null },
   ];
 
   return (
