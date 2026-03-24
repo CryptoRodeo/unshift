@@ -18,6 +18,8 @@ export class UnshiftRunner extends EventEmitter {
   private contextFiles = new Map<string, string>();
   /** Maps issueKey → owning runId to prevent duplicate runs */
   private activeIssueKeys = new Map<string, string>();
+  /** Tracks runs that are being gracefully stopped so the close handler uses "stopped" instead of "failed" */
+  private stoppingRuns = new Set<string>();
   private repository = new RunRepository();
 
   /** Path to unshift.sh - two directories up from server/src/ */
@@ -229,12 +231,6 @@ export class UnshiftRunner extends EventEmitter {
       // Mark as stopping; the process `close` handler will finalize status to "stopped"
       this.stoppingRuns.add(id);
       kill(proc.pid);
-    } else if (run && !isCompleted(run.status)) {
-      // No process found  - mark as stopped and clean up so retry is possible
-      run.status = "stopped";
-      run.completedAt = new Date().toISOString();
-      this.emit("run:complete", run.id, "stopped");
-      kill(proc.pid);
     } else if (!isCompleted(run.status)) {
       // No process found — mark as stopped and clean up so retry is possible
       const completedAt = new Date().toISOString();
@@ -328,10 +324,13 @@ export class UnshiftRunner extends EventEmitter {
         const currentRun = this.repository.getRun(run.id);
         const currentStatus = currentRun?.status ?? run.status;
         if (!isCompleted(currentStatus)) {
-          const status = code === 0 ? "success" : "failed";
+          const wasStopping = this.stoppingRuns.delete(run.id);
+          const status = wasStopping ? "stopped" : code === 0 ? "success" : "failed";
           const completedAt = new Date().toISOString();
           this.repository.updateRunStatus(run.id, status, completedAt);
           this.emit("run:complete", run.id, status);
+        } else {
+          this.stoppingRuns.delete(run.id);
         }
         this.cleanupRun(run.id, run.issueKey);
       };
