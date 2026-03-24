@@ -1,6 +1,6 @@
 import type Database from "better-sqlite3";
 import { getDb } from "./db";
-import type { Run, RunPhase, PrdEntry, LogEntry } from "../../shared/types";
+import type { Run, RunPhase, PrdEntry, LogEntry, TokenData } from "../../shared/types";
 
 export class RunRepository {
   private db: Database.Database | null = null;
@@ -33,6 +33,13 @@ export class RunRepository {
       saveProgressTxt: db.prepare(`INSERT OR REPLACE INTO run_progress (run_id, content) VALUES (?, ?)`),
       getProgressTxt: db.prepare(`SELECT content FROM run_progress WHERE run_id = ?`),
       savePrdJson: db.prepare(`UPDATE runs SET prd_json = ? WHERE id = ?`),
+      deleteRunLogs: db.prepare(`DELETE FROM run_logs WHERE run_id = ?`),
+      deleteRunProgress: db.prepare(`DELETE FROM run_progress WHERE run_id = ?`),
+      deleteRun: db.prepare(`DELETE FROM runs WHERE id = ?`),
+      getPhaseTimestamps: db.prepare(`SELECT phase_timestamps_json FROM runs WHERE id = ?`),
+      updatePhaseTimestamps: db.prepare(`UPDATE runs SET phase_timestamps_json = ? WHERE id = ?`),
+      getTokens: db.prepare(`SELECT input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens, model FROM runs WHERE id = ?`),
+      updateTokens: db.prepare(`UPDATE runs SET input_tokens = ?, output_tokens = ?, cache_read_tokens = ?, cache_creation_tokens = ?, model = ? WHERE id = ?`),
     };
   }
 
@@ -146,6 +153,59 @@ export class RunRepository {
     return rows.map((r) => ({ id: r.id, phase: r.phase as RunPhase, line: r.line }));
   }
 
+  updateTokens(id: string, delta: { inputTokens?: number; outputTokens?: number; cacheReadTokens?: number; cacheCreationTokens?: number; model?: string }): TokenData {
+    const s = this.ensureInit();
+    const row = s.getTokens.get(id) as TokenRow | undefined;
+    const current = {
+      inputTokens: row?.input_tokens ?? 0,
+      outputTokens: row?.output_tokens ?? 0,
+      cacheReadTokens: row?.cache_read_tokens ?? 0,
+      cacheCreationTokens: row?.cache_creation_tokens ?? 0,
+      model: delta.model ?? row?.model ?? undefined,
+    };
+    const updated = {
+      inputTokens: current.inputTokens + (delta.inputTokens ?? 0),
+      outputTokens: current.outputTokens + (delta.outputTokens ?? 0),
+      cacheReadTokens: current.cacheReadTokens + (delta.cacheReadTokens ?? 0),
+      cacheCreationTokens: current.cacheCreationTokens + (delta.cacheCreationTokens ?? 0),
+      model: current.model,
+    };
+    s.updateTokens.run(updated.inputTokens, updated.outputTokens, updated.cacheReadTokens, updated.cacheCreationTokens, updated.model ?? null, id);
+    return { ...updated };
+  }
+
+  getTokens(id: string): TokenData | undefined {
+    const s = this.ensureInit();
+    const row = s.getTokens.get(id) as TokenRow | undefined;
+    if (!row) return undefined;
+    return {
+      inputTokens: row.input_tokens ?? 0,
+      outputTokens: row.output_tokens ?? 0,
+      cacheReadTokens: row.cache_read_tokens ?? 0,
+      cacheCreationTokens: row.cache_creation_tokens ?? 0,
+      model: row.model ?? undefined,
+    };
+  }
+
+  updatePhaseTimestamp(id: string, phase: string, timestamp: string): void {
+    const s = this.ensureInit();
+    const row = s.getPhaseTimestamps.get(id) as { phase_timestamps_json: string | null } | undefined;
+    const existing: Record<string, string> = row?.phase_timestamps_json ? JSON.parse(row.phase_timestamps_json) : {};
+    existing[phase] = timestamp;
+    s.updatePhaseTimestamps.run(JSON.stringify(existing), id);
+  }
+
+  deleteRun(id: string): boolean {
+    const s = this.ensureInit();
+    const deleteAll = this.db!.transaction(() => {
+      s.deleteRunLogs.run(id);
+      s.deleteRunProgress.run(id);
+      return s.deleteRun.run(id);
+    });
+    const result = deleteAll();
+    return result.changes > 0;
+  }
+
   private rowToRun(row: RunRow, logs: { phase: string; line: string }[]): Run {
     return {
       id: row.id,
@@ -161,8 +221,26 @@ export class RunRepository {
       logs: logs.map((l) => ({ phase: l.phase as RunPhase, line: l.line })),
       retryCount: row.retry_count ?? undefined,
       sourceRunId: row.source_run_id ?? undefined,
+      phaseTimestamps: row.phase_timestamps_json ? JSON.parse(row.phase_timestamps_json) : undefined,
+      tokens: (row.input_tokens || row.output_tokens || row.cache_read_tokens || row.cache_creation_tokens)
+        ? {
+            inputTokens: row.input_tokens ?? 0,
+            outputTokens: row.output_tokens ?? 0,
+            cacheReadTokens: row.cache_read_tokens ?? 0,
+            cacheCreationTokens: row.cache_creation_tokens ?? 0,
+            model: row.model ?? undefined,
+          }
+        : undefined,
     };
   }
+}
+
+interface TokenRow {
+  input_tokens: number | null;
+  output_tokens: number | null;
+  cache_read_tokens: number | null;
+  cache_creation_tokens: number | null;
+  model: string | null;
 }
 
 interface RunRow {
@@ -178,4 +256,10 @@ interface RunRow {
   prd_json: string | null;
   retry_count: number;
   source_run_id: string | null;
+  phase_timestamps_json: string | null;
+  input_tokens: number | null;
+  output_tokens: number | null;
+  cache_read_tokens: number | null;
+  cache_creation_tokens: number | null;
+  model: string | null;
 }

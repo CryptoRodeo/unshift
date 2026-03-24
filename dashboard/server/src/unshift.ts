@@ -8,6 +8,8 @@ import kill from "tree-kill";
 import type { RunContext, Run, RunError, PrdEntry, LogEntry, RunPhase } from "../../shared/types";
 import { isTerminal, isCompleted, isRunError } from "../../shared/types";
 import { RunRepository } from "./runRepository";
+import { parseTokenLine } from "./tokenParser";
+import { PtyManager } from "./ptyManager";
 
 /**
  * Spawns one `unshift.sh --issue <KEY>` per Jira ticket, each as its own Run
@@ -21,13 +23,16 @@ export class UnshiftRunner extends EventEmitter {
   /** Tracks runs that are being gracefully stopped so the close handler uses "stopped" instead of "failed" */
   private stoppingRuns = new Set<string>();
   private repository = new RunRepository();
+  readonly ptyManager = new PtyManager();
+  /** Set of run IDs using PTY mode */
+  private ptyRuns = new Set<string>();
 
-  /** Path to unshift.sh - two directories up from server/src/ */
+  /** Path to unshift.sh in the cli/ directory */
   private scriptPath: string;
 
   constructor() {
     super();
-    this.scriptPath = process.env.UNSHIFT_SCRIPT_PATH ?? path.resolve(__dirname, "..", "..", "..", "unshift.sh");
+    this.scriptPath = process.env.UNSHIFT_SCRIPT_PATH ?? path.resolve(__dirname, "..", "..", "..", "cli", "unshift.sh");
 
     // Rebuild activeIssueKeys from DB for runs that survived a restart
     for (const run of this.repository.listRuns()) {
@@ -109,7 +114,12 @@ export class UnshiftRunner extends EventEmitter {
     this.activeIssueKeys.set(run.issueKey, run.id);
     this.contextFiles.set(run.id, contextFile);
     this.emit("run:created", run);
-    this.spawn(run, contextFile, retry);
+    // Use PTY mode by default for terminal emulation; disable with UNSHIFT_NO_PTY=1
+    if (process.env.UNSHIFT_NO_PTY === "1") {
+      this.spawn(run, contextFile, retry);
+    } else {
+      this.spawnWithPty(run, contextFile, retry);
+    }
     return run;
   }
 
@@ -226,6 +236,15 @@ export class UnshiftRunner extends EventEmitter {
     if (!run.context) {
       await this.readContextFile(run);
     }
+    // Handle PTY-based runs
+    if (this.ptyRuns.has(id)) {
+      const pid = this.ptyManager.getPid(id);
+      if (pid) {
+        this.stoppingRuns.add(id);
+        kill(pid);
+      }
+      return;
+    }
     const proc = this.processes.get(id);
     if (proc?.pid) {
       // Mark as stopping; the process `close` handler will finalize status to "stopped"
@@ -244,17 +263,32 @@ export class UnshiftRunner extends EventEmitter {
     const run = this.repository.getRun(id);
     if (!run) return { error: "Run not found", code: "NOT_FOUND" };
     if (run.status !== "awaiting_approval") return { error: `Run is not awaiting approval (status: ${run.status})`, code: "INVALID_STATE" };
-    const proc = this.processes.get(id);
-    if (!proc?.pid) return { error: "Process not found or has no PID", code: "INVALID_STATE" };
+    // Resolve PID from either PTY or child_process
+    const pid = this.ptyRuns.has(id) ? this.ptyManager.getPid(id) : this.processes.get(id)?.pid;
+    if (!pid) return { error: "Process not found or has no PID", code: "INVALID_STATE" };
     try {
-      process.kill(-proc.pid, "SIGCONT");
+      process.kill(-pid, "SIGCONT");
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      console.error(`Failed to send SIGCONT to process group -${proc.pid}: ${msg}`);
+      console.error(`Failed to send SIGCONT to process group -${pid}: ${msg}`);
       return { error: `Failed to resume process: ${msg}`, code: "INVALID_STATE" };
     }
+    const ts = new Date().toISOString();
     this.repository.updateRunStatus(run.id, "phase3");
-    this.emit("run:phase", run.id, "phase3");
+    this.repository.updatePhaseTimestamp(run.id, "phase3", ts);
+    this.emit("run:phase", run.id, "phase3", ts);
+    return { ok: true };
+  }
+
+  deleteRun(id: string): { ok: true } | RunError {
+    const run = this.repository.getRun(id);
+    if (!run) return { error: "Run not found", code: "NOT_FOUND" };
+    if (this.processes.has(id) || this.ptyRuns.has(id)) return { error: "Cannot delete an active run", code: "INVALID_STATE" };
+    this.activeIssueKeys.delete(run.issueKey);
+    this.contextFiles.delete(id);
+    this.stoppingRuns.delete(id);
+    this.repository.deleteRun(id);
+    this.emit("run:deleted", id);
     return { ok: true };
   }
 
@@ -262,7 +296,6 @@ export class UnshiftRunner extends EventEmitter {
     const run = this.repository.getRun(id);
     if (!run) return { error: "Run not found", code: "NOT_FOUND" };
     if (run.status !== "awaiting_approval") return { error: `Run is not awaiting approval (status: ${run.status})`, code: "INVALID_STATE" };
-    const proc = this.processes.get(id);
     // Preserve context data before cleanup so retry can reuse it
     if (!run.context) {
       await this.readContextFile(run);
@@ -270,10 +303,18 @@ export class UnshiftRunner extends EventEmitter {
     const completedAt = new Date().toISOString();
     this.repository.updateRunStatus(run.id, "rejected", completedAt);
     this.emit("run:complete", run.id, "rejected");
-    if (proc?.pid) {
-      // Resume then kill so the process group isn't left stopped
-      try { process.kill(-proc.pid, "SIGCONT"); } catch {}
-      kill(proc.pid);
+    if (this.ptyRuns.has(id)) {
+      const pid = this.ptyManager.getPid(id);
+      if (pid) {
+        try { process.kill(-pid, "SIGCONT"); } catch {}
+        kill(pid);
+      }
+    } else {
+      const proc = this.processes.get(id);
+      if (proc?.pid) {
+        try { process.kill(-proc.pid, "SIGCONT"); } catch {}
+        kill(proc.pid);
+      }
     }
     this.cleanupRun(id, run.issueKey);
     return { ok: true };
@@ -292,11 +333,7 @@ export class UnshiftRunner extends EventEmitter {
 
     this.processes.set(run.id, proc);
 
-    const handleLine = (line: string) => {
-      this.parseLine(run, line);
-      this.repository.appendLog(run.id, run.status, line);
-      this.emit("run:log", run.id, line, run.status);
-    };
+    const handleLine = this.createLineHandler(run);
 
     let stdoutBuf = "";
     proc.stdout?.on("data", (chunk: Buffer) => {
@@ -318,38 +355,109 @@ export class UnshiftRunner extends EventEmitter {
       // Flush remaining buffered output
       if (stdoutBuf) handleLine(stdoutBuf);
       if (stderrBuf) handleLine(stderrBuf);
-
-      const finish = () => {
-        // Don't overwrite status if already set (e.g. rejected, stopped)
-        const currentRun = this.repository.getRun(run.id);
-        const currentStatus = currentRun?.status ?? run.status;
-        if (!isCompleted(currentStatus)) {
-          const wasStopping = this.stoppingRuns.delete(run.id);
-          const status = wasStopping ? "stopped" : code === 0 ? "success" : "failed";
-          const completedAt = new Date().toISOString();
-          this.repository.updateRunStatus(run.id, status, completedAt);
-          this.emit("run:complete", run.id, status);
-        } else {
-          this.stoppingRuns.delete(run.id);
-        }
-        this.cleanupRun(run.id, run.issueKey);
-      };
-
-      // Capture progress.txt before cleanup
-      const captureAndFinish = () => {
-        this.readProgressFile(run).catch(() => {}).finally(finish);
-      };
-
-      // Preserve context before cleanup so retry can reuse it
-      const currentRun = this.repository.getRun(run.id);
-      const closingStatus = currentRun?.status ?? run.status;
-      const failed = code !== 0 && !isCompleted(closingStatus);
-      if (failed && !run.context) {
-        this.readContextFile(run).catch(() => {}).finally(captureAndFinish);
-      } else {
-        captureAndFinish();
-      }
+      this.handleProcessExit(run, code ?? 1);
     });
+  }
+
+  private spawnWithPty(run: Run, contextFile: string, retry = false): void {
+    const args = retry
+      ? [this.scriptPath, "--retry", "--issue", run.issueKey]
+      : [this.scriptPath, "--issue", run.issueKey];
+
+    this.ptyRuns.add(run.id);
+
+    let lineBuf = "";
+    const handleLine = this.createLineHandler(run);
+
+    const ptyTerm = this.ptyManager.spawn(
+      run.id,
+      "bash",
+      args,
+      path.dirname(this.scriptPath),
+      { UNSHIFT_CONTEXT_FILE: contextFile },
+    );
+
+    // Listen for PTY output — emit terminal data and parse lines for log/phase tracking
+    const onOutput = (id: string, data: string) => {
+      if (id !== run.id) return;
+      this.emit("terminal:output", run.id, data);
+
+      // Parse lines for the log pipeline
+      lineBuf += data;
+      const lines = lineBuf.split("\n");
+      lineBuf = lines.pop()!;
+      for (const line of lines) {
+        // Strip ANSI escape sequences for log parsing
+        handleLine(stripAnsi(line));
+      }
+    };
+    this.ptyManager.on("output", onOutput);
+
+    const onExit = (id: string, exitCode: number) => {
+      if (id !== run.id) return;
+      // Remove listeners to prevent accumulation across runs
+      this.ptyManager.removeListener("output", onOutput);
+      this.ptyManager.removeListener("exit", onExit);
+      // Flush remaining line buffer
+      if (lineBuf) {
+        handleLine(stripAnsi(lineBuf));
+        lineBuf = "";
+      }
+      this.handleProcessExit(run, exitCode, () => this.ptyRuns.delete(run.id));
+    };
+    this.ptyManager.on("exit", onExit);
+  }
+
+  /** Common handler for process close/exit — captures context & progress, finalizes status, and cleans up */
+  private handleProcessExit(run: Run, exitCode: number, extraCleanup?: () => void): void {
+    const finish = () => {
+      const currentRun = this.repository.getRun(run.id);
+      const currentStatus = currentRun?.status ?? run.status;
+      if (!isCompleted(currentStatus)) {
+        const wasStopping = this.stoppingRuns.delete(run.id);
+        const status = wasStopping ? "stopped" : exitCode === 0 ? "success" : "failed";
+        const completedAt = new Date().toISOString();
+        this.repository.updateRunStatus(run.id, status, completedAt);
+        this.emit("run:complete", run.id, status);
+      } else {
+        this.stoppingRuns.delete(run.id);
+      }
+      extraCleanup?.();
+      this.cleanupRun(run.id, run.issueKey);
+    };
+
+    const captureAndFinish = () => {
+      this.readProgressFile(run).catch(() => {}).finally(finish);
+    };
+
+    const currentRun = this.repository.getRun(run.id);
+    const closingStatus = currentRun?.status ?? run.status;
+    const failed = exitCode !== 0 && !isCompleted(closingStatus);
+    if (failed && !run.context) {
+      this.readContextFile(run).catch(() => {}).finally(captureAndFinish);
+    } else {
+      captureAndFinish();
+    }
+  }
+
+  /** Check if a run is using PTY mode */
+  hasPty(id: string): boolean {
+    return this.ptyRuns.has(id);
+  }
+
+  /** Create a line handler for a run that parses phases, logs, and token updates */
+  private createLineHandler(run: Run): (line: string) => void {
+    return (line: string) => {
+      this.parseLine(run, line);
+      this.repository.appendLog(run.id, run.status, line);
+      this.emit("run:log", run.id, line, run.status);
+
+      const tokenUpdate = parseTokenLine(line);
+      if (tokenUpdate) {
+        const tokens = this.repository.updateTokens(run.id, tokenUpdate);
+        this.emit("run:tokens", run.id, tokens);
+      }
+    };
   }
 
   private cleanupRun(id: string, issueKey: string): void {
@@ -377,8 +485,10 @@ export class UnshiftRunner extends EventEmitter {
     // Phase 0
     if (line.includes("Phase 0:")) {
       run.status = "phase0";
+      const ts = new Date().toISOString();
       this.repository.updateRunStatus(run.id, "phase0");
-      this.emit("run:phase", run.id, "phase0");
+      this.repository.updatePhaseTimestamp(run.id, "phase0", ts);
+      this.emit("run:phase", run.id, "phase0", ts);
     }
 
     // Issue discovery: "Processing issue: SSCUI-81" or "Retrying issue: SSCUI-81"
@@ -391,8 +501,10 @@ export class UnshiftRunner extends EventEmitter {
     // Phase 1
     if (line.includes("Phase 1:")) {
       run.status = "phase1";
+      const ts = new Date().toISOString();
       this.repository.updateRunStatus(run.id, "phase1");
-      this.emit("run:phase", run.id, "phase1");
+      this.repository.updatePhaseTimestamp(run.id, "phase1", ts);
+      this.emit("run:phase", run.id, "phase1", ts);
     }
 
     // Phase 1 complete: "Phase 1 complete. Repo: /path, Branch: branch-name"
@@ -409,8 +521,10 @@ export class UnshiftRunner extends EventEmitter {
     // Phase 2
     if (line.includes("Phase 2:")) {
       run.status = "phase2";
+      const ts = new Date().toISOString();
       this.repository.updateRunStatus(run.id, "phase2");
-      this.emit("run:phase", run.id, "phase2");
+      this.repository.updatePhaseTimestamp(run.id, "phase2", ts);
+      this.emit("run:phase", run.id, "phase2", ts);
     }
 
     // Ralph iteration marker: "=== Ralph iteration N/M ==="
@@ -436,8 +550,10 @@ export class UnshiftRunner extends EventEmitter {
     // SIGCONT when the user approves.
     if (line.includes("Phase 3:")) {
       run.status = "awaiting_approval";
+      const ts = new Date().toISOString();
       this.repository.updateRunStatus(run.id, "awaiting_approval");
-      this.emit("run:phase", run.id, "awaiting_approval");
+      this.repository.updatePhaseTimestamp(run.id, "awaiting_approval", ts);
+      this.emit("run:phase", run.id, "awaiting_approval", ts);
     }
   }
 
@@ -526,4 +642,10 @@ export class UnshiftRunner extends EventEmitter {
       // prd.json may not exist yet; skip silently
     }
   }
+}
+
+/** Strip ANSI escape sequences from a string for clean log parsing */
+function stripAnsi(str: string): string {
+  // eslint-disable-next-line no-control-regex
+  return str.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, "").replace(/\x1b\][^\x07]*\x07/g, "");
 }

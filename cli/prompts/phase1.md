@@ -18,29 +18,20 @@ Extract:
 - **Summary** - short description
 - **Description** - full details, acceptance criteria
 - **Issue Type** - Story/Feature/Enhancement, Bug, or Task/Sub-task/Chore
-- **Repository** - determine from the project-to-repo mapping below
 
-### Project-to-Repository Mapping
+### Repository Information
 
-Use the following repository mapping (provided as JSON):
+The target repository has already been resolved. Use the following entry (provided as JSON):
 
 ```json
-REPO_MAPPING_JSON
+RESOLVED_REPO_JSON
 ```
 
-Each entry has: `jira_projects` (array of project keys), `component` (nullable), `labels` (array, may be empty), `repo_url`, `local_dir`, `default_branch`, `host`, `validation` (array of command strings).
-
-Match the issue's Jira project key to find the correct repository entry. An entry matches if the issue's project key is contained in its `jira_projects` array. When multiple entries match, disambiguate using these rules in order:
-
-1. **By component**  - pick the entry whose `component` matches one of the issue's components.
-2. **By label**  - if the issue has no matching component, check the issue's labels. Pick the entry whose `labels` array contains at least one label that also appears on the issue.
-3. **Fallback**  - if neither component nor label narrows it down, pick the entry with `component: null` and an empty `labels` array.
-
-If no entry matches, fail with: "Could not determine repository for issue `<ISSUE_KEY>`."
+Fields: `local_dir` (path to clone), `default_branch`, `host` (GitHub or GitLab), `repo_url`, `validation` (array of command strings).
 
 ## Step 4: Navigate to the repository and create a branch
 
-1. `cd` into the local directory from the mapping table.
+1. `cd` into the `local_dir` from the repository entry above.
 2. If `git status --porcelain` shows uncommitted changes, auto-stash:
    `git stash push -m "auto-stash before <ISSUE_KEY>: <branch-name> on <current-branch> (<date>)"`
 3. `git checkout <default-branch> && git pull`
@@ -55,7 +46,7 @@ Create `prd.json` in the repo root with an implementation plan based on the Jira
 Create an empty `progress.txt` if it does not exist.
 
 Each prd.json entry must have: id, category, description, steps, validation, completed (starts false).
-Use the validation commands from the mapping table for the matched project.
+Use the validation commands from the repository entry above.
 
 If `prd.json` already exists, preserve completed entries; only add/modify incomplete ones.
 

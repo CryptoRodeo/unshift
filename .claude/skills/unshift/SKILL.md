@@ -13,7 +13,7 @@ If `$ARGUMENTS` contains a Jira issue key (e.g. `PROJ-123`), process only that i
 
 ## Configuration
 
-The project-to-repository mapping is in `repos.json` at the repo root (`${CLAUDE_SKILL_DIR}/../../../repos.json`). Read it before starting. Each entry has:
+The project-to-repository mapping is in `repos.yaml` at the repo root (`${CLAUDE_SKILL_DIR}/../../../repos.yaml`). Read it before starting. Each entry has:
 
 - `jira_projects`  - array of Jira project keys
 - `component`  - nullable, for disambiguation
@@ -52,7 +52,7 @@ Use `mcp__jira__getJiraIssue` to read the issue. Extract:
 
 ### 1.2 Match to repository
 
-Use the mapping from `repos.json` to find the correct repo entry. If no match, fail with: "Could not determine repository for issue `<KEY>`."
+Use the mapping from `repos.yaml` to find the correct repo entry. If no match, fail with: "Could not determine repository for issue `<KEY>`."
 
 ### 1.3 Prepare the repository
 

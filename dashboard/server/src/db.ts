@@ -48,6 +48,29 @@ export function initDb(): Database.Database {
     CREATE INDEX IF NOT EXISTS idx_run_logs_run_id ON run_logs(run_id);
   `);
 
+  // Migration: add phase_timestamps_json column
+  try {
+    db.exec(`ALTER TABLE runs ADD COLUMN phase_timestamps_json TEXT`);
+  } catch {
+    // Column already exists — safe to ignore
+  }
+
+  // Migration: add token tracking columns
+  const tokenColumns = [
+    "input_tokens INTEGER DEFAULT 0",
+    "output_tokens INTEGER DEFAULT 0",
+    "cache_read_tokens INTEGER DEFAULT 0",
+    "cache_creation_tokens INTEGER DEFAULT 0",
+    "model TEXT",
+  ];
+  for (const col of tokenColumns) {
+    try {
+      db.exec(`ALTER TABLE runs ADD COLUMN ${col}`);
+    } catch {
+      // Column already exists — safe to ignore
+    }
+  }
+
   return db;
 }
 

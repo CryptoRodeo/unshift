@@ -73,4 +73,4 @@ else
 fi
 
 echo ""
-echo "Done! Run ./unshift.sh from the unshift repo directory to start."
+echo "Done! Run ./cli/unshift.sh from the unshift repo directory to start."

@@ -1,21 +1,24 @@
 import { useEffect, useRef, useCallback, useReducer, useState } from "react";
-import type { WsMessage, Run, RunContext, PrdEntry, RunPhase, CompletedStatus } from "../types";
+import type { WsMessage, Run, RunContext, PrdEntry, RunPhase, CompletedStatus, TokenData } from "../types";
 import { isTerminal } from "../types";
 
-export interface SkippedTicket {
-  issueKey: string;
-  reason: string;
+export interface StartRunResponse {
+  runs: Run[];
+  errors: string[];
+  skipped: { issueKey: string; reason: string }[];
 }
 
 type RunsAction =
   | { type: "BulkLoad"; runs: Run[] }
   | { type: "RunCreated"; run: Run }
-  | { type: "PhaseChanged"; runId: string; phase: RunPhase }
+  | { type: "PhaseChanged"; runId: string; phase: RunPhase; timestamp?: string }
   | { type: "LogAppended"; runId: string; phase: RunPhase; line: string }
   | { type: "LogsBulkLoaded"; runId: string; logs: { phase: RunPhase; line: string }[] }
   | { type: "ContextUpdated"; runId: string; context: RunContext }
   | { type: "PrdUpdated"; runId: string; prd: PrdEntry[] }
-  | { type: "RunCompleted"; runId: string; status: CompletedStatus };
+  | { type: "RunCompleted"; runId: string; status: CompletedStatus }
+  | { type: "RunDeleted"; runId: string }
+  | { type: "TokensUpdated"; runId: string; tokens: TokenData };
 
 function runsReducer(
   state: Map<string, Run>,
@@ -25,7 +28,13 @@ function runsReducer(
     case "BulkLoad": {
       const next = new Map(state);
       for (const run of action.runs) {
-        next.set(run.id, run);
+        const existing = state.get(run.id);
+        // listRuns() returns runs with empty logs; preserve logs already in state
+        if (existing && existing.logs.length > 0 && run.logs.length === 0) {
+          next.set(run.id, { ...run, logs: existing.logs });
+        } else {
+          next.set(run.id, run);
+        }
       }
       return next;
     }
@@ -40,7 +49,10 @@ function runsReducer(
       const run = state.get(action.runId);
       if (!run) return state;
       const next = new Map(state);
-      next.set(action.runId, { ...run, status: action.phase });
+      const phaseTimestamps = action.timestamp
+        ? { ...run.phaseTimestamps, [action.phase]: action.timestamp }
+        : run.phaseTimestamps;
+      next.set(action.runId, { ...run, status: action.phase, phaseTimestamps });
       return next;
     }
 
@@ -92,10 +104,26 @@ function runsReducer(
       return next;
     }
 
+    case "RunDeleted": {
+      const next = new Map(state);
+      next.delete(action.runId);
+      return next;
+    }
+
+    case "TokensUpdated": {
+      const run = state.get(action.runId);
+      if (!run) return state;
+      const next = new Map(state);
+      next.set(action.runId, { ...run, tokens: action.tokens });
+      return next;
+    }
+
     default:
       return state;
   }
 }
+
+export type RunEventCallback = (event: { runId: string; issueKey: string; status: RunPhase | CompletedStatus }) => void;
 
 export function useWebSocket() {
   const wsRef = useRef<WebSocket | null>(null);
@@ -103,14 +131,18 @@ export function useWebSocket() {
   const backoffRef = useRef(1000);
   const [runs, dispatch] = useReducer(runsReducer, new Map<string, Run>());
   const [connected, setConnected] = useState(false);
-  const [skippedTickets, setSkippedTickets] = useState<SkippedTicket[]>([]);
+  const [loading, setLoading] = useState(true);
   const [progressMap, setProgressMap] = useState<Map<string, string>>(new Map());
+  const onRunEventRef = useRef<RunEventCallback | null>(null);
+  const runsRef = useRef(runs);
+  runsRef.current = runs;
 
   const fetchRuns = useCallback(() => {
     fetch("/api/runs")
       .then((res) => res.json())
       .then((existing: Run[]) => {
         dispatch({ type: "BulkLoad", runs: existing });
+        setLoading(false);
 
         const activeRuns = existing.filter((r) => !isTerminal(r.status));
         Promise.all(
@@ -132,7 +164,9 @@ export function useWebSocket() {
           });
         });
       })
-      .catch(() => {});
+      .catch(() => {
+        setLoading(false);
+      });
   }, []);
 
   useEffect(() => {
@@ -160,7 +194,12 @@ export function useWebSocket() {
 
       ws.onmessage = (event) => {
         if (unmounted) return;
-        const msg: WsMessage = JSON.parse(event.data);
+        let msg: WsMessage;
+        try {
+          msg = JSON.parse(event.data);
+        } catch {
+          return;
+        }
 
         switch (msg.type) {
           case "run:created":
@@ -171,7 +210,12 @@ export function useWebSocket() {
               type: "PhaseChanged",
               runId: msg.runId,
               phase: msg.phase,
+              timestamp: msg.timestamp,
             });
+            if (msg.phase === "awaiting_approval" && onRunEventRef.current) {
+              const run = runsRef.current.get(msg.runId);
+              onRunEventRef.current({ runId: msg.runId, issueKey: run?.issueKey ?? msg.runId, status: msg.phase });
+            }
             break;
           case "run:log":
             dispatch({
@@ -201,6 +245,10 @@ export function useWebSocket() {
               runId: msg.runId,
               status: msg.status,
             });
+            if (onRunEventRef.current) {
+              const run = runsRef.current.get(msg.runId);
+              onRunEventRef.current({ runId: msg.runId, issueKey: run?.issueKey ?? msg.runId, status: msg.status });
+            }
             setProgressMap((prev) => {
               if (!prev.has(msg.runId)) return prev;
               const next = new Map(prev);
@@ -215,8 +263,17 @@ export function useWebSocket() {
               return next;
             });
             break;
-          case "run:skipped":
-            setSkippedTickets(msg.skipped);
+          case "run:tokens":
+            dispatch({ type: "TokensUpdated", runId: msg.runId, tokens: msg.tokens });
+            break;
+          case "run:deleted":
+            dispatch({ type: "RunDeleted", runId: msg.runId });
+            setProgressMap((prev) => {
+              if (!prev.has(msg.runId)) return prev;
+              const next = new Map(prev);
+              next.delete(msg.runId);
+              return next;
+            });
             break;
         }
       };
@@ -231,15 +288,15 @@ export function useWebSocket() {
     };
   }, [fetchRuns]);
 
-  const startRun = useCallback(async (options?: { force?: boolean }) => {
+  const startRun = useCallback(async (options?: { force?: boolean }): Promise<StartRunResponse> => {
     const res = await fetch("/api/runs", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ force: options?.force }),
     });
     const data = await res.json();
-    if (data.skipped?.length) {
-      setSkippedTickets(data.skipped);
+    if (!res.ok) {
+      throw new Error(data.error || "Failed to start runs");
     }
     return data;
   }, []);
@@ -299,10 +356,31 @@ export function useWebSocket() {
     return data;
   }, []);
 
-  const dismissSkipped = useCallback(() => setSkippedTickets([]), []);
+  const openInEditor = useCallback(async (runId: string) => {
+    const res = await fetch(`/api/runs/${runId}/open-editor`, { method: "POST" });
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.error || "Failed to open editor");
+    }
+    return data;
+  }, []);
+
+  const setOnRunEvent = useCallback((cb: RunEventCallback | null) => {
+    onRunEventRef.current = cb;
+  }, []);
+
+  const deleteRun = useCallback(async (runId: string) => {
+    const res = await fetch(`/api/runs/${runId}`, { method: "DELETE" });
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.error || "Delete failed");
+    }
+    return data;
+  }, []);
 
   return {
     runs,
+    loading,
     connected,
     startRun,
     startRunForIssue,
@@ -310,11 +388,12 @@ export function useWebSocket() {
     approveRun,
     rejectRun,
     retryRun,
+    deleteRun,
+    openInEditor,
+    setOnRunEvent,
     fetchRunHistory,
     fetchRunLogs,
     fetchProgress,
-    skippedTickets,
-    dismissSkipped,
     progressMap,
   };
 }
