@@ -151,9 +151,12 @@ export class RunRepository {
 
   deleteRun(id: string): boolean {
     const s = this.ensureInit();
-    s.deleteRunLogs.run(id);
-    s.deleteRunProgress.run(id);
-    const result = s.deleteRun.run(id);
+    const deleteAll = this.db!.transaction(() => {
+      s.deleteRunLogs.run(id);
+      s.deleteRunProgress.run(id);
+      return s.deleteRun.run(id);
+    });
+    const result = deleteAll();
     return result.changes > 0;
   }
 
