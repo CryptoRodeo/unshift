@@ -447,9 +447,6 @@ export class UnshiftRunner extends EventEmitter {
 
   /** Create a line handler for a run that parses phases, logs, and token updates */
   private createLineHandler(run: Run): (line: string) => void {
-    let lastContextEmit = 0;
-    let pendingContextTokens: number | undefined;
-
     return (line: string) => {
       this.parseLine(run, line);
       this.repository.appendLog(run.id, run.status, line);
@@ -457,19 +454,8 @@ export class UnshiftRunner extends EventEmitter {
 
       const tokenUpdate = parseTokenLine(line);
       if (tokenUpdate) {
-        if (tokenUpdate.contextTokens != null) {
-          pendingContextTokens = tokenUpdate.contextTokens;
-        }
         const tokens = this.repository.updateTokens(run.id, tokenUpdate);
-        const tokensWithContext = pendingContextTokens != null
-          ? { ...tokens, contextTokens: pendingContextTokens }
-          : tokens;
-        const now = Date.now();
-        if (tokenUpdate.contextTokens != null && !tokenUpdate.inputTokens && !tokenUpdate.outputTokens && !tokenUpdate.totalCostUsd) {
-          if (now - lastContextEmit < 1000) return;
-          lastContextEmit = now;
-        }
-        this.emit("run:tokens", run.id, tokensWithContext);
+        this.emit("run:tokens", run.id, tokens);
       }
     };
   }

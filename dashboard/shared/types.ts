@@ -70,10 +70,7 @@ export interface TokenData {
   outputTokens: number;
   cacheReadTokens: number;
   cacheCreationTokens: number;
-  totalCostUsd: number;
   model?: string;
-  /** Current context window usage (transient, not persisted to DB) */
-  contextTokens?: number;
 }
 
 export interface Run {

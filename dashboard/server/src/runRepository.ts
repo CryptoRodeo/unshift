@@ -1,7 +1,6 @@
 import type Database from "better-sqlite3";
 import { getDb } from "./db";
 import type { Run, RunPhase, PrdEntry, LogEntry, TokenData } from "../../shared/types";
-import { estimateCost } from "../../shared/pricing";
 
 export class RunRepository {
   private db: Database.Database | null = null;
@@ -39,8 +38,8 @@ export class RunRepository {
       deleteRun: db.prepare(`DELETE FROM runs WHERE id = ?`),
       getPhaseTimestamps: db.prepare(`SELECT phase_timestamps_json FROM runs WHERE id = ?`),
       updatePhaseTimestamps: db.prepare(`UPDATE runs SET phase_timestamps_json = ? WHERE id = ?`),
-      getTokens: db.prepare(`SELECT input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens, total_cost_usd, model FROM runs WHERE id = ?`),
-      updateTokens: db.prepare(`UPDATE runs SET input_tokens = ?, output_tokens = ?, cache_read_tokens = ?, cache_creation_tokens = ?, total_cost_usd = ?, model = ? WHERE id = ?`),
+      getTokens: db.prepare(`SELECT input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens, model FROM runs WHERE id = ?`),
+      updateTokens: db.prepare(`UPDATE runs SET input_tokens = ?, output_tokens = ?, cache_read_tokens = ?, cache_creation_tokens = ?, model = ? WHERE id = ?`),
     };
   }
 
@@ -171,9 +170,8 @@ export class RunRepository {
       cacheCreationTokens: current.cacheCreationTokens + (delta.cacheCreationTokens ?? 0),
       model: current.model,
     };
-    const cost = estimateCost(updated.model, updated.inputTokens, updated.outputTokens, updated.cacheReadTokens, updated.cacheCreationTokens);
-    s.updateTokens.run(updated.inputTokens, updated.outputTokens, updated.cacheReadTokens, updated.cacheCreationTokens, cost, updated.model ?? null, id);
-    return { ...updated, totalCostUsd: cost };
+    s.updateTokens.run(updated.inputTokens, updated.outputTokens, updated.cacheReadTokens, updated.cacheCreationTokens, updated.model ?? null, id);
+    return { ...updated };
   }
 
   getTokens(id: string): TokenData | undefined {
@@ -185,7 +183,6 @@ export class RunRepository {
       outputTokens: row.output_tokens ?? 0,
       cacheReadTokens: row.cache_read_tokens ?? 0,
       cacheCreationTokens: row.cache_creation_tokens ?? 0,
-      totalCostUsd: row.total_cost_usd ?? 0,
       model: row.model ?? undefined,
     };
   }
@@ -225,13 +222,12 @@ export class RunRepository {
       retryCount: row.retry_count ?? undefined,
       sourceRunId: row.source_run_id ?? undefined,
       phaseTimestamps: row.phase_timestamps_json ? JSON.parse(row.phase_timestamps_json) : undefined,
-      tokens: (row.input_tokens || row.output_tokens || row.cache_read_tokens || row.cache_creation_tokens || row.total_cost_usd)
+      tokens: (row.input_tokens || row.output_tokens || row.cache_read_tokens || row.cache_creation_tokens)
         ? {
             inputTokens: row.input_tokens ?? 0,
             outputTokens: row.output_tokens ?? 0,
             cacheReadTokens: row.cache_read_tokens ?? 0,
             cacheCreationTokens: row.cache_creation_tokens ?? 0,
-            totalCostUsd: row.total_cost_usd ?? 0,
             model: row.model ?? undefined,
           }
         : undefined,
@@ -244,7 +240,6 @@ interface TokenRow {
   output_tokens: number | null;
   cache_read_tokens: number | null;
   cache_creation_tokens: number | null;
-  total_cost_usd: number | null;
   model: string | null;
 }
 
@@ -266,6 +261,5 @@ interface RunRow {
   output_tokens: number | null;
   cache_read_tokens: number | null;
   cache_creation_tokens: number | null;
-  total_cost_usd: number | null;
   model: string | null;
 }
