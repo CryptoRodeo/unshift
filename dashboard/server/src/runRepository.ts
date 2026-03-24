@@ -36,6 +36,8 @@ export class RunRepository {
       deleteRunLogs: db.prepare(`DELETE FROM run_logs WHERE run_id = ?`),
       deleteRunProgress: db.prepare(`DELETE FROM run_progress WHERE run_id = ?`),
       deleteRun: db.prepare(`DELETE FROM runs WHERE id = ?`),
+      getPhaseTimestamps: db.prepare(`SELECT phase_timestamps_json FROM runs WHERE id = ?`),
+      updatePhaseTimestamps: db.prepare(`UPDATE runs SET phase_timestamps_json = ? WHERE id = ?`),
     };
   }
 
@@ -149,6 +151,14 @@ export class RunRepository {
     return rows.map((r) => ({ id: r.id, phase: r.phase as RunPhase, line: r.line }));
   }
 
+  updatePhaseTimestamp(id: string, phase: string, timestamp: string): void {
+    const s = this.ensureInit();
+    const row = s.getPhaseTimestamps.get(id) as { phase_timestamps_json: string | null } | undefined;
+    const existing: Record<string, string> = row?.phase_timestamps_json ? JSON.parse(row.phase_timestamps_json) : {};
+    existing[phase] = timestamp;
+    s.updatePhaseTimestamps.run(JSON.stringify(existing), id);
+  }
+
   deleteRun(id: string): boolean {
     const s = this.ensureInit();
     const deleteAll = this.db!.transaction(() => {
@@ -175,6 +185,7 @@ export class RunRepository {
       logs: logs.map((l) => ({ phase: l.phase as RunPhase, line: l.line })),
       retryCount: row.retry_count ?? undefined,
       sourceRunId: row.source_run_id ?? undefined,
+      phaseTimestamps: row.phase_timestamps_json ? JSON.parse(row.phase_timestamps_json) : undefined,
     };
   }
 }
@@ -192,4 +203,5 @@ interface RunRow {
   prd_json: string | null;
   retry_count: number;
   source_run_id: string | null;
+  phase_timestamps_json: string | null;
 }

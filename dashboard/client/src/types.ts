@@ -18,6 +18,7 @@ export {
   isTerminal,
   isCompleted,
   isRunError,
+  formatDuration,
 } from "../../shared/types";
 
 export const PHASE_CONFIG: { key: RunPhase; label: string }[] = [

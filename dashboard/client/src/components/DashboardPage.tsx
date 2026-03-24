@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   PageSection,
@@ -17,10 +17,16 @@ import {
   EmptyStateBody,
   Alert,
   AlertActionCloseButton,
+  Tooltip,
 } from "@patternfly/react-core";
+import { BellIcon, BellSlashIcon } from "@patternfly/react-icons";
 import { useWebSocket } from "../hooks/useWebSocket";
 import type { StartRunResponse } from "../hooks/useWebSocket";
+import { useNotifications } from "../hooks/useNotifications";
+import { useElapsedTime } from "../hooks/useElapsedTime";
+import { useRunFilters } from "../hooks/useRunFilters";
 import { PhaseProgress } from "./PhaseProgress";
+import { FilterBar } from "./FilterBar";
 import { StatusLabel } from "./StatusLabel";
 import type { Run } from "../types";
 import { PHASE_LABELS } from "../types";
@@ -63,11 +69,37 @@ function summaryTitle(summary: StartRunSummary): string {
   return "No new tickets to process";
 }
 
+const STATUS_LABELS: Record<string, string> = {
+  awaiting_approval: "Awaiting Approval",
+  success: "Success",
+  failed: "Failed",
+  stopped: "Stopped",
+  rejected: "Rejected",
+};
+
 export function DashboardPage() {
-  const { runs, connected, startRun } = useWebSocket();
+  const { runs, connected, startRun, setOnRunEvent } = useWebSocket();
   const navigate = useNavigate();
+  const { permission, requestPermission, notify } = useNotifications();
+  const filters = useRunFilters();
   const [isStarting, setIsStarting] = useState(false);
   const [startRunSummary, setStartRunSummary] = useState<StartRunSummary | null>(null);
+
+  const handleRunEvent = useCallback(
+    (event: { runId: string; issueKey: string; status: string }) => {
+      const label = STATUS_LABELS[event.status] ?? event.status;
+      notify(`${event.issueKey}: ${label}`, {
+        body: `Run ${event.issueKey} is now ${label}`,
+        onClick: () => navigate(`/runs/${event.runId}`),
+      });
+    },
+    [notify, navigate]
+  );
+
+  useEffect(() => {
+    setOnRunEvent(handleRunEvent);
+    return () => setOnRunEvent(null);
+  }, [setOnRunEvent, handleRunEvent]);
 
   useEffect(() => {
     if (!startRunSummary) return;
@@ -90,6 +122,7 @@ export function DashboardPage() {
   const runList = Array.from(runs.values()).sort(
     (a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime()
   );
+  const filteredRuns = filters.filterRuns(runList);
 
   return (
     <>
@@ -103,6 +136,27 @@ export function DashboardPage() {
               <Label color={connected ? "green" : "red"}>
                 {connected ? "Connected" : "Disconnected"}
               </Label>
+            </ToolbarItem>
+            <ToolbarItem>
+              {permission === "denied" ? (
+                <Tooltip content="Notifications blocked. Re-enable in browser settings.">
+                  <Button variant="plain" isDisabled>
+                    <BellSlashIcon />
+                  </Button>
+                </Tooltip>
+              ) : permission === "granted" ? (
+                <Tooltip content="Notifications enabled">
+                  <Button variant="plain" onClick={requestPermission}>
+                    <BellIcon color="var(--pf-t--global--color--status--info--default)" />
+                  </Button>
+                </Tooltip>
+              ) : (
+                <Tooltip content="Enable browser notifications">
+                  <Button variant="plain" onClick={requestPermission}>
+                    <BellIcon />
+                  </Button>
+                </Tooltip>
+              )}
             </ToolbarItem>
             <ToolbarItem>
               <Button
@@ -145,6 +199,24 @@ export function DashboardPage() {
         </PageSection>
       )}
 
+      {runList.length > 0 && (
+        <PageSection>
+          <FilterBar
+            query={filters.query}
+            statuses={filters.statuses}
+            repo={filters.repo}
+            hasFilters={filters.hasFilters}
+            setQuery={filters.setQuery}
+            toggleStatus={filters.toggleStatus}
+            setRepo={filters.setRepo}
+            clearAll={filters.clearAll}
+            runs={runList}
+            totalCount={runList.length}
+            filteredCount={filteredRuns.length}
+          />
+        </PageSection>
+      )}
+
       <PageSection isFilled>
         {runList.length === 0 ? (
           <EmptyState titleText="No runs yet" headingLevel="h3">
@@ -153,9 +225,18 @@ export function DashboardPage() {
               issues.
             </EmptyStateBody>
           </EmptyState>
+        ) : filteredRuns.length === 0 ? (
+          <EmptyState titleText="No matching runs" headingLevel="h3">
+            <EmptyStateBody>
+              No runs match the current filters.{" "}
+              <Button variant="link" isInline onClick={filters.clearAll}>
+                Clear filters
+              </Button>
+            </EmptyStateBody>
+          </EmptyState>
         ) : (
           <Gallery hasGutter minWidths={{ default: "400px" }}>
-            {runList.map((run) => (
+            {filteredRuns.map((run) => (
               <RunCard
                 key={run.id}
                 run={run}
@@ -170,6 +251,8 @@ export function DashboardPage() {
 }
 
 function RunCard({ run, onClick }: { run: Run; onClick: () => void }) {
+  const elapsed = useElapsedTime(run.startedAt, run.completedAt);
+
   return (
     <Card isClickable isCompact onClick={onClick}>
       <CardBody>
@@ -191,7 +274,7 @@ function RunCard({ run, onClick }: { run: Run; onClick: () => void }) {
           </Flex>
 
           <FlexItem>
-            <PhaseProgress status={run.status} />
+            <PhaseProgress status={run.status} phaseTimestamps={run.phaseTimestamps} completedAt={run.completedAt} />
           </FlexItem>
 
           {run.context && (
@@ -202,7 +285,7 @@ function RunCard({ run, onClick }: { run: Run; onClick: () => void }) {
 
           <FlexItem>
             <small>
-              Started {new Date(run.startedAt).toLocaleString()}
+              Started {new Date(run.startedAt).toLocaleString()} &middot; {elapsed}
               {PHASE_LABELS[run.status] && ` \u00b7 ${PHASE_LABELS[run.status]}`}
             </small>
           </FlexItem>

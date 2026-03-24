@@ -79,12 +79,13 @@ export interface Run {
   logs: LogEntry[];
   retryCount?: number;
   sourceRunId?: string;
+  phaseTimestamps?: Record<string, string>;
 }
 
 /** Messages sent from the server over WebSocket */
 export type WsMessage =
   | { type: "run:created"; run: Run }
-  | { type: "run:phase"; runId: string; phase: RunPhase }
+  | { type: "run:phase"; runId: string; phase: RunPhase; timestamp?: string }
   | { type: "run:log"; runId: string; line: string; phase: RunPhase }
   | { type: "run:context"; runId: string; context: RunContext }
   | { type: "run:prd"; runId: string; prd: PrdEntry[] }
@@ -92,3 +93,14 @@ export type WsMessage =
   | { type: "run:progress"; runId: string; content: string }
   | { type: "run:skipped"; skipped: { issueKey: string; reason: string }[] }
   | { type: "run:deleted"; runId: string };
+
+export function formatDuration(ms: number): string {
+  const seconds = Math.floor(ms / 1000);
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ${seconds % 60}s`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ${minutes % 60}m`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ${hours % 24}h`;
+}

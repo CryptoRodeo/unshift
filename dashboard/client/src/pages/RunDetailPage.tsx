@@ -215,7 +215,7 @@ export function RunDetailPage() {
       )}
 
       <PageSection>
-        <PhaseProgress status={run.status} />
+        <PhaseProgress status={run.status} phaseTimestamps={run.phaseTimestamps} completedAt={run.completedAt} />
       </PageSection>
 
       {run.context && (

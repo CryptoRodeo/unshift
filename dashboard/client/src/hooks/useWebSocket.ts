@@ -11,7 +11,7 @@ export interface StartRunResponse {
 type RunsAction =
   | { type: "BulkLoad"; runs: Run[] }
   | { type: "RunCreated"; run: Run }
-  | { type: "PhaseChanged"; runId: string; phase: RunPhase }
+  | { type: "PhaseChanged"; runId: string; phase: RunPhase; timestamp?: string }
   | { type: "LogAppended"; runId: string; phase: RunPhase; line: string }
   | { type: "LogsBulkLoaded"; runId: string; logs: { phase: RunPhase; line: string }[] }
   | { type: "ContextUpdated"; runId: string; context: RunContext }
@@ -48,7 +48,10 @@ function runsReducer(
       const run = state.get(action.runId);
       if (!run) return state;
       const next = new Map(state);
-      next.set(action.runId, { ...run, status: action.phase });
+      const phaseTimestamps = action.timestamp
+        ? { ...run.phaseTimestamps, [action.phase]: action.timestamp }
+        : run.phaseTimestamps;
+      next.set(action.runId, { ...run, status: action.phase, phaseTimestamps });
       return next;
     }
 
@@ -111,6 +114,8 @@ function runsReducer(
   }
 }
 
+export type RunEventCallback = (event: { runId: string; issueKey: string; status: RunPhase | CompletedStatus }) => void;
+
 export function useWebSocket() {
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -118,6 +123,9 @@ export function useWebSocket() {
   const [runs, dispatch] = useReducer(runsReducer, new Map<string, Run>());
   const [connected, setConnected] = useState(false);
   const [progressMap, setProgressMap] = useState<Map<string, string>>(new Map());
+  const onRunEventRef = useRef<RunEventCallback | null>(null);
+  const runsRef = useRef(runs);
+  runsRef.current = runs;
 
   const fetchRuns = useCallback(() => {
     fetch("/api/runs")
@@ -184,7 +192,12 @@ export function useWebSocket() {
               type: "PhaseChanged",
               runId: msg.runId,
               phase: msg.phase,
+              timestamp: msg.timestamp,
             });
+            if (msg.phase === "awaiting_approval" && onRunEventRef.current) {
+              const run = runsRef.current.get(msg.runId);
+              onRunEventRef.current({ runId: msg.runId, issueKey: run?.issueKey ?? msg.runId, status: msg.phase });
+            }
             break;
           case "run:log":
             dispatch({
@@ -214,6 +227,10 @@ export function useWebSocket() {
               runId: msg.runId,
               status: msg.status,
             });
+            if (onRunEventRef.current) {
+              const run = runsRef.current.get(msg.runId);
+              onRunEventRef.current({ runId: msg.runId, issueKey: run?.issueKey ?? msg.runId, status: msg.status });
+            }
             setProgressMap((prev) => {
               if (!prev.has(msg.runId)) return prev;
               const next = new Map(prev);
@@ -327,6 +344,10 @@ export function useWebSocket() {
     return data;
   }, []);
 
+  const setOnRunEvent = useCallback((cb: RunEventCallback | null) => {
+    onRunEventRef.current = cb;
+  }, []);
+
   const deleteRun = useCallback(async (runId: string) => {
     const res = await fetch(`/api/runs/${runId}`, { method: "DELETE" });
     const data = await res.json();
@@ -347,6 +368,7 @@ export function useWebSocket() {
     retryRun,
     deleteRun,
     openInEditor,
+    setOnRunEvent,
     fetchRunHistory,
     fetchRunLogs,
     fetchProgress,

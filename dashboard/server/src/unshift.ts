@@ -253,8 +253,10 @@ export class UnshiftRunner extends EventEmitter {
       console.error(`Failed to send SIGCONT to process group -${proc.pid}: ${msg}`);
       return { error: `Failed to resume process: ${msg}`, code: "INVALID_STATE" };
     }
+    const ts = new Date().toISOString();
     this.repository.updateRunStatus(run.id, "phase3");
-    this.emit("run:phase", run.id, "phase3");
+    this.repository.updatePhaseTimestamp(run.id, "phase3", ts);
+    this.emit("run:phase", run.id, "phase3", ts);
     return { ok: true };
   }
 
@@ -389,8 +391,10 @@ export class UnshiftRunner extends EventEmitter {
     // Phase 0
     if (line.includes("Phase 0:")) {
       run.status = "phase0";
+      const ts = new Date().toISOString();
       this.repository.updateRunStatus(run.id, "phase0");
-      this.emit("run:phase", run.id, "phase0");
+      this.repository.updatePhaseTimestamp(run.id, "phase0", ts);
+      this.emit("run:phase", run.id, "phase0", ts);
     }
 
     // Issue discovery: "Processing issue: SSCUI-81" or "Retrying issue: SSCUI-81"
@@ -403,8 +407,10 @@ export class UnshiftRunner extends EventEmitter {
     // Phase 1
     if (line.includes("Phase 1:")) {
       run.status = "phase1";
+      const ts = new Date().toISOString();
       this.repository.updateRunStatus(run.id, "phase1");
-      this.emit("run:phase", run.id, "phase1");
+      this.repository.updatePhaseTimestamp(run.id, "phase1", ts);
+      this.emit("run:phase", run.id, "phase1", ts);
     }
 
     // Phase 1 complete: "Phase 1 complete. Repo: /path, Branch: branch-name"
@@ -421,8 +427,10 @@ export class UnshiftRunner extends EventEmitter {
     // Phase 2
     if (line.includes("Phase 2:")) {
       run.status = "phase2";
+      const ts = new Date().toISOString();
       this.repository.updateRunStatus(run.id, "phase2");
-      this.emit("run:phase", run.id, "phase2");
+      this.repository.updatePhaseTimestamp(run.id, "phase2", ts);
+      this.emit("run:phase", run.id, "phase2", ts);
     }
 
     // Ralph iteration marker: "=== Ralph iteration N/M ==="
@@ -448,8 +456,10 @@ export class UnshiftRunner extends EventEmitter {
     // SIGCONT when the user approves.
     if (line.includes("Phase 3:")) {
       run.status = "awaiting_approval";
+      const ts = new Date().toISOString();
       this.repository.updateRunStatus(run.id, "awaiting_approval");
-      this.emit("run:phase", run.id, "awaiting_approval");
+      this.repository.updatePhaseTimestamp(run.id, "awaiting_approval", ts);
+      this.emit("run:phase", run.id, "awaiting_approval", ts);
     }
   }
 

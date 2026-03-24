@@ -33,8 +33,8 @@ function broadcast(data: object) {
 }
 
 runner.on("run:created", (run) => broadcast({ type: "run:created", run }));
-runner.on("run:phase", (runId, phase) =>
-  broadcast({ type: "run:phase", runId, phase })
+runner.on("run:phase", (runId, phase, timestamp) =>
+  broadcast({ type: "run:phase", runId, phase, timestamp })
 );
 runner.on("run:log", (runId, line, phase) =>
   broadcast({ type: "run:log", runId, line, phase })

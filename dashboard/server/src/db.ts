@@ -48,6 +48,13 @@ export function initDb(): Database.Database {
     CREATE INDEX IF NOT EXISTS idx_run_logs_run_id ON run_logs(run_id);
   `);
 
+  // Migration: add phase_timestamps_json column
+  try {
+    db.exec(`ALTER TABLE runs ADD COLUMN phase_timestamps_json TEXT`);
+  } catch {
+    // Column already exists — safe to ignore
+  }
+
   return db;
 }
 
