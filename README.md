@@ -9,7 +9,7 @@ An automation tool that picks up Jira issues labeled `llm-candidate`, implements
 `unshift.sh` runs four phases per issue:
 
 0. **Discover** - Queries the Jira REST API for issues labeled `llm-candidate`, checks required tools are installed, and determines which issues to process.
-1. **Plan** - Reads the Jira issue, maps it to a repo via `repos.json`, creates a branch, and generates an implementation plan (`prd.json`). Runs in its own `claude -p` session.
+1. **Plan** - Reads the Jira issue, maps it to a repo via `repos.yaml`, creates a branch, and generates an implementation plan (`prd.json`). Runs in its own `claude -p` session.
 2. **Implement** - `ralph.sh` works through the plan one entry at a time, each in a fresh `claude -p` session. If a validation step fails, it automatically retries once with the error context. This keeps token usage flat and gives every entry the full context window.
 3. **Deliver** - Commits, pushes, opens a PR, updates Jira, and cleans up. Runs in its own `claude -p` session. When started from the dashboard, the run pauses here for approval before proceeding.
 
@@ -86,9 +86,9 @@ See [Credentials Reference](#credentials-reference) for how to create each token
 
 ### 4. Edit the project-to-repository mapping
 
-Open `repos.json` in the repo root and replace the example entries with your own Jira projects and local repo paths.
+Open `repos.yaml` in the repo root and replace the example entries with your own Jira projects and local repo paths.
 
-Each entry is a JSON object with the following fields:
+Each entry is a YAML object with the following fields:
 
 | Field | Description |
 |---|---|
@@ -217,7 +217,7 @@ Inside a Claude Code session, run:
 /unshift PROJ-123     # process a specific issue
 ```
 
-The skill reads `repos.json` from this repo's root to map Jira projects to repositories. See [Edit the project-to-repository mapping](#4-edit-the-project-to-repository-mapping) for the schema.
+The skill reads `repos.yaml` from this repo's root to map Jira projects to repositories. See [Edit the project-to-repository mapping](#4-edit-the-project-to-repository-mapping) for the schema.
 
 ## File Reference
 

@@ -258,6 +258,18 @@ export class UnshiftRunner extends EventEmitter {
     return { ok: true };
   }
 
+  deleteRun(id: string): { ok: true } | RunError {
+    const run = this.repository.getRun(id);
+    if (!run) return { error: "Run not found", code: "NOT_FOUND" };
+    if (this.processes.has(id)) return { error: "Cannot delete an active run", code: "INVALID_STATE" };
+    this.activeIssueKeys.delete(run.issueKey);
+    this.contextFiles.delete(id);
+    this.stoppingRuns.delete(id);
+    this.repository.deleteRun(id);
+    this.emit("run:deleted", id);
+    return { ok: true };
+  }
+
   async rejectRun(id: string): Promise<{ ok: true } | RunError> {
     const run = this.repository.getRun(id);
     if (!run) return { error: "Run not found", code: "NOT_FOUND" };

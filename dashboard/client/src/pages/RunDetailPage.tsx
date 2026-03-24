@@ -13,7 +13,7 @@ import {
   CardBody,
   Alert,
 } from "@patternfly/react-core";
-import { ArrowLeftIcon, RedoIcon } from "@patternfly/react-icons";
+import { ArrowLeftIcon, RedoIcon, TrashIcon } from "@patternfly/react-icons";
 import { useWebSocket } from "../hooks/useWebSocket";
 import { isTerminal, isCompleted, isRunError } from "../types";
 import type { Run } from "../types";
@@ -27,21 +27,23 @@ import { PrdStatusCard } from "../components/PrdStatusCard";
 export function RunDetailPage() {
   const { runId } = useParams<{ runId: string }>();
   const navigate = useNavigate();
-  const { runs, stopRun, approveRun, rejectRun, retryRun, fetchRunLogs, fetchProgress, fetchRunHistory, progressMap, startRunForIssue } = useWebSocket();
+  const { runs, stopRun, approveRun, rejectRun, retryRun, deleteRun, fetchRunLogs, fetchProgress, fetchRunHistory, progressMap, startRunForIssue } = useWebSocket();
 
   const run = runId ? runs.get(runId) : undefined;
   const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set());
   const [approveError, setApproveError] = useState<string | null>(null);
   const [retryError, setRetryError] = useState<string | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const [progress, setProgress] = useState<string | null>(null);
   const [runHistory, setRunHistory] = useState<Run[]>([]);
 
-  // Fetch persisted logs from DB on mount / navigation
+  // Fetch persisted logs from DB once the run is loaded into state
+  const runLoaded = run !== undefined;
   useEffect(() => {
-    if (runId) {
+    if (runId && runLoaded) {
       fetchRunLogs(runId);
     }
-  }, [runId, fetchRunLogs]);
+  }, [runId, runLoaded, fetchRunLogs]);
 
   // Fetch progress.txt content on mount
   useEffect(() => {
@@ -109,6 +111,17 @@ export function RunDetailPage() {
     }
   };
 
+  const handleDelete = async () => {
+    if (!confirm("Permanently delete this run and all its data?")) return;
+    setDeleteError(null);
+    try {
+      await deleteRun(run.id);
+      navigate("/");
+    } catch (err) {
+      setDeleteError(err instanceof Error ? err.message : "Delete failed");
+    }
+  };
+
   const handleRerun = async () => {
     if (!confirm("Re-run this previously successful ticket?")) return;
     setRetryError(null);
@@ -147,6 +160,11 @@ export function RunDetailPage() {
                   Retry
                 </Button>
               )}
+              {!isActive && (
+                <Button variant="danger" icon={<TrashIcon />} onClick={handleDelete}>
+                  Delete
+                </Button>
+              )}
               {isActive && (
                 <Button variant="danger" onClick={() => stopRun(run.id)}>
                   Stop
@@ -161,6 +179,14 @@ export function RunDetailPage() {
         <PageSection>
           <Alert variant="danger" title="Retry failed" isInline>
             {retryError}
+          </Alert>
+        </PageSection>
+      )}
+
+      {deleteError && (
+        <PageSection>
+          <Alert variant="danger" title="Delete failed" isInline>
+            {deleteError}
           </Alert>
         </PageSection>
       )}
@@ -241,9 +267,13 @@ export function RunDetailPage() {
                   {run.sourceRunId && (
                     <p>
                       Source run:{" "}
-                      <a href={`/runs/${run.sourceRunId}`} onClick={(e) => { e.preventDefault(); navigate(`/runs/${run.sourceRunId}`); }}>
-                        {run.sourceRunId.slice(0, 8)}
-                      </a>
+                      {runs.has(run.sourceRunId) ? (
+                        <a href={`/runs/${run.sourceRunId}`} onClick={(e) => { e.preventDefault(); navigate(`/runs/${run.sourceRunId}`); }}>
+                          {run.sourceRunId.slice(0, 8)}
+                        </a>
+                      ) : (
+                        <span>{run.sourceRunId.slice(0, 8)} (deleted)</span>
+                      )}
                     </p>
                   )}
                 </CardBody>

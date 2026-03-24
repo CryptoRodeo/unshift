@@ -15,7 +15,8 @@ type RunsAction =
   | { type: "LogsBulkLoaded"; runId: string; logs: { phase: RunPhase; line: string }[] }
   | { type: "ContextUpdated"; runId: string; context: RunContext }
   | { type: "PrdUpdated"; runId: string; prd: PrdEntry[] }
-  | { type: "RunCompleted"; runId: string; status: CompletedStatus };
+  | { type: "RunCompleted"; runId: string; status: CompletedStatus }
+  | { type: "RunDeleted"; runId: string };
 
 function runsReducer(
   state: Map<string, Run>,
@@ -25,7 +26,13 @@ function runsReducer(
     case "BulkLoad": {
       const next = new Map(state);
       for (const run of action.runs) {
-        next.set(run.id, run);
+        const existing = state.get(run.id);
+        // listRuns() returns runs with empty logs; preserve logs already in state
+        if (existing && existing.logs.length > 0 && run.logs.length === 0) {
+          next.set(run.id, { ...run, logs: existing.logs });
+        } else {
+          next.set(run.id, run);
+        }
       }
       return next;
     }
@@ -89,6 +96,12 @@ function runsReducer(
         status: action.status,
         completedAt: new Date().toISOString(),
       });
+      return next;
+    }
+
+    case "RunDeleted": {
+      const next = new Map(state);
+      next.delete(action.runId);
       return next;
     }
 
@@ -218,6 +231,15 @@ export function useWebSocket() {
           case "run:skipped":
             setSkippedTickets(msg.skipped);
             break;
+          case "run:deleted":
+            dispatch({ type: "RunDeleted", runId: msg.runId });
+            setProgressMap((prev) => {
+              if (!prev.has(msg.runId)) return prev;
+              const next = new Map(prev);
+              next.delete(msg.runId);
+              return next;
+            });
+            break;
         }
       };
     }
@@ -299,6 +321,15 @@ export function useWebSocket() {
     return data;
   }, []);
 
+  const deleteRun = useCallback(async (runId: string) => {
+    const res = await fetch(`/api/runs/${runId}`, { method: "DELETE" });
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.error || "Delete failed");
+    }
+    return data;
+  }, []);
+
   const dismissSkipped = useCallback(() => setSkippedTickets([]), []);
 
   return {
@@ -310,6 +341,7 @@ export function useWebSocket() {
     approveRun,
     rejectRun,
     retryRun,
+    deleteRun,
     fetchRunHistory,
     fetchRunLogs,
     fetchProgress,

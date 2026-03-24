@@ -33,6 +33,9 @@ export class RunRepository {
       saveProgressTxt: db.prepare(`INSERT OR REPLACE INTO run_progress (run_id, content) VALUES (?, ?)`),
       getProgressTxt: db.prepare(`SELECT content FROM run_progress WHERE run_id = ?`),
       savePrdJson: db.prepare(`UPDATE runs SET prd_json = ? WHERE id = ?`),
+      deleteRunLogs: db.prepare(`DELETE FROM run_logs WHERE run_id = ?`),
+      deleteRunProgress: db.prepare(`DELETE FROM run_progress WHERE run_id = ?`),
+      deleteRun: db.prepare(`DELETE FROM runs WHERE id = ?`),
     };
   }
 
@@ -144,6 +147,14 @@ export class RunRepository {
     const s = this.ensureInit();
     const rows = s.getLogsSince.all(runId, sinceId) as { id: number; phase: string; line: string }[];
     return rows.map((r) => ({ id: r.id, phase: r.phase as RunPhase, line: r.line }));
+  }
+
+  deleteRun(id: string): boolean {
+    const s = this.ensureInit();
+    s.deleteRunLogs.run(id);
+    s.deleteRunProgress.run(id);
+    const result = s.deleteRun.run(id);
+    return result.changes > 0;
   }
 
   private rowToRun(row: RunRow, logs: { phase: string; line: string }[]): Run {

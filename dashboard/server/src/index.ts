@@ -52,6 +52,9 @@ runner.on("run:progress", (runId: string, content: string) =>
 runner.on("run:skipped", (skipped: { issueKey: string; reason: string }[]) =>
   broadcast({ type: "run:skipped", skipped })
 );
+runner.on("run:deleted", (runId: string) =>
+  broadcast({ type: "run:deleted", runId })
+);
 
 // REST endpoints
 app.get("/api/runs", (_req, res) => {
@@ -120,6 +123,15 @@ app.post("/api/runs", async (req, res) => {
       const msg = err instanceof Error ? err.message : String(err);
       res.status(500).json({ error: msg });
     }
+  }
+});
+
+app.delete("/api/runs/:id", (req, res) => {
+  const result = runner.deleteRun(req.params.id);
+  if (isRunError(result)) {
+    res.status(ERROR_CODE_TO_STATUS[result.code]).json(result);
+  } else {
+    res.json(result);
   }
 });
 

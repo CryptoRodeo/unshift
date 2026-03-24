@@ -22,10 +22,10 @@ Extract:
 
 ### Project-to-Repository Mapping
 
-Use the following repository mapping (provided as JSON):
+Use the following repository mapping (provided as YAML):
 
-```json
-REPO_MAPPING_JSON
+```yaml
+REPO_MAPPING
 ```
 
 Each entry has: `jira_projects` (array of project keys), `component` (nullable), `labels` (array, may be empty), `repo_url`, `local_dir`, `default_branch`, `host`, `validation` (array of command strings).

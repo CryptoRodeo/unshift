@@ -346,9 +346,9 @@ for ISSUE_KEY in "${ISSUE_KEYS[@]}"; do
   PHASE1_PROMPT="${PHASE1_PROMPT//CONTEXT_FILE_PATH/$CONTEXT_FILE}"
   PHASE1_PROMPT="${PHASE1_PROMPT//ISSUE_KEY_VALUE/$ISSUE_KEY}"
 
-  # Inject repos.json contents into the prompt
-  REPO_MAPPING_JSON="$(cat "${SCRIPT_DIR}/repos.json")"
-  PHASE1_PROMPT="${PHASE1_PROMPT//REPO_MAPPING_JSON/$REPO_MAPPING_JSON}"
+  # Inject repos.yaml contents into the prompt
+  REPO_MAPPING="$(cat "${SCRIPT_DIR}/repos.yaml")"
+  PHASE1_PROMPT="${PHASE1_PROMPT//REPO_MAPPING/$REPO_MAPPING}"
 
   if ! claude -p --permission-mode bypassPermissions "$PHASE1_PROMPT"; then
     echo "Error: Phase 1 failed for $ISSUE_KEY. Skipping to next issue." >&2
