@@ -14,6 +14,8 @@ import {
   FlexItem,
   EmptyState,
   EmptyStateBody,
+  Alert,
+  AlertActionCloseButton,
 } from "@patternfly/react-core";
 import { useWebSocket } from "../hooks/useWebSocket";
 import { PhaseProgress } from "./PhaseProgress";
@@ -22,7 +24,7 @@ import type { Run } from "../types";
 import { PHASE_LABELS } from "../types";
 
 export function DashboardPage() {
-  const { runs, connected, startRun } = useWebSocket();
+  const { runs, connected, startRun, skippedTickets, dismissSkipped } = useWebSocket();
   const navigate = useNavigate();
 
   const runList = Array.from(runs.values()).sort(
@@ -50,6 +52,25 @@ export function DashboardPage() {
           </ToolbarContent>
         </Toolbar>
       </PageSection>
+
+      {skippedTickets.length > 0 && (
+        <PageSection>
+          <Alert
+            variant="info"
+            title="Some tickets were skipped"
+            isInline
+            actionClose={<AlertActionCloseButton onClose={dismissSkipped} />}
+          >
+            <ul>
+              {skippedTickets.map((s) => (
+                <li key={s.issueKey}>
+                  <strong>{s.issueKey}</strong>: {s.reason}
+                </li>
+              ))}
+            </ul>
+          </Alert>
+        </PageSection>
+      )}
 
       <PageSection isFilled>
         {runList.length === 0 ? (
@@ -87,7 +108,12 @@ function RunCard({ run, onClick }: { run: Run; onClick: () => void }) {
               </Title>
             </FlexItem>
             <FlexItem>
-              <StatusLabel status={run.status} />
+              <Flex gap={{ default: "gapSm" }}>
+                <StatusLabel status={run.status} />
+                {run.retryCount != null && run.retryCount > 0 && (
+                  <Label color="blue">Re-run #{run.retryCount}</Label>
+                )}
+              </Flex>
             </FlexItem>
           </Flex>
 

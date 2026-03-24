@@ -77,6 +77,8 @@ export interface Run {
   context?: RunContext;
   prd: PrdEntry[];
   logs: LogEntry[];
+  retryCount?: number;
+  sourceRunId?: string;
 }
 
 /** Messages sent from the server over WebSocket */
@@ -86,4 +88,6 @@ export type WsMessage =
   | { type: "run:log"; runId: string; line: string; phase: RunPhase }
   | { type: "run:context"; runId: string; context: RunContext }
   | { type: "run:prd"; runId: string; prd: PrdEntry[] }
-  | { type: "run:complete"; runId: string; status: CompletedStatus };
+  | { type: "run:complete"; runId: string; status: CompletedStatus }
+  | { type: "run:progress"; runId: string; content: string }
+  | { type: "run:skipped"; skipped: { issueKey: string; reason: string }[] };

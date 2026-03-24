@@ -1,11 +1,18 @@
 import { useEffect, useRef, useCallback, useReducer, useState } from "react";
 import type { WsMessage, Run, RunContext, PrdEntry, RunPhase, CompletedStatus } from "../types";
+import { isTerminal } from "../types";
+
+export interface SkippedTicket {
+  issueKey: string;
+  reason: string;
+}
 
 type RunsAction =
   | { type: "BulkLoad"; runs: Run[] }
   | { type: "RunCreated"; run: Run }
   | { type: "PhaseChanged"; runId: string; phase: RunPhase }
   | { type: "LogAppended"; runId: string; phase: RunPhase; line: string }
+  | { type: "LogsBulkLoaded"; runId: string; logs: { phase: RunPhase; line: string }[] }
   | { type: "ContextUpdated"; runId: string; context: RunContext }
   | { type: "PrdUpdated"; runId: string; prd: PrdEntry[] }
   | { type: "RunCompleted"; runId: string; status: CompletedStatus };
@@ -44,6 +51,16 @@ function runsReducer(
       const logs = run.logs.slice();
       logs.push({ phase: action.phase, line: action.line });
       next.set(action.runId, { ...run, logs });
+      return next;
+    }
+
+    case "LogsBulkLoaded": {
+      const run = state.get(action.runId);
+      if (!run) return state;
+      // Only replace logs if fetched set is larger (WS may have appended more)
+      if (run.logs.length >= action.logs.length) return state;
+      const next = new Map(state);
+      next.set(action.runId, { ...run, logs: action.logs });
       return next;
     }
 
@@ -86,12 +103,34 @@ export function useWebSocket() {
   const backoffRef = useRef(1000);
   const [runs, dispatch] = useReducer(runsReducer, new Map<string, Run>());
   const [connected, setConnected] = useState(false);
+  const [skippedTickets, setSkippedTickets] = useState<SkippedTicket[]>([]);
+  const [progressMap, setProgressMap] = useState<Map<string, string>>(new Map());
 
   const fetchRuns = useCallback(() => {
     fetch("/api/runs")
       .then((res) => res.json())
       .then((existing: Run[]) => {
         dispatch({ type: "BulkLoad", runs: existing });
+
+        const activeRuns = existing.filter((r) => !isTerminal(r.status));
+        Promise.all(
+          activeRuns.map((r) =>
+            fetch(`/api/runs/${r.id}/progress`)
+              .then((res) => (res.ok ? res.text() : null))
+              .catch(() => null)
+              .then((content) => content ? { runId: r.id, content } : null)
+          )
+        ).then((results) => {
+          const entries = results.filter(Boolean) as { runId: string; content: string }[];
+          if (entries.length === 0) return;
+          setProgressMap((prev) => {
+            const next = new Map(prev);
+            for (const { runId, content } of entries) {
+              next.set(runId, content);
+            }
+            return next;
+          });
+        });
       })
       .catch(() => {});
   }, []);
@@ -162,6 +201,22 @@ export function useWebSocket() {
               runId: msg.runId,
               status: msg.status,
             });
+            setProgressMap((prev) => {
+              if (!prev.has(msg.runId)) return prev;
+              const next = new Map(prev);
+              next.delete(msg.runId);
+              return next;
+            });
+            break;
+          case "run:progress":
+            setProgressMap((prev) => {
+              const next = new Map(prev);
+              next.set(msg.runId, msg.content);
+              return next;
+            });
+            break;
+          case "run:skipped":
+            setSkippedTickets(msg.skipped);
             break;
         }
       };
@@ -176,9 +231,50 @@ export function useWebSocket() {
     };
   }, [fetchRuns]);
 
-  const startRun = useCallback(async () => {
-    const res = await fetch("/api/runs", { method: "POST" });
+  const startRun = useCallback(async (options?: { force?: boolean }) => {
+    const res = await fetch("/api/runs", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ force: options?.force }),
+    });
+    const data = await res.json();
+    if (data.skipped?.length) {
+      setSkippedTickets(data.skipped);
+    }
+    return data;
+  }, []);
+
+  const startRunForIssue = useCallback(async (issueKey: string, force?: boolean) => {
+    const res = await fetch("/api/runs", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ issueKey, force }),
+    });
+    const data = await res.json();
+    return data;
+  }, []);
+
+  const fetchRunHistory = useCallback(async (issueKey: string): Promise<Run[]> => {
+    const res = await fetch(`/api/history/${encodeURIComponent(issueKey)}`);
+    if (!res.ok) return [];
     return res.json();
+  }, []);
+
+  const fetchRunLogs = useCallback(async (runId: string) => {
+    try {
+      const res = await fetch(`/api/runs/${runId}/logs`);
+      if (!res.ok) return;
+      const logs: { phase: RunPhase; line: string }[] = await res.json();
+      dispatch({ type: "LogsBulkLoaded", runId, logs });
+    } catch {
+      // ignore fetch errors
+    }
+  }, []);
+
+  const fetchProgress = useCallback(async (runId: string): Promise<string | null> => {
+    const res = await fetch(`/api/runs/${runId}/progress`);
+    if (!res.ok) return null;
+    return res.text();
   }, []);
 
   const stopRun = useCallback(async (runId: string) => {
@@ -196,8 +292,29 @@ export function useWebSocket() {
 
   const retryRun = useCallback(async (runId: string) => {
     const res = await fetch(`/api/runs/${runId}/retry`, { method: "POST" });
-    return res.json();
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.error || "Retry failed");
+    }
+    return data;
   }, []);
 
-  return { runs, connected, startRun, stopRun, approveRun, rejectRun, retryRun };
+  const dismissSkipped = useCallback(() => setSkippedTickets([]), []);
+
+  return {
+    runs,
+    connected,
+    startRun,
+    startRunForIssue,
+    stopRun,
+    approveRun,
+    rejectRun,
+    retryRun,
+    fetchRunHistory,
+    fetchRunLogs,
+    fetchProgress,
+    skippedTickets,
+    dismissSkipped,
+    progressMap,
+  };
 }

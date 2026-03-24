@@ -16,6 +16,7 @@ import {
 import { ArrowLeftIcon, RedoIcon } from "@patternfly/react-icons";
 import { useWebSocket } from "../hooks/useWebSocket";
 import { isTerminal, isCompleted, isRunError } from "../types";
+import type { Run } from "../types";
 import { PhaseProgress } from "../components/PhaseProgress";
 import { StatusLabel } from "../components/StatusLabel";
 import { RunDetailsCard } from "../components/RunDetailsCard";
@@ -26,12 +27,43 @@ import { PrdStatusCard } from "../components/PrdStatusCard";
 export function RunDetailPage() {
   const { runId } = useParams<{ runId: string }>();
   const navigate = useNavigate();
-  const { runs, stopRun, approveRun, rejectRun, retryRun } = useWebSocket();
+  const { runs, stopRun, approveRun, rejectRun, retryRun, fetchRunLogs, fetchProgress, fetchRunHistory, progressMap, startRunForIssue } = useWebSocket();
 
   const run = runId ? runs.get(runId) : undefined;
   const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set());
   const [approveError, setApproveError] = useState<string | null>(null);
   const [retryError, setRetryError] = useState<string | null>(null);
+  const [progress, setProgress] = useState<string | null>(null);
+  const [runHistory, setRunHistory] = useState<Run[]>([]);
+
+  // Fetch persisted logs from DB on mount / navigation
+  useEffect(() => {
+    if (runId) {
+      fetchRunLogs(runId);
+    }
+  }, [runId, fetchRunLogs]);
+
+  // Fetch progress.txt content on mount
+  useEffect(() => {
+    if (runId) {
+      fetchProgress(runId).then((content) => setProgress(content));
+    }
+  }, [runId, fetchProgress]);
+
+  // Update progress from WebSocket
+  useEffect(() => {
+    if (runId) {
+      const wsProgress = progressMap.get(runId);
+      if (wsProgress) setProgress(wsProgress);
+    }
+  }, [runId, progressMap]);
+
+  // Fetch run history for the same issue key
+  useEffect(() => {
+    if (run?.issueKey) {
+      fetchRunHistory(run.issueKey).then((history) => setRunHistory(history));
+    }
+  }, [run?.issueKey, fetchRunHistory]);
 
   // Auto-expand the current phase section when it changes
   useEffect(() => {
@@ -57,6 +89,7 @@ export function RunDetailPage() {
 
   const isActive = !isCompleted(run.status);
   const canRetry = isTerminal(run.status);
+  const isSuccess = run.status === "success";
 
   const handleApprove = async () => {
     setApproveError(null);
@@ -68,11 +101,26 @@ export function RunDetailPage() {
 
   const handleRetry = async () => {
     setRetryError(null);
-    const result = await retryRun(run.id);
-    if (isRunError(result)) {
-      setRetryError(result.error);
-    } else {
+    try {
+      const result = await retryRun(run.id);
       navigate(`/runs/${result.id}`);
+    } catch (err) {
+      setRetryError(err instanceof Error ? err.message : "Retry failed");
+    }
+  };
+
+  const handleRerun = async () => {
+    if (!confirm("Re-run this previously successful ticket?")) return;
+    setRetryError(null);
+    try {
+      const result = await startRunForIssue(run.issueKey, true);
+      if (isRunError(result)) {
+        setRetryError(result.error);
+      } else if (result.id) {
+        navigate(`/runs/${result.id}`);
+      }
+    } catch (err) {
+      setRetryError(err instanceof Error ? err.message : "Re-run failed");
     }
   };
 
@@ -89,6 +137,11 @@ export function RunDetailPage() {
           </FlexItem>
           <FlexItem>
             <Flex gap={{ default: "gapMd" }}>
+              {isSuccess && (
+                <Button variant="secondary" icon={<RedoIcon />} onClick={handleRerun}>
+                  Re-run
+                </Button>
+              )}
               {canRetry && (
                 <Button variant="secondary" icon={<RedoIcon />} onClick={handleRetry}>
                   Retry
@@ -163,10 +216,59 @@ export function RunDetailPage() {
         </PageSection>
       )}
 
+      {progress && (
+        <PageSection>
+          <Card>
+            <CardTitle>Progress</CardTitle>
+            <CardBody>
+              <pre style={{ whiteSpace: "pre-wrap", fontSize: "0.85rem", maxHeight: "400px", overflow: "auto" }}>
+                {progress}
+              </pre>
+            </CardBody>
+          </Card>
+        </PageSection>
+      )}
+
       <PageSection isFilled>
         <Grid hasGutter>
           <GridItem span={4}>
             <RunDetailsCard run={run} />
+            {run.retryCount != null && run.retryCount > 0 && (
+              <Card style={{ marginTop: "1rem" }}>
+                <CardTitle>Retry Info</CardTitle>
+                <CardBody>
+                  <p>Retry #{run.retryCount}</p>
+                  {run.sourceRunId && (
+                    <p>
+                      Source run:{" "}
+                      <a href={`/runs/${run.sourceRunId}`} onClick={(e) => { e.preventDefault(); navigate(`/runs/${run.sourceRunId}`); }}>
+                        {run.sourceRunId.slice(0, 8)}
+                      </a>
+                    </p>
+                  )}
+                </CardBody>
+              </Card>
+            )}
+            {runHistory.length > 1 && (
+              <Card style={{ marginTop: "1rem" }}>
+                <CardTitle>Run History ({run.issueKey})</CardTitle>
+                <CardBody>
+                  {runHistory.map((h) => (
+                    <Flex key={h.id} gap={{ default: "gapSm" }} style={{ marginBottom: "0.5rem" }}>
+                      <a
+                        href={`/runs/${h.id}`}
+                        onClick={(e) => { e.preventDefault(); navigate(`/runs/${h.id}`); }}
+                        style={{ fontWeight: h.id === runId ? "bold" : "normal" }}
+                      >
+                        {h.id.slice(0, 8)}
+                      </a>
+                      <StatusLabel status={h.status} />
+                      <small>{new Date(h.startedAt).toLocaleString()}</small>
+                    </Flex>
+                  ))}
+                </CardBody>
+              </Card>
+            )}
           </GridItem>
 
           <GridItem span={8}>

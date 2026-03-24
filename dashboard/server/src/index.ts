@@ -46,10 +46,48 @@ runner.on("run:prd", (runId, prd) =>
 runner.on("run:complete", (runId, status) =>
   broadcast({ type: "run:complete", runId, status })
 );
+runner.on("run:progress", (runId: string, content: string) =>
+  broadcast({ type: "run:progress", runId, content })
+);
+runner.on("run:skipped", (skipped: { issueKey: string; reason: string }[]) =>
+  broadcast({ type: "run:skipped", skipped })
+);
 
 // REST endpoints
 app.get("/api/runs", (_req, res) => {
   res.json(runner.listRuns());
+});
+
+app.get("/api/runs/:id", (req, res) => {
+  const run = runner.getRun(req.params.id);
+  if (!run) {
+    res.status(404).json({ error: "Run not found", code: "NOT_FOUND" });
+  } else {
+    res.json(run);
+  }
+});
+
+app.get("/api/runs/:id/logs", (req, res) => {
+  const parsed = req.query.since ? parseInt(req.query.since as string, 10) : NaN;
+  const since = Number.isNaN(parsed) ? undefined : parsed;
+  if (since !== undefined) {
+    res.json(runner.getRunLogsSince(req.params.id, since));
+  } else {
+    res.json(runner.getRunLogs(req.params.id));
+  }
+});
+
+app.get("/api/runs/:id/progress", (req, res) => {
+  const content = runner.getRunProgress(req.params.id);
+  if (content === undefined) {
+    res.status(404).json({ error: "No progress data found" });
+  } else {
+    res.type("text/plain").send(content);
+  }
+});
+
+app.get("/api/history/:issueKey", (req, res) => {
+  res.json(runner.getRunsByIssueKey(req.params.issueKey));
 });
 
 app.get("/api/discover", async (_req, res) => {
@@ -63,11 +101,11 @@ app.get("/api/discover", async (_req, res) => {
 });
 
 app.post("/api/runs", async (req, res) => {
-  const { issueKey } = req.body ?? {};
+  const { issueKey, force } = req.body ?? {};
 
   if (issueKey) {
     // Start a single run for the specified issue
-    const result = runner.startRun(issueKey);
+    const result = runner.startRun(issueKey, force === true);
     if (isRunError(result)) {
       res.status(ERROR_CODE_TO_STATUS[result.code]).json(result);
     } else {
