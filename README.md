@@ -4,6 +4,10 @@ An automation tool that picks up Jira issues labeled `llm-candidate`, implements
 
 > This project uses [Claude Code](https://docs.anthropic.com/en/docs/claude-code) as its runtime. All phases are executed via `claude -p` sessions, so a working Claude Code installation is required.
 
+## Dashboard preview
+
+<a href="unshift-ui.png"><img src="unshift-ui.png" alt="Unshift dashboard UI" width="600"></a>
+
 ## How it works
 
 Unshift runs four phases per issue:
