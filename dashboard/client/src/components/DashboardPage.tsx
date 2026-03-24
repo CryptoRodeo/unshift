@@ -7,35 +7,30 @@ import {
   Toolbar,
   ToolbarContent,
   ToolbarItem,
-  Card,
-  CardBody,
   Gallery,
   Label,
   Flex,
   FlexItem,
-  EmptyState,
-  EmptyStateBody,
-  Spinner,
   Alert,
   AlertActionCloseButton,
   AlertGroup,
-  Tooltip,
   ToggleGroup,
   ToggleGroupItem,
 } from "@patternfly/react-core";
-import { BellIcon, BellSlashIcon, ThIcon, ThLargeIcon } from "@patternfly/react-icons";
+import { ThIcon, ThLargeIcon, PlusCircleIcon, SearchIcon } from "@patternfly/react-icons";
 import { useWebSocket } from "../hooks/useWebSocket";
 import type { StartRunResponse } from "../hooks/useWebSocket";
 import { useNotifications } from "../hooks/useNotifications";
+import { useHeaderContext } from "../hooks/useHeaderContext";
 import { useElapsedTime } from "../hooks/useElapsedTime";
 import { useRunFilters } from "../hooks/useRunFilters";
-import { PhaseProgress } from "./PhaseProgress";
 import { FilterBar } from "./FilterBar";
 import { DashboardStats } from "./DashboardStats";
 import { RunTable } from "./RunTable";
 import { StatusLabel } from "./StatusLabel";
+import { PhaseProgress } from "./PhaseProgress";
+import { STATUS_COLORS } from "../types";
 import type { Run } from "../types";
-import { PHASE_LABELS } from "../types";
 
 interface StartRunSummary {
   started: number;
@@ -87,7 +82,20 @@ export function DashboardPage() {
   const { runs, loading, connected, startRun, setOnRunEvent } = useWebSocket();
   const navigate = useNavigate();
   const { permission, requestPermission, notify, toasts, dismissToast } = useNotifications();
+  const headerCtx = useHeaderContext();
   const filters = useRunFilters();
+
+  // Sync connection & notification state to the header
+  useEffect(() => {
+    if (!headerCtx) return;
+    headerCtx.setConnected(connected);
+  }, [connected, headerCtx]);
+
+  useEffect(() => {
+    if (!headerCtx) return;
+    headerCtx.setNotificationPermission(permission);
+    headerCtx.setOnRequestNotifications(requestPermission);
+  }, [permission, requestPermission, headerCtx]);
   const [isStarting, setIsStarting] = useState(false);
   const [startRunSummary, setStartRunSummary] = useState<StartRunSummary | null>(null);
   const [viewMode, setViewMode] = useState<"gallery" | "table">(() => {
@@ -165,32 +173,6 @@ export function DashboardPage() {
               <Title headingLevel="h2">Runs</Title>
             </ToolbarItem>
             <ToolbarItem align={{ default: "alignEnd" }}>
-              <Label color={connected ? "green" : "red"}>
-                {connected ? "Connected" : "Disconnected"}
-              </Label>
-            </ToolbarItem>
-            <ToolbarItem>
-              {permission === "denied" ? (
-                <Tooltip content="Notifications blocked. Re-enable in browser settings.">
-                  <Button variant="plain" isDisabled>
-                    <BellSlashIcon />
-                  </Button>
-                </Tooltip>
-              ) : permission === "granted" ? (
-                <Tooltip content="Notifications enabled">
-                  <Button variant="plain" onClick={requestPermission}>
-                    <BellIcon color="var(--pf-t--global--color--status--info--default)" />
-                  </Button>
-                </Tooltip>
-              ) : (
-                <Tooltip content="Enable browser notifications">
-                  <Button variant="plain" onClick={requestPermission}>
-                    <BellIcon />
-                  </Button>
-                </Tooltip>
-              )}
-            </ToolbarItem>
-            <ToolbarItem>
               <Button
                 variant="primary"
                 onClick={handleStartRun}
@@ -277,33 +259,54 @@ export function DashboardPage() {
 
       <PageSection isFilled>
         {loading ? (
-          <EmptyState titleText="Loading runs…" headingLevel="h3" icon={Spinner} />
+          <Gallery hasGutter minWidths={{ default: "400px" }}>
+            {Array.from({ length: 6 }).map((_, i) => (
+              <SkeletonCard key={i} index={i} />
+            ))}
+          </Gallery>
         ) : runList.length === 0 ? (
-          <EmptyState titleText="No runs yet" headingLevel="h3">
-            <EmptyStateBody>
-              Click <strong>Start run</strong> to process llm-candidate Jira
-              issues.
-            </EmptyStateBody>
-          </EmptyState>
-        ) : filteredRuns.length === 0 ? (
-          <EmptyState titleText="No matching runs" headingLevel="h3">
-            <EmptyStateBody>
-              No runs match the current filters.{" "}
-              <Button variant="link" isInline onClick={filters.clearAll}>
-                Clear filters
+          <div className="us-empty-state us-fade-in">
+            <div className="us-empty-state__icon">
+              <PlusCircleIcon />
+            </div>
+            <h3 className="us-empty-state__title">No runs yet</h3>
+            <p className="us-empty-state__body">
+              Click <strong>Start run</strong> to process llm-candidate Jira issues.
+            </p>
+            <div className="us-empty-state__action">
+              <Button variant="primary" onClick={handleStartRun} isLoading={isStarting} isDisabled={isStarting}>
+                Start run
               </Button>
-            </EmptyStateBody>
-          </EmptyState>
+            </div>
+          </div>
+        ) : filteredRuns.length === 0 ? (
+          <div className="us-empty-state us-fade-in">
+            <div className="us-empty-state__icon us-empty-state__icon--warning">
+              <SearchIcon />
+            </div>
+            <h3 className="us-empty-state__title">No matching runs</h3>
+            <p className="us-empty-state__body">
+              No runs match the current filters. Try adjusting your search or status filters.
+            </p>
+            <div className="us-empty-state__action">
+              <Button variant="link" onClick={filters.clearAll}>
+                Clear all filters
+              </Button>
+            </div>
+          </div>
         ) : viewMode === "table" ? (
-          <RunTable runs={filteredRuns} />
+          <div className="us-fade-in">
+            <RunTable runs={filteredRuns} />
+          </div>
         ) : (
           <Gallery hasGutter minWidths={{ default: "400px" }}>
-            {filteredRuns.map((run) => (
-              <RunCard
-                key={run.id}
-                run={run}
-                onClick={() => navigate(`/runs/${run.id}`)}
-              />
+            {filteredRuns.map((run, i) => (
+              <div key={run.id} className="us-stagger-enter" style={{ animationDelay: `${i * 30}ms` }}>
+                <RunCard
+                  run={run}
+                  onClick={() => navigate(`/runs/${run.id}`)}
+                />
+              </div>
             ))}
           </Gallery>
         )}
@@ -312,47 +315,71 @@ export function DashboardPage() {
   );
 }
 
+function getRepoShortName(run: Run): string | undefined {
+  const repoPath = run.repoPath || run.context?.repoPath;
+  if (!repoPath) return undefined;
+  return repoPath.split("/").pop() || undefined;
+}
+
+
+function SkeletonCard({ index }: { index: number }) {
+  return (
+    <div className="us-skeleton-card us-stagger-enter" style={{ animationDelay: `${index * 60}ms` }}>
+      <div className="us-skeleton-card__header">
+        <div className="us-skeleton us-skeleton-card__title" />
+        <div className="us-skeleton us-skeleton-card__badge" />
+      </div>
+      <div className="us-skeleton-card__progress">
+        {Array.from({ length: 5 }).map((_, i) => (
+          <div key={i} className="us-skeleton us-skeleton-card__progress-seg" />
+        ))}
+      </div>
+      <div className="us-skeleton us-skeleton-card__text" />
+      <div className="us-skeleton us-skeleton-card__text us-skeleton-card__text--short" />
+      <div className="us-skeleton-card__meta">
+        <div className="us-skeleton us-skeleton-card__meta-pill" />
+        <div className="us-skeleton us-skeleton-card__meta-text" />
+      </div>
+    </div>
+  );
+}
+
 function RunCard({ run, onClick }: { run: Run; onClick: () => void }) {
   const elapsed = useElapsedTime(run.startedAt, run.completedAt);
+  const statusColor = STATUS_COLORS[run.status] ?? STATUS_COLORS.pending;
+  const isActive = !["success", "failed", "stopped", "rejected"].includes(run.status);
+  const repoName = getRepoShortName(run);
 
   return (
-    <Card isClickable isCompact onClick={onClick}>
-      <CardBody>
-        <Flex direction={{ default: "column" }} gap={{ default: "gapSm" }}>
-          <Flex justifyContent={{ default: "justifyContentSpaceBetween" }}>
-            <FlexItem>
-              <Title headingLevel="h3" size="lg">
-                {run.issueKey || run.id.slice(0, 8)}
-              </Title>
-            </FlexItem>
-            <FlexItem>
-              <Flex gap={{ default: "gapSm" }}>
-                <StatusLabel status={run.status} />
-                {run.retryCount != null && run.retryCount > 0 && (
-                  <Label color="blue">Re-run #{run.retryCount}</Label>
-                )}
-              </Flex>
-            </FlexItem>
-          </Flex>
-
-          <FlexItem>
-            <PhaseProgress status={run.status} phaseTimestamps={run.phaseTimestamps} completedAt={run.completedAt} />
-          </FlexItem>
-
-          {run.context && (
-            <FlexItem>
-              <small>{run.context.summary}</small>
-            </FlexItem>
+    <div
+      className={`us-run-card${isActive ? " us-run-card--active" : ""}${run.status === "awaiting_approval" ? " us-run-card--awaiting" : ""}`}
+      style={{ "--card-status-color": statusColor } as React.CSSProperties}
+      onClick={onClick}
+      role="button"
+      tabIndex={0}
+      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onClick(); } }}
+    >
+      <div className="us-run-card__header">
+        <span className="us-run-card__issue">{run.issueKey || run.id.slice(0, 8)}</span>
+        <div className="us-run-card__badges">
+          <StatusLabel status={run.status} />
+          {run.retryCount != null && run.retryCount > 0 && (
+            <Label color="blue" isCompact>Re-run #{run.retryCount}</Label>
           )}
+        </div>
+      </div>
 
-          <FlexItem>
-            <small>
-              Started {new Date(run.startedAt).toLocaleString()} &middot; {elapsed}
-              {PHASE_LABELS[run.status] && ` \u00b7 ${PHASE_LABELS[run.status]}`}
-            </small>
-          </FlexItem>
-        </Flex>
-      </CardBody>
-    </Card>
+      <PhaseProgress status={run.status} compact />
+
+      {run.context?.summary && (
+        <div className="us-run-card__summary">{run.context.summary}</div>
+      )}
+
+      <div className="us-run-card__meta">
+        {repoName && <span className="us-run-card__repo">{repoName}</span>}
+        <span className="us-run-card__time">{elapsed}</span>
+        <span className="us-run-card__time">{new Date(run.startedAt).toLocaleDateString()}</span>
+      </div>
+    </div>
   );
 }

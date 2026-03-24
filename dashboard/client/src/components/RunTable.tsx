@@ -1,11 +1,9 @@
 import { useState, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
-import { Table, Thead, Tbody, Tr, Th, Td } from "@patternfly/react-table";
-import type { ISortBy } from "@patternfly/react-table";
-import { StatusLabel } from "./StatusLabel";
+import { Tooltip } from "@patternfly/react-core";
 import { useElapsedTime } from "../hooks/useElapsedTime";
-import type { Run } from "../types";
-import { PHASE_LABELS } from "../types";
+import type { Run, RunPhase } from "../types";
+import { PHASE_LABELS, STATUS_COLORS } from "../types";
 import { getRepoName } from "../hooks/useRunFilters";
 
 interface RunTableProps {
@@ -13,34 +11,69 @@ interface RunTableProps {
 }
 
 type SortableField = "issueKey" | "status" | "startedAt" | "duration";
+type SortDir = "asc" | "desc";
 
-const COLUMNS: { title: string; field: SortableField }[] = [
-  { title: "Issue", field: "issueKey" },
-  { title: "Status", field: "status" },
-  { title: "Phase", field: "status" },
-  { title: "Repo", field: "issueKey" },
-  { title: "Duration", field: "duration" },
-  { title: "Started", field: "startedAt" },
+const COLUMNS: { title: string; field: SortableField; sortable: boolean }[] = [
+  { title: "Issue", field: "issueKey", sortable: true },
+  { title: "Status", field: "status", sortable: true },
+  { title: "Phase", field: "status", sortable: false },
+  { title: "Repo", field: "issueKey", sortable: false },
+  { title: "Duration", field: "duration", sortable: true },
+  { title: "Started", field: "startedAt", sortable: true },
 ];
+
+const PHASE_ORDER: RunPhase[] = ["phase0", "phase1", "phase2", "awaiting_approval", "phase3"];
 
 function getDuration(run: Run): number {
   const end = run.completedAt ? Date.parse(run.completedAt) : Date.now();
   return end - Date.parse(run.startedAt);
 }
 
+function MiniProgressBar({ status }: { status: RunPhase }) {
+  const currentIdx = PHASE_ORDER.indexOf(status);
+  const isSuccess = status === "success";
+  const isFailed = status === "failed" || status === "stopped" || status === "rejected";
+
+  return (
+    <div className="us-table-progress">
+      {PHASE_ORDER.map((phase, idx) => {
+        let cls = "us-table-progress__seg";
+        if (isSuccess || idx < currentIdx) {
+          cls += " us-table-progress__seg--done";
+        } else if (isFailed && idx <= Math.max(currentIdx, 0)) {
+          cls += " us-table-progress__seg--failed";
+        } else if (idx === currentIdx && !isSuccess && !isFailed) {
+          cls += " us-table-progress__seg--active";
+        }
+        return (
+          <Tooltip key={phase} content={PHASE_LABELS[phase] ?? phase}>
+            <div className={cls} />
+          </Tooltip>
+        );
+      })}
+    </div>
+  );
+}
+
+function StatusDot({ status }: { status: string }) {
+  const color = STATUS_COLORS[status] ?? STATUS_COLORS.pending;
+  return (
+    <span className="us-table-status">
+      <span className="us-table-status__dot" style={{ backgroundColor: color }} />
+      <span className="us-table-status__label">{PHASE_LABELS[status] ?? status}</span>
+    </span>
+  );
+}
+
 export function RunTable({ runs }: RunTableProps) {
   const navigate = useNavigate();
-  const [sortBy, setSortBy] = useState<ISortBy>({ index: 5, direction: "desc" });
+  const [sortField, setSortField] = useState<SortableField>("startedAt");
+  const [sortDir, setSortDir] = useState<SortDir>("desc");
 
   const sorted = useMemo(() => {
-    if (sortBy.index === undefined || !sortBy.direction) return runs;
-
-    const col = COLUMNS[sortBy.index];
-    if (!col) return runs;
-    const dir = sortBy.direction === "asc" ? 1 : -1;
-
+    const dir = sortDir === "asc" ? 1 : -1;
     return [...runs].sort((a, b) => {
-      switch (col.field) {
+      switch (sortField) {
         case "issueKey":
           return dir * (a.issueKey ?? "").localeCompare(b.issueKey ?? "");
         case "status":
@@ -53,53 +86,79 @@ export function RunTable({ runs }: RunTableProps) {
           return 0;
       }
     });
-  }, [runs, sortBy]);
+  }, [runs, sortField, sortDir]);
 
-  const sortableIndices = [0, 1, 4, 5]; // Issue, Status, Duration, Started
+  const handleSort = (field: SortableField) => {
+    if (sortField === field) {
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSortField(field);
+      setSortDir("asc");
+    }
+  };
 
   return (
-    <Table aria-label="Runs table" variant="compact">
-      <Thead>
-        <Tr>
-          {COLUMNS.map((col, i) => (
-            <Th
-              key={col.title}
-              sort={
-                sortableIndices.includes(i)
-                  ? {
-                      sortBy,
-                      onSort: (_e, index, direction) => setSortBy({ index, direction }),
-                      columnIndex: i,
-                    }
-                  : undefined
-              }
-            >
-              {col.title}
-            </Th>
+    <div className="us-table-wrapper">
+      <table className="us-table" aria-label="Runs table">
+        <thead>
+          <tr>
+            {COLUMNS.map((col) => (
+              <th
+                key={col.title}
+                className={`us-table__th${col.sortable ? " us-table__th--sortable" : ""}`}
+                onClick={col.sortable ? () => handleSort(col.field) : undefined}
+                aria-sort={
+                  col.sortable && sortField === col.field
+                    ? sortDir === "asc" ? "ascending" : "descending"
+                    : undefined
+                }
+              >
+                <span className="us-table__th-content">
+                  {col.title}
+                  {col.sortable && sortField === col.field && (
+                    <span className="us-table__sort-arrow">
+                      {sortDir === "asc" ? "↑" : "↓"}
+                    </span>
+                  )}
+                </span>
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {sorted.map((run) => (
+            <RunRow key={run.id} run={run} onClick={() => navigate(`/runs/${run.id}`)} statusColor={STATUS_COLORS[run.status] ?? STATUS_COLORS.pending} />
           ))}
-        </Tr>
-      </Thead>
-      <Tbody>
-        {sorted.map((run) => (
-          <RunRow key={run.id} run={run} onClick={() => navigate(`/runs/${run.id}`)} />
-        ))}
-      </Tbody>
-    </Table>
+        </tbody>
+      </table>
+    </div>
   );
 }
 
-function RunRow({ run, onClick }: { run: Run; onClick: () => void }) {
+function RunRow({ run, onClick, statusColor }: { run: Run; onClick: () => void; statusColor: string }) {
   const elapsed = useElapsedTime(run.startedAt, run.completedAt);
   const repo = getRepoName(run);
 
   return (
-    <Tr isClickable onRowClick={onClick} style={{ cursor: "pointer" }}>
-      <Td dataLabel="Issue">{run.issueKey || run.id.slice(0, 8)}</Td>
-      <Td dataLabel="Status"><StatusLabel status={run.status} /></Td>
-      <Td dataLabel="Phase">{PHASE_LABELS[run.status] ?? run.status}</Td>
-      <Td dataLabel="Repo">{repo ?? "—"}</Td>
-      <Td dataLabel="Duration">{elapsed}</Td>
-      <Td dataLabel="Started">{new Date(run.startedAt).toLocaleString()}</Td>
-    </Tr>
+    <tr
+      className={`us-table__row${run.status === "awaiting_approval" ? " us-table__row--awaiting" : ""}`}
+      style={{ "--row-status-color": statusColor } as React.CSSProperties}
+      onClick={onClick}
+      tabIndex={0}
+      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onClick(); } }}
+    >
+      <td className="us-table__td us-table__td--issue">
+        {run.issueKey || run.id.slice(0, 8)}
+      </td>
+      <td className="us-table__td">
+        <StatusDot status={run.status} />
+      </td>
+      <td className="us-table__td">
+        <MiniProgressBar status={run.status} />
+      </td>
+      <td className="us-table__td us-table__td--muted">{repo ?? "—"}</td>
+      <td className="us-table__td us-table__td--muted">{elapsed}</td>
+      <td className="us-table__td us-table__td--muted">{new Date(run.startedAt).toLocaleString()}</td>
+    </tr>
   );
 }

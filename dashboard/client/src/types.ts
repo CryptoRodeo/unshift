@@ -33,3 +33,16 @@ export const PHASE_CONFIG: { key: RunPhase; label: string }[] = [
 export const PHASE_LABELS: Record<string, string> = Object.fromEntries(
   PHASE_CONFIG.map((p) => [p.key, p.label])
 );
+
+export const STATUS_COLORS: Record<string, string> = {
+  phase0: "#0066cc",
+  phase1: "#0066cc",
+  phase2: "#0066cc",
+  awaiting_approval: "#e67700",
+  phase3: "#0066cc",
+  success: "#22863a",
+  failed: "#d1242f",
+  stopped: "#e67700",
+  rejected: "#d1242f",
+  pending: "#8b8b8b",
+};
