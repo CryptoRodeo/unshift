@@ -1,5 +1,7 @@
 import express from "express";
 import http from "node:http";
+import fs from "node:fs";
+import { spawn } from "node:child_process";
 import { WebSocketServer, WebSocket } from "ws";
 import { UnshiftRunner } from "./unshift";
 import { isRunError } from "../../shared/types";
@@ -180,6 +182,30 @@ app.post("/api/runs/:id/retry", async (req, res) => {
     console.error("Failed to retry run:", err);
     res.status(500).json({ error: "Failed to retry run" });
   }
+});
+
+app.post("/api/runs/:id/open-editor", (req, res) => {
+  const run = runner.getRun(req.params.id);
+  if (!run) {
+    res.status(404).json({ error: "Run not found", code: "NOT_FOUND" });
+    return;
+  }
+  if (!run.repoPath) {
+    res.status(400).json({ error: "Run has no repo path yet", code: "BAD_REQUEST" });
+    return;
+  }
+  if (!fs.existsSync(run.repoPath)) {
+    res.status(400).json({ error: `Repo path does not exist: ${run.repoPath}`, code: "BAD_REQUEST" });
+    return;
+  }
+  const editorEnv = process.env.UNSHIFT_EDITOR || "code";
+  const parts = editorEnv.split(/\s+/);
+  const child = spawn(parts[0], [...parts.slice(1), run.repoPath], {
+    detached: true,
+    stdio: "ignore",
+  });
+  child.unref();
+  res.json({ ok: true });
 });
 
 const PORT = process.env.SERVER_PORT ?? 3000;

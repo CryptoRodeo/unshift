@@ -13,7 +13,7 @@ import {
   CardBody,
   Alert,
 } from "@patternfly/react-core";
-import { ArrowLeftIcon, RedoIcon, TrashIcon } from "@patternfly/react-icons";
+import { ArrowLeftIcon, RedoIcon, TrashIcon, ExternalLinkAltIcon } from "@patternfly/react-icons";
 import { useWebSocket } from "../hooks/useWebSocket";
 import { isTerminal, isCompleted, isRunError } from "../types";
 import type { Run } from "../types";
@@ -27,13 +27,14 @@ import { PrdStatusCard } from "../components/PrdStatusCard";
 export function RunDetailPage() {
   const { runId } = useParams<{ runId: string }>();
   const navigate = useNavigate();
-  const { runs, stopRun, approveRun, rejectRun, retryRun, deleteRun, fetchRunLogs, fetchProgress, fetchRunHistory, progressMap, startRunForIssue } = useWebSocket();
+  const { runs, stopRun, approveRun, rejectRun, retryRun, deleteRun, openInEditor, fetchRunLogs, fetchProgress, fetchRunHistory, progressMap, startRunForIssue } = useWebSocket();
 
   const run = runId ? runs.get(runId) : undefined;
   const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set());
   const [approveError, setApproveError] = useState<string | null>(null);
   const [retryError, setRetryError] = useState<string | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [editorError, setEditorError] = useState<string | null>(null);
   const [progress, setProgress] = useState<string | null>(null);
   const [runHistory, setRunHistory] = useState<Run[]>([]);
 
@@ -137,6 +138,15 @@ export function RunDetailPage() {
     }
   };
 
+  const handleOpenEditor = async () => {
+    setEditorError(null);
+    try {
+      await openInEditor(run.id);
+    } catch (err) {
+      setEditorError(err instanceof Error ? err.message : "Failed to open editor");
+    }
+  };
+
   return (
     <>
       <PageSection>
@@ -150,6 +160,11 @@ export function RunDetailPage() {
           </FlexItem>
           <FlexItem>
             <Flex gap={{ default: "gapMd" }}>
+              {run.repoPath && (
+                <Button variant="secondary" icon={<ExternalLinkAltIcon />} onClick={handleOpenEditor}>
+                  Open in Editor
+                </Button>
+              )}
               {isSuccess && (
                 <Button variant="secondary" icon={<RedoIcon />} onClick={handleRerun}>
                   Re-run
@@ -179,6 +194,14 @@ export function RunDetailPage() {
         <PageSection>
           <Alert variant="danger" title="Retry failed" isInline>
             {retryError}
+          </Alert>
+        </PageSection>
+      )}
+
+      {editorError && (
+        <PageSection>
+          <Alert variant="danger" title="Failed to open editor" isInline>
+            {editorError}
           </Alert>
         </PageSection>
       )}

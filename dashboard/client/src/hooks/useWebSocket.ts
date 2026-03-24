@@ -2,9 +2,10 @@ import { useEffect, useRef, useCallback, useReducer, useState } from "react";
 import type { WsMessage, Run, RunContext, PrdEntry, RunPhase, CompletedStatus } from "../types";
 import { isTerminal } from "../types";
 
-export interface SkippedTicket {
-  issueKey: string;
-  reason: string;
+export interface StartRunResponse {
+  runs: Run[];
+  errors: string[];
+  skipped: { issueKey: string; reason: string }[];
 }
 
 type RunsAction =
@@ -116,7 +117,6 @@ export function useWebSocket() {
   const backoffRef = useRef(1000);
   const [runs, dispatch] = useReducer(runsReducer, new Map<string, Run>());
   const [connected, setConnected] = useState(false);
-  const [skippedTickets, setSkippedTickets] = useState<SkippedTicket[]>([]);
   const [progressMap, setProgressMap] = useState<Map<string, string>>(new Map());
 
   const fetchRuns = useCallback(() => {
@@ -228,9 +228,6 @@ export function useWebSocket() {
               return next;
             });
             break;
-          case "run:skipped":
-            setSkippedTickets(msg.skipped);
-            break;
           case "run:deleted":
             dispatch({ type: "RunDeleted", runId: msg.runId });
             setProgressMap((prev) => {
@@ -253,17 +250,13 @@ export function useWebSocket() {
     };
   }, [fetchRuns]);
 
-  const startRun = useCallback(async (options?: { force?: boolean }) => {
+  const startRun = useCallback(async (options?: { force?: boolean }): Promise<StartRunResponse> => {
     const res = await fetch("/api/runs", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ force: options?.force }),
     });
-    const data = await res.json();
-    if (data.skipped?.length) {
-      setSkippedTickets(data.skipped);
-    }
-    return data;
+    return res.json();
   }, []);
 
   const startRunForIssue = useCallback(async (issueKey: string, force?: boolean) => {
@@ -321,6 +314,15 @@ export function useWebSocket() {
     return data;
   }, []);
 
+  const openInEditor = useCallback(async (runId: string) => {
+    const res = await fetch(`/api/runs/${runId}/open-editor`, { method: "POST" });
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.error || "Failed to open editor");
+    }
+    return data;
+  }, []);
+
   const deleteRun = useCallback(async (runId: string) => {
     const res = await fetch(`/api/runs/${runId}`, { method: "DELETE" });
     const data = await res.json();
@@ -329,8 +331,6 @@ export function useWebSocket() {
     }
     return data;
   }, []);
-
-  const dismissSkipped = useCallback(() => setSkippedTickets([]), []);
 
   return {
     runs,
@@ -342,11 +342,10 @@ export function useWebSocket() {
     rejectRun,
     retryRun,
     deleteRun,
+    openInEditor,
     fetchRunHistory,
     fetchRunLogs,
     fetchProgress,
-    skippedTickets,
-    dismissSkipped,
     progressMap,
   };
 }

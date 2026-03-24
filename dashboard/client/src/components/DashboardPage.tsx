@@ -1,3 +1,4 @@
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   PageSection,
@@ -18,14 +19,73 @@ import {
   AlertActionCloseButton,
 } from "@patternfly/react-core";
 import { useWebSocket } from "../hooks/useWebSocket";
+import type { StartRunResponse } from "../hooks/useWebSocket";
 import { PhaseProgress } from "./PhaseProgress";
 import { StatusLabel } from "./StatusLabel";
 import type { Run } from "../types";
 import { PHASE_LABELS } from "../types";
 
+interface StartRunSummary {
+  started: number;
+  alreadyActive: number;
+  skipped: { issueKey: string; reason: string }[];
+  errors: string[];
+}
+
+function buildSummary(data: StartRunResponse): StartRunSummary {
+  const alreadyActiveErrors: string[] = [];
+  const otherErrors: string[] = [];
+  for (const err of data.errors) {
+    if (err.includes("already has an active run")) {
+      alreadyActiveErrors.push(err);
+    } else {
+      otherErrors.push(err);
+    }
+  }
+  return {
+    started: data.runs.length,
+    alreadyActive: alreadyActiveErrors.length,
+    skipped: data.skipped,
+    errors: otherErrors,
+  };
+}
+
+function summaryVariant(summary: StartRunSummary): "success" | "info" | "warning" {
+  if (summary.errors.length > 0) return "warning";
+  if (summary.started > 0) return "success";
+  return "info";
+}
+
+function summaryTitle(summary: StartRunSummary): string {
+  if (summary.started > 0) {
+    return `Started ${summary.started} new run${summary.started > 1 ? "s" : ""}`;
+  }
+  return "No new tickets to process";
+}
+
 export function DashboardPage() {
-  const { runs, connected, startRun, skippedTickets, dismissSkipped } = useWebSocket();
+  const { runs, connected, startRun } = useWebSocket();
   const navigate = useNavigate();
+  const [isStarting, setIsStarting] = useState(false);
+  const [startRunSummary, setStartRunSummary] = useState<StartRunSummary | null>(null);
+
+  useEffect(() => {
+    if (!startRunSummary) return;
+    const timer = setTimeout(() => setStartRunSummary(null), 8000);
+    return () => clearTimeout(timer);
+  }, [startRunSummary]);
+
+  const handleStartRun = async () => {
+    setIsStarting(true);
+    try {
+      const data = await startRun();
+      setStartRunSummary(buildSummary(data));
+    } catch {
+      setStartRunSummary({ started: 0, alreadyActive: 0, skipped: [], errors: ["Failed to start runs"] });
+    } finally {
+      setIsStarting(false);
+    }
+  };
 
   const runList = Array.from(runs.values()).sort(
     (a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime()
@@ -45,7 +105,12 @@ export function DashboardPage() {
               </Label>
             </ToolbarItem>
             <ToolbarItem>
-              <Button variant="primary" onClick={startRun}>
+              <Button
+                variant="primary"
+                onClick={handleStartRun}
+                isLoading={isStarting}
+                isDisabled={isStarting}
+              >
                 Start run
               </Button>
             </ToolbarItem>
@@ -53,21 +118,29 @@ export function DashboardPage() {
         </Toolbar>
       </PageSection>
 
-      {skippedTickets.length > 0 && (
+      {startRunSummary && (
         <PageSection>
           <Alert
-            variant="info"
-            title="Some tickets were skipped"
+            variant={summaryVariant(startRunSummary)}
+            title={summaryTitle(startRunSummary)}
             isInline
-            actionClose={<AlertActionCloseButton onClose={dismissSkipped} />}
+            actionClose={<AlertActionCloseButton onClose={() => setStartRunSummary(null)} />}
           >
-            <ul>
-              {skippedTickets.map((s) => (
-                <li key={s.issueKey}>
-                  <strong>{s.issueKey}</strong>: {s.reason}
-                </li>
-              ))}
-            </ul>
+            {(startRunSummary.alreadyActive > 0 || startRunSummary.skipped.length > 0 || startRunSummary.errors.length > 0) && (
+              <ul>
+                {startRunSummary.alreadyActive > 0 && (
+                  <li>{startRunSummary.alreadyActive} already active</li>
+                )}
+                {startRunSummary.skipped.map((s) => (
+                  <li key={s.issueKey}>
+                    <strong>{s.issueKey}</strong>: {s.reason}
+                  </li>
+                ))}
+                {startRunSummary.errors.map((err, i) => (
+                  <li key={i}>{err}</li>
+                ))}
+              </ul>
+            )}
           </Alert>
         </PageSection>
       )}
