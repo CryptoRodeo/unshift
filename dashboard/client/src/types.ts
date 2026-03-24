@@ -10,6 +10,7 @@ export type {
   CompletedStatus,
   RunErrorCode,
   RunError,
+  TokenData,
 } from "../../shared/types";
 
 export {

@@ -18,8 +18,10 @@ import {
   Alert,
   AlertActionCloseButton,
   Tooltip,
+  ToggleGroup,
+  ToggleGroupItem,
 } from "@patternfly/react-core";
-import { BellIcon, BellSlashIcon } from "@patternfly/react-icons";
+import { BellIcon, BellSlashIcon, ThIcon, ThLargeIcon } from "@patternfly/react-icons";
 import { useWebSocket } from "../hooks/useWebSocket";
 import type { StartRunResponse } from "../hooks/useWebSocket";
 import { useNotifications } from "../hooks/useNotifications";
@@ -27,9 +29,12 @@ import { useElapsedTime } from "../hooks/useElapsedTime";
 import { useRunFilters } from "../hooks/useRunFilters";
 import { PhaseProgress } from "./PhaseProgress";
 import { FilterBar } from "./FilterBar";
+import { DashboardStats } from "./DashboardStats";
+import { RunTable } from "./RunTable";
 import { StatusLabel } from "./StatusLabel";
 import type { Run } from "../types";
 import { PHASE_LABELS } from "../types";
+import { formatCost, formatTokenCount } from "../../../shared/pricing";
 
 interface StartRunSummary {
   started: number;
@@ -84,6 +89,9 @@ export function DashboardPage() {
   const filters = useRunFilters();
   const [isStarting, setIsStarting] = useState(false);
   const [startRunSummary, setStartRunSummary] = useState<StartRunSummary | null>(null);
+  const [viewMode, setViewMode] = useState<"gallery" | "table">(() => {
+    return (localStorage.getItem("unshift:viewMode") as "gallery" | "table") ?? "gallery";
+  });
 
   const handleRunEvent = useCallback(
     (event: { runId: string; issueKey: string; status: string }) => {
@@ -118,6 +126,11 @@ export function DashboardPage() {
       setIsStarting(false);
     }
   };
+
+  const handleViewChange = useCallback((mode: "gallery" | "table") => {
+    setViewMode(mode);
+    localStorage.setItem("unshift:viewMode", mode);
+  }, []);
 
   const runList = Array.from(runs.values()).sort(
     (a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime()
@@ -201,19 +214,45 @@ export function DashboardPage() {
 
       {runList.length > 0 && (
         <PageSection>
-          <FilterBar
-            query={filters.query}
-            statuses={filters.statuses}
-            repo={filters.repo}
-            hasFilters={filters.hasFilters}
-            setQuery={filters.setQuery}
-            toggleStatus={filters.toggleStatus}
-            setRepo={filters.setRepo}
-            clearAll={filters.clearAll}
-            runs={runList}
-            totalCount={runList.length}
-            filteredCount={filteredRuns.length}
-          />
+          <DashboardStats runs={runList} onStatusClick={filters.toggleStatus} />
+        </PageSection>
+      )}
+
+      {runList.length > 0 && (
+        <PageSection>
+          <Flex justifyContent={{ default: "justifyContentSpaceBetween" }} alignItems={{ default: "alignItemsCenter" }}>
+            <FlexItem style={{ flex: 1 }}>
+              <FilterBar
+                query={filters.query}
+                statuses={filters.statuses}
+                repo={filters.repo}
+                hasFilters={filters.hasFilters}
+                setQuery={filters.setQuery}
+                toggleStatus={filters.toggleStatus}
+                setRepo={filters.setRepo}
+                clearAll={filters.clearAll}
+                runs={runList}
+                totalCount={runList.length}
+                filteredCount={filteredRuns.length}
+              />
+            </FlexItem>
+            <FlexItem>
+              <ToggleGroup aria-label="View toggle">
+                <ToggleGroupItem
+                  icon={<ThLargeIcon />}
+                  aria-label="Gallery view"
+                  isSelected={viewMode === "gallery"}
+                  onChange={() => handleViewChange("gallery")}
+                />
+                <ToggleGroupItem
+                  icon={<ThIcon />}
+                  aria-label="Table view"
+                  isSelected={viewMode === "table"}
+                  onChange={() => handleViewChange("table")}
+                />
+              </ToggleGroup>
+            </FlexItem>
+          </Flex>
         </PageSection>
       )}
 
@@ -234,6 +273,8 @@ export function DashboardPage() {
               </Button>
             </EmptyStateBody>
           </EmptyState>
+        ) : viewMode === "table" ? (
+          <RunTable runs={filteredRuns} />
         ) : (
           <Gallery hasGutter minWidths={{ default: "400px" }}>
             {filteredRuns.map((run) => (
@@ -287,6 +328,9 @@ function RunCard({ run, onClick }: { run: Run; onClick: () => void }) {
             <small>
               Started {new Date(run.startedAt).toLocaleString()} &middot; {elapsed}
               {PHASE_LABELS[run.status] && ` \u00b7 ${PHASE_LABELS[run.status]}`}
+              {run.tokens && run.tokens.totalCostUsd > 0 && (
+                <> &middot; {formatCost(run.tokens.totalCostUsd)} &middot; {formatTokenCount(run.tokens.inputTokens + run.tokens.outputTokens)} tokens</>
+              )}
             </small>
           </FlexItem>
         </Flex>

@@ -8,6 +8,8 @@ import kill from "tree-kill";
 import type { RunContext, Run, RunError, PrdEntry, LogEntry, RunPhase } from "../../shared/types";
 import { isTerminal, isCompleted, isRunError } from "../../shared/types";
 import { RunRepository } from "./runRepository";
+import { parseTokenLine } from "./tokenParser";
+import { PtyManager } from "./ptyManager";
 
 /**
  * Spawns one `unshift.sh --issue <KEY>` per Jira ticket, each as its own Run
@@ -21,6 +23,9 @@ export class UnshiftRunner extends EventEmitter {
   /** Tracks runs that are being gracefully stopped so the close handler uses "stopped" instead of "failed" */
   private stoppingRuns = new Set<string>();
   private repository = new RunRepository();
+  readonly ptyManager = new PtyManager();
+  /** Set of run IDs using PTY mode */
+  private ptyRuns = new Set<string>();
 
   /** Path to unshift.sh in the cli/ directory */
   private scriptPath: string;
@@ -109,7 +114,12 @@ export class UnshiftRunner extends EventEmitter {
     this.activeIssueKeys.set(run.issueKey, run.id);
     this.contextFiles.set(run.id, contextFile);
     this.emit("run:created", run);
-    this.spawn(run, contextFile, retry);
+    // Use PTY mode by default for terminal emulation; disable with UNSHIFT_NO_PTY=1
+    if (process.env.UNSHIFT_NO_PTY === "1") {
+      this.spawn(run, contextFile, retry);
+    } else {
+      this.spawnWithPty(run, contextFile, retry);
+    }
     return run;
   }
 
@@ -226,6 +236,15 @@ export class UnshiftRunner extends EventEmitter {
     if (!run.context) {
       await this.readContextFile(run);
     }
+    // Handle PTY-based runs
+    if (this.ptyRuns.has(id)) {
+      const pid = this.ptyManager.getPid(id);
+      if (pid) {
+        this.stoppingRuns.add(id);
+        kill(pid);
+      }
+      return;
+    }
     const proc = this.processes.get(id);
     if (proc?.pid) {
       // Mark as stopping; the process `close` handler will finalize status to "stopped"
@@ -244,13 +263,14 @@ export class UnshiftRunner extends EventEmitter {
     const run = this.repository.getRun(id);
     if (!run) return { error: "Run not found", code: "NOT_FOUND" };
     if (run.status !== "awaiting_approval") return { error: `Run is not awaiting approval (status: ${run.status})`, code: "INVALID_STATE" };
-    const proc = this.processes.get(id);
-    if (!proc?.pid) return { error: "Process not found or has no PID", code: "INVALID_STATE" };
+    // Resolve PID from either PTY or child_process
+    const pid = this.ptyRuns.has(id) ? this.ptyManager.getPid(id) : this.processes.get(id)?.pid;
+    if (!pid) return { error: "Process not found or has no PID", code: "INVALID_STATE" };
     try {
-      process.kill(-proc.pid, "SIGCONT");
+      process.kill(-pid, "SIGCONT");
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      console.error(`Failed to send SIGCONT to process group -${proc.pid}: ${msg}`);
+      console.error(`Failed to send SIGCONT to process group -${pid}: ${msg}`);
       return { error: `Failed to resume process: ${msg}`, code: "INVALID_STATE" };
     }
     const ts = new Date().toISOString();
@@ -263,7 +283,7 @@ export class UnshiftRunner extends EventEmitter {
   deleteRun(id: string): { ok: true } | RunError {
     const run = this.repository.getRun(id);
     if (!run) return { error: "Run not found", code: "NOT_FOUND" };
-    if (this.processes.has(id)) return { error: "Cannot delete an active run", code: "INVALID_STATE" };
+    if (this.processes.has(id) || this.ptyRuns.has(id)) return { error: "Cannot delete an active run", code: "INVALID_STATE" };
     this.activeIssueKeys.delete(run.issueKey);
     this.contextFiles.delete(id);
     this.stoppingRuns.delete(id);
@@ -276,7 +296,6 @@ export class UnshiftRunner extends EventEmitter {
     const run = this.repository.getRun(id);
     if (!run) return { error: "Run not found", code: "NOT_FOUND" };
     if (run.status !== "awaiting_approval") return { error: `Run is not awaiting approval (status: ${run.status})`, code: "INVALID_STATE" };
-    const proc = this.processes.get(id);
     // Preserve context data before cleanup so retry can reuse it
     if (!run.context) {
       await this.readContextFile(run);
@@ -284,10 +303,18 @@ export class UnshiftRunner extends EventEmitter {
     const completedAt = new Date().toISOString();
     this.repository.updateRunStatus(run.id, "rejected", completedAt);
     this.emit("run:complete", run.id, "rejected");
-    if (proc?.pid) {
-      // Resume then kill so the process group isn't left stopped
-      try { process.kill(-proc.pid, "SIGCONT"); } catch {}
-      kill(proc.pid);
+    if (this.ptyRuns.has(id)) {
+      const pid = this.ptyManager.getPid(id);
+      if (pid) {
+        try { process.kill(-pid, "SIGCONT"); } catch {}
+        kill(pid);
+      }
+    } else {
+      const proc = this.processes.get(id);
+      if (proc?.pid) {
+        try { process.kill(-proc.pid, "SIGCONT"); } catch {}
+        kill(proc.pid);
+      }
     }
     this.cleanupRun(id, run.issueKey);
     return { ok: true };
@@ -306,10 +333,37 @@ export class UnshiftRunner extends EventEmitter {
 
     this.processes.set(run.id, proc);
 
+    let lastContextEmit = 0;
+    let pendingContextTokens: number | undefined;
+
     const handleLine = (line: string) => {
       this.parseLine(run, line);
       this.repository.appendLog(run.id, run.status, line);
       this.emit("run:log", run.id, line, run.status);
+
+      const tokenUpdate = parseTokenLine(line);
+      if (tokenUpdate) {
+        // Track contextTokens separately (transient, not persisted)
+        if (tokenUpdate.contextTokens != null) {
+          pendingContextTokens = tokenUpdate.contextTokens;
+        }
+
+        const tokens = this.repository.updateTokens(run.id, tokenUpdate);
+
+        // Attach transient contextTokens to the emitted data
+        const tokensWithContext = pendingContextTokens != null
+          ? { ...tokens, contextTokens: pendingContextTokens }
+          : tokens;
+
+        // Throttle context-only updates to at most once per second
+        const now = Date.now();
+        if (tokenUpdate.contextTokens != null && !tokenUpdate.inputTokens && !tokenUpdate.outputTokens && !tokenUpdate.totalCostUsd) {
+          if (now - lastContextEmit < 1000) return;
+          lastContextEmit = now;
+        }
+
+        this.emit("run:tokens", run.id, tokensWithContext);
+      }
     };
 
     let stdoutBuf = "";
@@ -364,6 +418,107 @@ export class UnshiftRunner extends EventEmitter {
         captureAndFinish();
       }
     });
+  }
+
+  private spawnWithPty(run: Run, contextFile: string, retry = false): void {
+    const args = retry
+      ? [this.scriptPath, "--retry", "--issue", run.issueKey]
+      : [this.scriptPath, "--issue", run.issueKey];
+
+    this.ptyRuns.add(run.id);
+
+    let lastContextEmit = 0;
+    let pendingContextTokens: number | undefined;
+    let lineBuf = "";
+
+    const handleLine = (line: string) => {
+      this.parseLine(run, line);
+      this.repository.appendLog(run.id, run.status, line);
+      this.emit("run:log", run.id, line, run.status);
+
+      const tokenUpdate = parseTokenLine(line);
+      if (tokenUpdate) {
+        if (tokenUpdate.contextTokens != null) {
+          pendingContextTokens = tokenUpdate.contextTokens;
+        }
+        const tokens = this.repository.updateTokens(run.id, tokenUpdate);
+        const tokensWithContext = pendingContextTokens != null
+          ? { ...tokens, contextTokens: pendingContextTokens }
+          : tokens;
+        const now = Date.now();
+        if (tokenUpdate.contextTokens != null && !tokenUpdate.inputTokens && !tokenUpdate.outputTokens && !tokenUpdate.totalCostUsd) {
+          if (now - lastContextEmit < 1000) return;
+          lastContextEmit = now;
+        }
+        this.emit("run:tokens", run.id, tokensWithContext);
+      }
+    };
+
+    const ptyTerm = this.ptyManager.spawn(
+      run.id,
+      "bash",
+      args,
+      path.dirname(this.scriptPath),
+      { UNSHIFT_CONTEXT_FILE: contextFile },
+    );
+
+    // Listen for PTY output — emit terminal data and parse lines for log/phase tracking
+    this.ptyManager.on("output", (id: string, data: string) => {
+      if (id !== run.id) return;
+      this.emit("terminal:output", run.id, data);
+
+      // Parse lines for the log pipeline
+      lineBuf += data;
+      const lines = lineBuf.split("\n");
+      lineBuf = lines.pop()!;
+      for (const line of lines) {
+        // Strip ANSI escape sequences for log parsing
+        handleLine(stripAnsi(line));
+      }
+    });
+
+    this.ptyManager.on("exit", (id: string, exitCode: number) => {
+      if (id !== run.id) return;
+      // Flush remaining line buffer
+      if (lineBuf) {
+        handleLine(stripAnsi(lineBuf));
+        lineBuf = "";
+      }
+
+      const finish = () => {
+        const currentRun = this.repository.getRun(run.id);
+        const currentStatus = currentRun?.status ?? run.status;
+        if (!isCompleted(currentStatus)) {
+          const wasStopping = this.stoppingRuns.delete(run.id);
+          const status = wasStopping ? "stopped" : exitCode === 0 ? "success" : "failed";
+          const completedAt = new Date().toISOString();
+          this.repository.updateRunStatus(run.id, status, completedAt);
+          this.emit("run:complete", run.id, status);
+        } else {
+          this.stoppingRuns.delete(run.id);
+        }
+        this.ptyRuns.delete(run.id);
+        this.cleanupRun(run.id, run.issueKey);
+      };
+
+      const captureAndFinish = () => {
+        this.readProgressFile(run).catch(() => {}).finally(finish);
+      };
+
+      const currentRun = this.repository.getRun(run.id);
+      const closingStatus = currentRun?.status ?? run.status;
+      const failed = exitCode !== 0 && !isCompleted(closingStatus);
+      if (failed && !run.context) {
+        this.readContextFile(run).catch(() => {}).finally(captureAndFinish);
+      } else {
+        captureAndFinish();
+      }
+    });
+  }
+
+  /** Check if a run is using PTY mode */
+  hasPty(id: string): boolean {
+    return this.ptyRuns.has(id);
   }
 
   private cleanupRun(id: string, issueKey: string): void {
@@ -548,4 +703,10 @@ export class UnshiftRunner extends EventEmitter {
       // prd.json may not exist yet; skip silently
     }
   }
+}
+
+/** Strip ANSI escape sequences from a string for clean log parsing */
+function stripAnsi(str: string): string {
+  // eslint-disable-next-line no-control-regex
+  return str.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, "").replace(/\x1b\][^\x07]*\x07/g, "");
 }

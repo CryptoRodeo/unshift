@@ -65,6 +65,17 @@ export interface RunContext {
   commitPrefix?: string;
 }
 
+export interface TokenData {
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheCreationTokens: number;
+  totalCostUsd: number;
+  model?: string;
+  /** Current context window usage (transient, not persisted to DB) */
+  contextTokens?: number;
+}
+
 export interface Run {
   id: string;
   issueKey: string;
@@ -80,6 +91,7 @@ export interface Run {
   retryCount?: number;
   sourceRunId?: string;
   phaseTimestamps?: Record<string, string>;
+  tokens?: TokenData;
 }
 
 /** Messages sent from the server over WebSocket */
@@ -92,7 +104,17 @@ export type WsMessage =
   | { type: "run:complete"; runId: string; status: CompletedStatus }
   | { type: "run:progress"; runId: string; content: string }
   | { type: "run:skipped"; skipped: { issueKey: string; reason: string }[] }
-  | { type: "run:deleted"; runId: string };
+  | { type: "run:deleted"; runId: string }
+  | { type: "run:tokens"; runId: string; tokens: TokenData }
+  | { type: "terminal:output"; runId: string; data: string }
+  | { type: "terminal:history_complete"; runId: string };
+
+/** Messages sent from the client to the server over WebSocket */
+export type WsClientMessage =
+  | { type: "terminal:attach"; runId: string }
+  | { type: "terminal:detach"; runId: string }
+  | { type: "terminal:input"; runId: string; data: string }
+  | { type: "terminal:resize"; runId: string; cols: number; rows: number };
 
 export function formatDuration(ms: number): string {
   const seconds = Math.floor(ms / 1000);

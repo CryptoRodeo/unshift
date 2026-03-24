@@ -5,7 +5,7 @@ import { spawn } from "node:child_process";
 import { WebSocketServer, WebSocket } from "ws";
 import { UnshiftRunner } from "./unshift";
 import { isRunError } from "../../shared/types";
-import type { RunErrorCode } from "../../shared/types";
+import type { RunErrorCode, WsClientMessage } from "../../shared/types";
 
 const app = express();
 app.use(express.json());
@@ -57,6 +57,22 @@ runner.on("run:skipped", (skipped: { issueKey: string; reason: string }[]) =>
 runner.on("run:deleted", (runId: string) =>
   broadcast({ type: "run:deleted", runId })
 );
+runner.on("run:tokens", (runId: string, tokens: object) =>
+  broadcast({ type: "run:tokens", runId, tokens })
+);
+
+// Terminal output — only send to clients attached to this run's terminal
+runner.on("terminal:output", (runId: string, data: string) => {
+  const json = JSON.stringify({ type: "terminal:output", runId, data });
+  for (const client of wss.clients) {
+    if (client.readyState === WebSocket.OPEN && terminalAttachments.get(client)?.has(runId)) {
+      client.send(json);
+    }
+  }
+});
+
+// Track which runs each WebSocket client is attached to for terminal streaming
+const terminalAttachments = new WeakMap<WebSocket, Set<string>>();
 
 // REST endpoints
 app.get("/api/runs", (_req, res) => {
@@ -206,6 +222,57 @@ app.post("/api/runs/:id/open-editor", (req, res) => {
   });
   child.unref();
   res.json({ ok: true });
+});
+
+// Handle incoming WebSocket messages from clients
+wss.on("connection", (ws) => {
+  ws.on("message", (raw) => {
+    let msg: WsClientMessage;
+    try {
+      msg = JSON.parse(raw.toString());
+    } catch {
+      return;
+    }
+
+    switch (msg.type) {
+      case "terminal:attach": {
+        let attached = terminalAttachments.get(ws);
+        if (!attached) {
+          attached = new Set();
+          terminalAttachments.set(ws, attached);
+        }
+        attached.add(msg.runId);
+
+        // Replay buffered history
+        const history = runner.ptyManager.getHistory(msg.runId);
+        if (history) {
+          ws.send(JSON.stringify({ type: "terminal:output", runId: msg.runId, data: history }));
+        }
+        ws.send(JSON.stringify({ type: "terminal:history_complete", runId: msg.runId }));
+        break;
+      }
+
+      case "terminal:detach": {
+        const set = terminalAttachments.get(ws);
+        if (set) set.delete(msg.runId);
+        break;
+      }
+
+      case "terminal:input": {
+        if (runner.hasPty(msg.runId)) {
+          runner.ptyManager.write(msg.runId, msg.data);
+        }
+        break;
+      }
+
+      case "terminal:resize": {
+        if (runner.hasPty(msg.runId)) {
+          runner.ptyManager.resize(msg.runId, msg.cols, msg.rows);
+        }
+        break;
+      }
+    }
+  });
 });
 
 const PORT = process.env.SERVER_PORT ?? 3000;

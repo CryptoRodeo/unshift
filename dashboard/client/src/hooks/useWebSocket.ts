@@ -1,5 +1,5 @@
 import { useEffect, useRef, useCallback, useReducer, useState } from "react";
-import type { WsMessage, Run, RunContext, PrdEntry, RunPhase, CompletedStatus } from "../types";
+import type { WsMessage, Run, RunContext, PrdEntry, RunPhase, CompletedStatus, TokenData } from "../types";
 import { isTerminal } from "../types";
 
 export interface StartRunResponse {
@@ -17,7 +17,8 @@ type RunsAction =
   | { type: "ContextUpdated"; runId: string; context: RunContext }
   | { type: "PrdUpdated"; runId: string; prd: PrdEntry[] }
   | { type: "RunCompleted"; runId: string; status: CompletedStatus }
-  | { type: "RunDeleted"; runId: string };
+  | { type: "RunDeleted"; runId: string }
+  | { type: "TokensUpdated"; runId: string; tokens: TokenData };
 
 function runsReducer(
   state: Map<string, Run>,
@@ -106,6 +107,14 @@ function runsReducer(
     case "RunDeleted": {
       const next = new Map(state);
       next.delete(action.runId);
+      return next;
+    }
+
+    case "TokensUpdated": {
+      const run = state.get(action.runId);
+      if (!run) return state;
+      const next = new Map(state);
+      next.set(action.runId, { ...run, tokens: action.tokens });
       return next;
     }
 
@@ -244,6 +253,9 @@ export function useWebSocket() {
               next.set(msg.runId, msg.content);
               return next;
             });
+            break;
+          case "run:tokens":
+            dispatch({ type: "TokensUpdated", runId: msg.runId, tokens: msg.tokens });
             break;
           case "run:deleted":
             dispatch({ type: "RunDeleted", runId: msg.runId });

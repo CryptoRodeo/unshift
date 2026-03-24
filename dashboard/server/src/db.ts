@@ -55,6 +55,23 @@ export function initDb(): Database.Database {
     // Column already exists — safe to ignore
   }
 
+  // Migration: add token tracking columns
+  const tokenColumns = [
+    "input_tokens INTEGER DEFAULT 0",
+    "output_tokens INTEGER DEFAULT 0",
+    "cache_read_tokens INTEGER DEFAULT 0",
+    "cache_creation_tokens INTEGER DEFAULT 0",
+    "total_cost_usd REAL DEFAULT 0",
+    "model TEXT",
+  ];
+  for (const col of tokenColumns) {
+    try {
+      db.exec(`ALTER TABLE runs ADD COLUMN ${col}`);
+    } catch {
+      // Column already exists — safe to ignore
+    }
+  }
+
   return db;
 }
 
