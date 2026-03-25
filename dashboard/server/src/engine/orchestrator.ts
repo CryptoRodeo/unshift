@@ -329,7 +329,7 @@ export class UnshiftEngine extends EventEmitter {
     return true;
   }
 
-  private waitForApproval(runId: string): Promise<void> {
+  waitForApproval(runId: string): Promise<void> {
     return new Promise<void>((resolve, reject) => {
       this.approvalGates.set(runId, { resolve, reject });
     });
