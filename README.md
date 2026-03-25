@@ -42,6 +42,52 @@ Create a `repos.yaml` to map your Jira projects to repositories. See `repos.yaml
 
 Inside the container, repos are cloned under `/app/workspace/` (bind-mounted to `./workspace` on the host). Keep `local_dir` set to the path on your host machine (e.g. `~/work/my-repo`) — the dashboard uses it for the "Open Locally" dialog.
 
+<details>
+<summary><strong>Example repos.yaml</strong></summary>
+
+```yaml
+# Frontend monorepo — two Jira projects share this repo,
+# disambiguated by component and labels
+- jira_projects: [FRONTEND, DESIGN]
+  component: ComponentLibrary
+  labels: [ui-core]
+  repo_url: git@gitlab.example.com:my-org/ui-packages.git
+  local_dir: ~/work/ui-packages
+  default_branch: main
+  host: GitLab
+  validation: [npm test, npx tsc --noEmit]
+
+# Standalone app — simple 1:1 project-to-repo mapping
+- jira_projects: [TRUSTY]
+  repo_url: git@github.com:my-org/trusty-ui.git
+  local_dir: ~/work/trusty-ui
+  default_branch: main
+  host: GitHub
+  validation: [npm test, npx tsc --noEmit]
+
+# Console UI
+- jira_projects: [CONSOLE]
+  repo_url: git@github.com:my-org/console-ui.git
+  local_dir: ~/work/console-ui
+  default_branch: main
+  host: GitHub
+  validation: [npm test, npx tsc --noEmit]
+
+# Same Jira project as the first entry, but a different
+# component routes issues to a separate repo
+- jira_projects: [FRONTEND]
+  component: Automation
+  repo_url: git@github.com:my-org/automation-tools.git
+  local_dir: ~/projects/automation-tools
+  default_branch: main
+  host: GitHub
+  validation: []
+```
+
+This shows several common patterns: multiple Jira projects sharing a repo, the same project key routing to different repos via `component`, label-based disambiguation, mixed GitHub/GitLab hosts, and empty `validation` when no checks are needed.
+
+</details>
+
 ### 3. Start the dashboard
 
 ```bash
