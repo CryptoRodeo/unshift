@@ -10,12 +10,12 @@ export function createFileTools(cwd: string): ToolSet {
   return {
     read_file: tool({
       description: "Read a file and return its contents",
-      parameters: z.object({ path: z.string().describe("File path relative to the working directory") }),
+      inputSchema: z.object({ path: z.string().describe("File path relative to the working directory") }),
       execute: async ({ path }) => readFile(path, cwd),
     }),
     write_file: tool({
       description: "Write content to a file, creating parent directories if needed",
-      parameters: z.object({
+      inputSchema: z.object({
         path: z.string().describe("File path relative to the working directory"),
         content: z.string().describe("Content to write"),
       }),
@@ -23,7 +23,7 @@ export function createFileTools(cwd: string): ToolSet {
     }),
     bash: tool({
       description: "Execute a shell command and return stdout, stderr, and exit code",
-      parameters: z.object({
+      inputSchema: z.object({
         command: z.string().describe("The shell command to execute"),
         cwd: z.string().optional().describe("Working directory for the command (relative to base)"),
       }),
@@ -32,7 +32,7 @@ export function createFileTools(cwd: string): ToolSet {
     }),
     list_files: tool({
       description: "List files matching a glob pattern",
-      parameters: z.object({
+      inputSchema: z.object({
         pattern: z.string().describe("Glob pattern (e.g. **/*.ts)"),
         cwd: z.string().describe("Directory to search in"),
       }),
@@ -43,7 +43,7 @@ export function createFileTools(cwd: string): ToolSet {
     }),
     search_files: tool({
       description: "Search file contents using grep",
-      parameters: z.object({
+      inputSchema: z.object({
         pattern: z.string().describe("Search pattern (regex)"),
         path: z.string().describe("File or directory path to search in"),
         glob: z.string().optional().describe("Glob to filter files (e.g. *.ts)"),
@@ -59,7 +59,7 @@ export function createJiraTools(): ToolSet {
   return {
     jira_search: tool({
       description: "Search Jira issues using JQL",
-      parameters: z.object({ jql: z.string().describe("JQL query string") }),
+      inputSchema: z.object({ jql: z.string().describe("JQL query string") }),
       execute: async ({ jql }) => {
         const issues = await jira.searchIssues(jql);
         return JSON.stringify(issues, null, 2);
@@ -67,7 +67,7 @@ export function createJiraTools(): ToolSet {
     }),
     jira_get_issue: tool({
       description: "Get a single Jira issue by key",
-      parameters: z.object({ key: z.string().describe("Issue key (e.g. PROJ-123)") }),
+      inputSchema: z.object({ key: z.string().describe("Issue key (e.g. PROJ-123)") }),
       execute: async ({ key }) => {
         const issue = await jira.getIssue(key);
         return JSON.stringify(issue, null, 2);
@@ -75,7 +75,7 @@ export function createJiraTools(): ToolSet {
     }),
     jira_transition: tool({
       description: "Transition a Jira issue to a new status",
-      parameters: z.object({
+      inputSchema: z.object({
         key: z.string().describe("Issue key (e.g. PROJ-123)"),
         transitionName: z.string().describe("Target transition name"),
       }),
@@ -86,7 +86,7 @@ export function createJiraTools(): ToolSet {
     }),
     jira_comment: tool({
       description: "Add a comment to a Jira issue",
-      parameters: z.object({
+      inputSchema: z.object({
         key: z.string().describe("Issue key (e.g. PROJ-123)"),
         body: z.string().describe("Comment text"),
       }),
@@ -102,7 +102,7 @@ export function createPRTool(repoPath: string): ToolSet {
   return {
     create_pr: tool({
       description: "Create a pull/merge request",
-      parameters: z.object({
+      inputSchema: z.object({
         host: z.enum(["github", "gitlab"]).describe("Git hosting platform"),
         branch: z.string().describe("Source branch"),
         base: z.string().describe("Target/base branch"),
