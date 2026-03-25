@@ -6,6 +6,7 @@ prd.json
 issues.md
 ralph.sh
 node_modules/
+workspace/
 **/dist/
 .claude/settings.local.json
 
