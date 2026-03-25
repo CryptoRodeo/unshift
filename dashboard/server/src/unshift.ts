@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 import type { RunContext, Run, RunError, PrdEntry, LogEntry, RunPhase, TokenData } from "../../shared/types";
 import { isTerminal, isCompleted, isRunError } from "../../shared/types";
 import { RunRepository } from "./runRepository";
-import { UnshiftEngine } from "./engine/orchestrator";
+import { UnshiftEngine, type EngineRunOptions } from "./engine/orchestrator";
 import { getModel, getDefaultConfig, type ProviderConfig } from "./engine/providers";
 
 /**
@@ -245,35 +245,54 @@ export class UnshiftRunner extends EventEmitter {
 
   /** Launch a full engine run (phase1 → phase2 → approval → phase3) */
   private launchEngineRun(runId: string, issueKey: string, providerConfig?: ProviderConfig): void {
+    this.launchWithErrorHandling(runId, issueKey, providerConfig, async (opts) => {
+      const repoEntry = await this.engine.resolveRepo(issueKey);
+      await this.engine.runIssue(issueKey, repoEntry, opts);
+    });
+  }
+
+  /** Launch an engine retry (phase2 → approval → phase3 using existing context) */
+  private launchEngineRetry(runId: string, context: RunContext, prd: PrdEntry[], providerConfig?: ProviderConfig): void {
+    this.launchWithErrorHandling(runId, context.issueKey, providerConfig, async (opts) => {
+      await this.engine.runPhase2(context, prd, opts);
+
+      const approvalTs = new Date().toISOString();
+      this.emit("run:phase", runId, "awaiting_approval", approvalTs);
+      this.repository.updateRunStatus(runId, "awaiting_approval");
+      this.repository.updatePhaseTimestamp(runId, "awaiting_approval", approvalTs);
+      await this.engine.waitForApproval(runId);
+
+      await this.engine.runPhase3(context, opts);
+    });
+  }
+
+  /**
+   * Shared wrapper for launching async engine work with consistent
+   * abort handling, error finalization, and cleanup.
+   */
+  private launchWithErrorHandling(
+    runId: string,
+    issueKey: string,
+    providerConfig: ProviderConfig | undefined,
+    work: (opts: EngineRunOptions) => Promise<void>
+  ): void {
     const controller = new AbortController();
     this.abortControllers.set(runId, controller);
 
     const config = providerConfig ?? getDefaultConfig();
     const model = getModel(config);
+    const opts: EngineRunOptions = { model, signal: controller.signal, runId };
 
-    const opts = { model, signal: controller.signal, runId };
-
-    // Wire up engine events to our EventEmitter for this run
     const cleanup = this.wireEngineEvents(runId);
 
-    (async () => {
-      // Resolve repo
-      const repoEntry = await this.engine.resolveRepo(issueKey);
-
-      // Run full issue lifecycle
-      await this.engine.runIssue(issueKey, repoEntry, opts);
-
-      // Success
+    work(opts).then(() => {
       const completedAt = new Date().toISOString();
       this.repository.updateRunStatus(runId, "success", completedAt);
       this.emit("run:complete", runId, "success");
-    })().catch((err) => {
+    }).catch((err) => {
       const currentRun = this.repository.getRun(runId);
       const currentStatus = currentRun?.status;
-      if (currentStatus && isCompleted(currentStatus)) {
-        // Already finalized (e.g., rejected)
-        return;
-      }
+      if (currentStatus && isCompleted(currentStatus)) return;
 
       const isAborted = err?.name === "AbortError" || controller.signal.aborted;
       const status = isAborted ? "stopped" : "failed";
@@ -288,56 +307,6 @@ export class UnshiftRunner extends EventEmitter {
     }).finally(() => {
       cleanup();
       this.cleanupRun(runId, issueKey);
-    });
-  }
-
-  /** Launch an engine retry (phase2 → approval → phase3 using existing context) */
-  private launchEngineRetry(runId: string, context: RunContext, prd: PrdEntry[], providerConfig?: ProviderConfig): void {
-    const controller = new AbortController();
-    this.abortControllers.set(runId, controller);
-
-    const config = providerConfig ?? getDefaultConfig();
-    const model = getModel(config);
-
-    const opts = { model, signal: controller.signal, runId };
-
-    const cleanup = this.wireEngineEvents(runId);
-
-    (async () => {
-      // Phase 2: Implementation
-      const finalPrd = await this.engine.runPhase2(context, prd, opts);
-
-      // Await approval
-      const approvalTs = new Date().toISOString();
-      this.emit("run:phase", runId, "awaiting_approval", approvalTs);
-      this.repository.updateRunStatus(runId, "awaiting_approval");
-      this.repository.updatePhaseTimestamp(runId, "awaiting_approval", approvalTs);
-      await this.engine.waitForApproval(runId);
-
-      // Phase 3: Delivery
-      await this.engine.runPhase3(context, opts);
-
-      const completedAt = new Date().toISOString();
-      this.repository.updateRunStatus(runId, "success", completedAt);
-      this.emit("run:complete", runId, "success");
-    })().catch((err) => {
-      const currentRun = this.repository.getRun(runId);
-      const currentStatus = currentRun?.status;
-      if (currentStatus && isCompleted(currentStatus)) return;
-
-      const isAborted = err?.name === "AbortError" || controller.signal.aborted;
-      const status = isAborted ? "stopped" : "failed";
-      const completedAt = new Date().toISOString();
-      this.repository.updateRunStatus(runId, status, completedAt);
-      this.emit("run:complete", runId, status);
-
-      if (!isAborted) {
-        const msg = err instanceof Error ? err.message : String(err);
-        console.error(`Run ${runId} (retry) failed:`, msg);
-      }
-    }).finally(() => {
-      cleanup();
-      this.cleanupRun(runId, context.issueKey);
     });
   }
 

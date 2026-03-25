@@ -26,16 +26,6 @@ import { bash } from "./tools.js";
 
 const WORKSPACE_DIR = process.env.WORKSPACE_DIR || "/app/workspace";
 
-export interface RunResult {
-  context: RunContext;
-  prd: PrdEntry[];
-  phaseResults: {
-    phase1: PhaseResult;
-    phase2: PhaseResult[];
-    phase3?: PhaseResult;
-  };
-}
-
 export interface EngineRunOptions {
   model: LanguageModel;
   signal: AbortSignal;
@@ -316,7 +306,7 @@ export class UnshiftEngine extends EventEmitter {
     issueKey: string,
     repoEntry: RepoEntry,
     opts: EngineRunOptions
-  ): Promise<RunResult> {
+  ): Promise<void> {
     const { runId } = opts;
 
     // Phase 1: Planning
@@ -327,7 +317,7 @@ export class UnshiftEngine extends EventEmitter {
     );
 
     // Phase 2: Implementation
-    const finalPrd = await this.runPhase2(context, prd, opts);
+    await this.runPhase2(context, prd, opts);
 
     // Await approval gate
     const approvalTs = new Date().toISOString();
@@ -335,17 +325,7 @@ export class UnshiftEngine extends EventEmitter {
     await this.waitForApproval(runId);
 
     // Phase 3: Delivery
-    const phase3Result = await this.runPhase3(context, opts);
-
-    return {
-      context,
-      prd: finalPrd,
-      phaseResults: {
-        phase1: { text: "", usage: { inputTokens: 0, outputTokens: 0 }, steps: 0, model: "" },
-        phase2: [],
-        phase3: phase3Result,
-      },
-    };
+    await this.runPhase3(context, opts);
   }
 
   /** Resolve the approval gate for a run, allowing phase 3 to proceed */

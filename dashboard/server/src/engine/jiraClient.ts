@@ -101,20 +101,12 @@ export class JiraClient {
 
   async searchIssues(jql: string): Promise<JiraIssue[]> {
     const { config } = this;
-    let url: string;
-    if (config.apiVersion === "2") {
-      const params = new URLSearchParams({
-        jql,
-        fields: "key,summary,description,issuetype,components,labels,status",
-      });
-      url = apiUrl(config, `/search?${params}`);
-    } else {
-      const params = new URLSearchParams({
-        jql,
-        fields: "key,summary,description,issuetype,components,labels,status",
-      });
-      url = apiUrl(config, `/search/jql?${params}`);
-    }
+    const params = new URLSearchParams({
+      jql,
+      fields: "key,summary,description,issuetype,components,labels,status",
+    });
+    const searchPath = config.apiVersion === "2" ? "/search" : "/search/jql";
+    const url = apiUrl(config, `${searchPath}?${params}`);
 
     const res = await jiraFetch(url, config);
     const data = await res.json() as any;
