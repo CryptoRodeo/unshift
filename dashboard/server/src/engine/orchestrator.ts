@@ -21,7 +21,7 @@ import {
   type RepoEntry,
 } from "./prompts.js";
 import { runPhase, type PhaseResult } from "./phaseRunner.js";
-import { readFile as toolReadFile, bash } from "./tools.js";
+import { readFile as toolReadFile, execCommand } from "./tools.js";
 
 const WORKSPACE_DIR = process.env.WORKSPACE_DIR || "/app/workspace";
 
@@ -139,8 +139,8 @@ export class UnshiftEngine extends EventEmitter {
       return workDir;
     }
 
-    const result = await bash(
-      `git clone ${repoEntry.repo_url} ${workDir}`,
+    const result = await execCommand(
+      "git", ["clone", repoEntry.repo_url, workDir],
       { timeout: 120_000 }
     );
     if (result.exitCode !== 0) {

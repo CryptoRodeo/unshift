@@ -1,5 +1,5 @@
 import { readFile as fsReadFile, writeFile as fsWriteFile, mkdir } from "node:fs/promises";
-import { exec, spawn } from "node:child_process";
+import { exec, execFile, spawn } from "node:child_process";
 import { resolve, relative, normalize } from "node:path";
 import { readdir } from "node:fs/promises";
 
@@ -40,6 +40,35 @@ export async function bash(
 
   return new Promise((res) => {
     exec(command, { cwd, timeout, maxBuffer: 10 * 1024 * 1024 }, (error, stdout, stderr) => {
+      const exitCode = error
+        ? typeof error.code === "number"
+          ? error.code
+          : 1
+        : 0;
+      res({
+        stdout: typeof stdout === "string" ? stdout : stdout.toString(),
+        stderr: typeof stderr === "string" ? stderr : stderr.toString(),
+        exitCode,
+      });
+    });
+  });
+}
+
+/**
+ * Execute a command with an argument array — no shell involved.
+ * Use this for internal programmatic calls where arguments come from config
+ * or user input. Unlike bash(), this avoids command injection by design.
+ */
+export async function execCommand(
+  executable: string,
+  args: string[],
+  options?: { cwd?: string; timeout?: number }
+): Promise<{ stdout: string; stderr: string; exitCode: number }> {
+  const cwd = options?.cwd ?? process.cwd();
+  const timeout = options?.timeout ?? 120_000;
+
+  return new Promise((res) => {
+    execFile(executable, args, { cwd, timeout, maxBuffer: 10 * 1024 * 1024 }, (error, stdout, stderr) => {
       const exitCode = error
         ? typeof error.code === "number"
           ? error.code
