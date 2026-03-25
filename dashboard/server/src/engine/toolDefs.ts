@@ -120,7 +120,6 @@ export function planningTools(cwd: string): ToolSet {
   return {
     ...createFileTools(cwd),
     ...createJiraTools(),
-    ...createPRTool(cwd),
   };
 }
 

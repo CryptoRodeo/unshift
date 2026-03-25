@@ -21,8 +21,7 @@ import {
   type RepoEntry,
 } from "./prompts.js";
 import { runPhase, type PhaseResult } from "./phaseRunner.js";
-import { readFile as toolReadFile } from "./tools.js";
-import { bash } from "./tools.js";
+import { readFile as toolReadFile, bash } from "./tools.js";
 
 const WORKSPACE_DIR = process.env.WORKSPACE_DIR || "/app/workspace";
 
@@ -204,9 +203,13 @@ export class UnshiftEngine extends EventEmitter {
     let currentPrd = prd;
     const tools = implementationTools(context.repoPath);
 
-    for (let i = 0; i < currentPrd.length; i++) {
-      const entry = currentPrd[i];
-      if (entry.completed) continue;
+    // Capture the IDs of incomplete entries upfront so the loop is stable
+    // even when currentPrd is re-read from disk (which may reorder/add/remove entries).
+    const incompleteIds = prd.filter((e) => !e.completed).map((e) => e.id);
+
+    for (const entryId of incompleteIds) {
+      const entry = currentPrd.find((e) => e.id === entryId);
+      if (!entry || entry.completed) continue;
 
       const prompt = buildRalphPrompt(entry, context.repoPath);
 
@@ -228,7 +231,7 @@ export class UnshiftEngine extends EventEmitter {
       this.emit("run:prd", runId, currentPrd);
 
       // Check if entry is still incomplete — retry once
-      const updatedEntry = currentPrd.find((e) => e.id === entry.id);
+      const updatedEntry = currentPrd.find((e) => e.id === entryId);
       if (updatedEntry && !updatedEntry.completed) {
         const progress = await this.readProgressFromRepo(context.repoPath);
 
