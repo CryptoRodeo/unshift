@@ -28,11 +28,14 @@ export async function bash(
   command: string,
   options?: { cwd?: string; timeout?: number; baseDir?: string }
 ): Promise<{ stdout: string; stderr: string; exitCode: number }> {
-  const cwd = options?.cwd
-    ? options.baseDir
-      ? assertWithinBase(options.baseDir, options.cwd)
-      : options.cwd
-    : options?.baseDir ?? process.cwd();
+  let cwd: string;
+  if (options?.cwd && options.baseDir) {
+    cwd = assertWithinBase(options.baseDir, options.cwd);
+  } else if (options?.cwd) {
+    cwd = options.cwd;
+  } else {
+    cwd = options?.baseDir ?? process.cwd();
+  }
   const timeout = options?.timeout ?? 120_000;
 
   return new Promise((res) => {

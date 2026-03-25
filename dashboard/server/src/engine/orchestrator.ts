@@ -201,14 +201,14 @@ export class UnshiftEngine extends EventEmitter {
     const ts = new Date().toISOString();
     this.emit("run:phase", runId, "phase2", ts);
 
-    const phaseResults: PhaseResult[] = [];
     let currentPrd = prd;
+    const tools = implementationTools(context.repoPath);
 
-    for (const entry of currentPrd) {
+    for (let i = 0; i < currentPrd.length; i++) {
+      const entry = currentPrd[i];
       if (entry.completed) continue;
 
       const prompt = buildRalphPrompt(entry, context.repoPath);
-      const tools = implementationTools(context.repoPath);
 
       const result = await runPhase({
         model,
@@ -222,16 +222,14 @@ export class UnshiftEngine extends EventEmitter {
       });
 
       this.emitTokens(runId, result);
-      phaseResults.push(result);
 
       // Re-read prd.json to check completion
-      const updatedPrd = await this.readPrdFromRepo(context.repoPath);
-      this.emit("run:prd", runId, updatedPrd);
+      currentPrd = await this.readPrdFromRepo(context.repoPath);
+      this.emit("run:prd", runId, currentPrd);
 
       // Check if entry is still incomplete — retry once
-      const updatedEntry = updatedPrd.find((e) => e.id === entry.id);
+      const updatedEntry = currentPrd.find((e) => e.id === entry.id);
       if (updatedEntry && !updatedEntry.completed) {
-        // Read progress for failure context
         const progress = await this.readProgressFromRepo(context.repoPath);
 
         const retryPrompt = buildRetryPrompt(
@@ -252,14 +250,10 @@ export class UnshiftEngine extends EventEmitter {
         });
 
         this.emitTokens(runId, retryResult);
-        phaseResults.push(retryResult);
 
         // Re-read prd.json after retry
-        const retryPrd = await this.readPrdFromRepo(context.repoPath);
-        this.emit("run:prd", runId, retryPrd);
-        currentPrd = retryPrd;
-      } else {
-        currentPrd = updatedPrd;
+        currentPrd = await this.readPrdFromRepo(context.repoPath);
+        this.emit("run:prd", runId, currentPrd);
       }
     }
 

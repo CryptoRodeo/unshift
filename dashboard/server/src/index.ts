@@ -8,7 +8,15 @@ import yaml from "js-yaml";
 import { UnshiftRunner } from "./unshift";
 import { isRunError } from "../../shared/types";
 import type { RunErrorCode } from "../../shared/types";
-import { DEFAULT_MODELS, getDefaultConfig, type Provider } from "./engine/providers";
+import { DEFAULT_MODELS, getDefaultConfig, type Provider, type ProviderConfig } from "./engine/providers";
+
+function parseProviderConfig(body: Record<string, unknown> | undefined): ProviderConfig | undefined {
+  const provider = (body?.provider as Provider) || undefined;
+  const model = (body?.model as string) || undefined;
+  if (!provider && !model) return undefined;
+  const resolvedProvider = provider || "anthropic";
+  return { provider: resolvedProvider, model: model || DEFAULT_MODELS[resolvedProvider] };
+}
 
 const app = express();
 app.use(express.json());
@@ -125,12 +133,8 @@ app.get("/api/config", (_req, res) => {
 });
 
 app.post("/api/runs", async (req, res) => {
-  const { issueKey, force, provider, model } = req.body ?? {};
-
-  // Build optional provider config if provider/model specified
-  const providerConfig = provider || model
-    ? { provider: provider || "anthropic", model: model || DEFAULT_MODELS[provider as Provider || "anthropic"] }
-    : undefined;
+  const { issueKey, force } = req.body ?? {};
+  const providerConfig = parseProviderConfig(req.body);
 
   if (issueKey) {
     // Start a single run for the specified issue
@@ -196,10 +200,7 @@ app.post("/api/runs/:id/reject", async (req, res) => {
 
 app.post("/api/runs/:id/retry", async (req, res) => {
   try {
-    const { provider, model } = req.body ?? {};
-    const retryProviderConfig = provider || model
-      ? { provider: provider || "anthropic", model: model || DEFAULT_MODELS[provider as Provider || "anthropic"] }
-      : undefined;
+    const retryProviderConfig = parseProviderConfig(req.body);
     const result = await runner.retryRun(req.params.id, retryProviderConfig);
     if (isRunError(result)) {
       res.status(ERROR_CODE_TO_STATUS[result.code]).json(result);
