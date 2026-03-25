@@ -37,7 +37,7 @@ export function createFileTools(cwd: string): ToolSet {
         cwd: z.string().describe("Directory to search in"),
       }),
       execute: async ({ pattern, cwd: listCwd }) => {
-        const files = await listFiles(pattern, listCwd || cwd);
+        const files = await listFiles(pattern, listCwd || cwd, cwd);
         return files.join("\n");
       },
     }),
@@ -49,7 +49,7 @@ export function createFileTools(cwd: string): ToolSet {
         glob: z.string().optional().describe("Glob to filter files (e.g. *.ts)"),
       }),
       execute: async ({ pattern, path, glob }) =>
-        grepFiles(pattern, path, glob ? { glob } : undefined),
+        grepFiles(pattern, path, { glob, baseDir: cwd }),
     }),
   };
 }

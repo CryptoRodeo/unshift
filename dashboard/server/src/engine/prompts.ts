@@ -28,9 +28,16 @@ export interface PromptPair {
  */
 export function buildPhase1Prompt(
   issueKey: string,
-  repoEntry: RepoEntry
+  repoEntry: RepoEntry,
+  workDir: string
 ): PromptPair {
-  const repoJson = JSON.stringify(repoEntry, null, 2);
+  const repoInfo = {
+    repo_url: repoEntry.repo_url,
+    default_branch: repoEntry.default_branch,
+    host: repoEntry.host,
+    validation: repoEntry.validation,
+  };
+  const repoJson = JSON.stringify(repoInfo, null, 2);
 
   const system = `You are the Phase 1 planning agent for the unshift automation workflow.
 
@@ -49,17 +56,19 @@ Extract:
 
 ### Repository Information
 
-The target repository has already been resolved. Use the following entry:
+The target repository has already been cloned to: \`${workDir}\`
+
+Repository metadata:
 
 \`\`\`json
 ${repoJson}
 \`\`\`
 
-Fields: \`local_dir\` (path to clone), \`default_branch\`, \`host\` (GitHub or GitLab), \`repo_url\`, \`validation\` (array of command strings).
+Fields: \`default_branch\`, \`host\` (GitHub or GitLab), \`repo_url\`, \`validation\` (array of command strings).
 
 ## Step 2: Navigate to the repository and create a branch
 
-1. \`cd\` into the \`local_dir\` from the repository entry above.
+1. The repository is already cloned at \`${workDir}\`. All file and bash tools are scoped to this directory.
 2. If \`git status --porcelain\` shows uncommitted changes, auto-stash:
    \`git stash push -m "auto-stash before ${issueKey}: <branch-name> on <current-branch> (<date>)"\`
 3. \`git checkout ${repoEntry.default_branch} && git pull\`
@@ -88,7 +97,7 @@ After completing all steps above, you MUST output a JSON block with exactly thes
   "summary": "<issue summary>",
   "description": "<issue description>",
   "issue_type": "<Story|Bug|Task|etc>",
-  "repo_path": "<absolute path to the repo>",
+  "repo_path": "${workDir}",
   "branch_name": "<branch name created>",
   "default_branch": "${repoEntry.default_branch}",
   "host": "${repoEntry.host.toLowerCase()}",
@@ -139,6 +148,10 @@ You MUST NOT:
    - STOP - do not retry or continue
    - Report which command failed and its output
 4. If ALL validation commands pass:
+   - Read the current \`prd.json\` file
+   - Update the entry with id "${entry.id}" to set \`"completed": true\`
+   - Write the updated \`prd.json\` back to disk
+   - Append a brief summary of changes made to \`progress.txt\` (create it if it doesn't exist)
    - Report success with a concise summary of files changed
 
 === HARD STOP CONDITION ===

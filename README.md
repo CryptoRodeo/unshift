@@ -2,7 +2,7 @@
 
 An automation tool that picks up Jira issues labeled `llm-candidate`, implements them using Claude, and opens a pull request.
 
-> This project uses [Claude Code](https://docs.anthropic.com/en/docs/claude-code) as its runtime. All phases are executed via `claude -p` sessions, so a working Claude Code installation is required.
+> The dashboard engine uses the [Vercel AI SDK](https://sdk.vercel.ai/) and supports multiple LLM providers (Anthropic, OpenAI, Google). The CLI scripts in `cli/` are an alternative entry point that uses [Claude Code](https://docs.anthropic.com/en/docs/claude-code) directly.
 
 ## Dashboard preview
 
@@ -12,10 +12,10 @@ An automation tool that picks up Jira issues labeled `llm-candidate`, implements
 
 Unshift runs four phases per issue:
 
-1. **Discover**  - Queries the Jira REST API for issues labeled `llm-candidate`, checks required tools are installed, and determines which issues to process.
-2. **Plan**  - Reads the Jira issue, maps it to a repo via `repos.yaml`, creates a branch, and generates an implementation plan (`prd.json`). Runs in its own `claude -p` session.
-3. **Implement**  - `ralph.sh` works through the plan one entry at a time, each in a fresh `claude -p` session. If a validation step fails, it automatically retries once with the error context. This keeps token usage flat and gives every entry the full context window.
-4. **Deliver**  - Commits, pushes, opens a PR, updates Jira, and cleans up. Runs in its own `claude -p` session. When started from the dashboard, the run pauses here for approval before proceeding.
+1. **Discover**  - Queries the Jira REST API for issues labeled `llm-candidate` and determines which issues to process.
+2. **Plan**  - Reads the Jira issue, maps it to a repo via `repos.yaml`, creates a branch, and generates an implementation plan (`prd.json`).
+3. **Implement**  - Works through the plan one entry at a time. If a validation step fails, it automatically retries once with the error context. This keeps token usage flat and gives every entry the full context window.
+4. **Deliver**  - Commits, pushes, opens a PR, updates Jira, and cleans up. When started from the dashboard, the run pauses here for approval before proceeding.
 
 ## Quick Start (Docker)
 
@@ -31,10 +31,18 @@ cp .env.example .env
 
 Edit `.env` and fill in your credentials (see [Credentials Reference](#credentials-reference)):
 
-- `ANTHROPIC_API_KEY` (or Vertex AI config)  - required
+- **LLM provider** (at least one required):
+  - `ANTHROPIC_API_KEY`  - for Anthropic / Claude (default provider)
+  - `OPENAI_API_KEY`  - for OpenAI / GPT
+  - `GOOGLE_GENERATIVE_AI_API_KEY`  - for Google / Gemini
+  - Or Vertex AI config (see credentials reference)
+- `UNSHIFT_PROVIDER`  - which provider to use: `anthropic` (default), `openai`, `google`, or `vertex`
+- `UNSHIFT_MODEL`  - model ID to use (defaults: `claude-sonnet-4-6`, `gpt-4o`, `gemini-2.0-flash`)
 - `JIRA_BASE_URL`, `JIRA_USER_EMAIL`, `JIRA_API_TOKEN`  - required for Jira integration
 - `GH_TOKEN` or `GITLAB_TOKEN`  - required for PR/MR creation
 - `GIT_USER_NAME`, `GIT_USER_EMAIL`  - used for git commits inside the container
+
+You can also select the provider and model from the dashboard UI when starting a run.
 
 ### 2. Configure repos.yaml
 
@@ -60,8 +68,8 @@ The dashboard will be available at `http://localhost:3000`.
 
 | Issue | Solution |
 |---|---|
-| Native module build failures (`node-pty`, `better-sqlite3`) | Ensure you're building on a supported architecture (amd64/arm64). Run `docker compose build --no-cache` to rebuild from scratch. |
-| `gh` or `claude` not found inside container | The Dockerfile installs these during build. If the build was cached before they were added, run `docker compose build --no-cache`. |
+| Native module build failures (`better-sqlite3`) | Ensure you're building on a supported architecture (amd64/arm64). Run `docker compose build --no-cache` to rebuild from scratch. |
+| `gh` not found inside container | The Dockerfile installs it during build. If the build was cached before it was added, run `docker compose build --no-cache`. |
 | Permission errors on `./workspace` volume | The container runs as UID 1000 (`unshift` user). If the host user has a different UID, adjust ownership: `sudo chown -R $(id -u):$(id -g) ./workspace` |
 | Git push/clone fails inside container | Verify `GH_TOKEN` (or `GITLAB_TOKEN`) is set in `.env`. The token needs `repo` scope (GitHub) or `api` scope (GitLab). |
 | Container exits immediately | Check logs with `docker compose logs dashboard`. Common cause: missing required env vars in `.env`. |
@@ -76,12 +84,15 @@ Use this setup if you want to develop unshift itself (modify the dashboard, CLI 
 
 | Tool | Purpose |
 |---|---|
-| [Node.js](https://nodejs.org/) (v18+) | Runtime for Claude Code and the dashboard |
-| [Claude Code](https://docs.anthropic.com/en/docs/claude-code) | CLI agent that runs each phase (`npm install -g @anthropic-ai/claude-code`) |
-| [acli](https://developer.atlassian.com/cloud/acli/) | Atlassian CLI for Jira integration |
-| [curl](https://curl.se/) | Jira REST API fallback (pre-installed on most systems) |
-| [jq](https://jqlang.github.io/jq/) | Used by the installer and orchestrator |
+| [Node.js](https://nodejs.org/) (v18+) | Runtime for the dashboard (uses the Vercel AI SDK for LLM calls) |
 | [Git](https://git-scm.com/) | Version control (pre-installed on most systems) |
+
+**Only needed if using the CLI scripts (`cli/`):**
+
+| Tool | Purpose |
+|---|---|
+| [Claude Code](https://docs.anthropic.com/en/docs/claude-code) | CLI agent that runs each phase (`npm install -g @anthropic-ai/claude-code`) |
+| [jq](https://jqlang.github.io/jq/) | Used by the CLI orchestrator |
 
 **For PR/MR creation**, install one or both depending on your repos:
 
@@ -112,10 +123,29 @@ Then source it (or export the variables in your shell):
 source .unshift.env
 ```
 
-**With an Anthropic API key:**
+**With Anthropic (default):**
 
 ```bash
 ANTHROPIC_API_KEY=sk-ant-...
+```
+
+**With OpenAI:**
+
+```bash
+OPENAI_API_KEY=sk-...
+UNSHIFT_PROVIDER=openai
+```
+
+**With Google Gemini:**
+
+```bash
+GOOGLE_GENERATIVE_AI_API_KEY=your-key
+UNSHIFT_PROVIDER=google
+```
+
+**Common credentials (required regardless of provider):**
+
+```bash
 JIRA_BASE_URL=https://mycompany.atlassian.net
 JIRA_USER_EMAIL=you@company.com
 JIRA_API_TOKEN=your-jira-token
@@ -127,19 +157,23 @@ GH_TOKEN=ghp_...
 <details>
 <summary><strong>With Vertex AI (Google Cloud)</strong></summary>
 
+For the **dashboard**, set the Vertex AI environment variables — the provider is auto-detected when `ANTHROPIC_API_KEY` is not set:
+
 ```bash
-CLAUDE_CODE_USE_VERTEX=1
-CLOUD_ML_REGION=us-eastx
 ANTHROPIC_VERTEX_PROJECT_ID=<your-gcp-project-id>
-JIRA_BASE_URL=https://mycompany.atlassian.net
-JIRA_USER_EMAIL=you@company.com
-JIRA_API_TOKEN=your-jira-token
-GH_TOKEN=ghp_...
-# Or, if using GitLab instead:
-# GITLAB_TOKEN=glpat-...
+CLOUD_ML_REGION=us-east5
+UNSHIFT_PROVIDER=vertex   # optional — auto-detected when ANTHROPIC_API_KEY is absent
 ```
 
-You also need active GCP credentials (`gcloud auth application-default login`). Run `claude` then `/status` to confirm the provider shows "Google Vertex AI".
+For the **CLI scripts**, set the Claude Code–specific flag instead:
+
+```bash
+CLAUDE_CODE_USE_VERTEX=1
+CLOUD_ML_REGION=us-east5
+ANTHROPIC_VERTEX_PROJECT_ID=<your-gcp-project-id>
+```
+
+In both cases you need active GCP credentials (`gcloud auth application-default login`).
 
 </details>
 
@@ -164,9 +198,9 @@ This starts both the Express/WebSocket server and the Vite dev server using `con
 - Run history is stored in a local SQLite database (`dashboard/server/data/runs.db`) and persists across server restarts
 - Issues that already completed successfully are skipped automatically; use the force option to re-run
 
-#### CLI (alternative)
+#### CLI (Claude Code alternative)
 
-The `cli/` directory contains the shell-based orchestrator. It runs the same phases without a web UI.
+The `cli/` directory contains the shell-based orchestrator that uses Claude Code directly. It runs the same phases without a web UI and requires a Claude Code installation.
 
 ```bash
 ./cli/unshift.sh
@@ -270,7 +304,7 @@ The skill reads `repos.yaml` from this repo's root to map Jira projects to repos
 | `cli/ralph/ralph.sh` | Implementation loop  - one `claude -p` per prd.json entry, with automatic retry on failure |
 | `cli/prompts/phase1.md` | Phase 1 prompt template for repo setup and planning |
 | `cli/prompts/phase3.md` | Phase 3 prompt template for PR creation and Jira update |
-| `cli/init.sh` | Configures Claude Code permissions and authenticates `acli` |
+| `cli/init.sh` | Configures Claude Code permissions for CLI usage |
 | `.claude/skills/unshift/SKILL.md` | Claude Code custom skill  - run `/unshift` inside a session |
 | `compose.yml` | Docker Compose service definition for the dashboard |
 | `dashboard/Dockerfile` | Multi-stage Docker build (build + production runtime) |

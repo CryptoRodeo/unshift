@@ -1,4 +1,5 @@
 import { EventEmitter } from "node:events";
+import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -21,6 +22,9 @@ import {
 } from "./prompts.js";
 import { runPhase, type PhaseResult } from "./phaseRunner.js";
 import { readFile as toolReadFile } from "./tools.js";
+import { bash } from "./tools.js";
+
+const WORKSPACE_DIR = process.env.WORKSPACE_DIR || "/app/workspace";
 
 export interface RunResult {
   context: RunContext;
@@ -62,9 +66,16 @@ export class UnshiftEngine extends EventEmitter {
     super();
     const __filename = fileURLToPath(import.meta.url);
     const __dirname = path.dirname(__filename);
+    // In dev (src/engine/), 4 levels up; bundled (dist/), 3 levels up
+    const candidates = [
+      path.resolve(__dirname, "..", "..", "..", "..", "repos.yaml"),
+      path.resolve(__dirname, "..", "..", "..", "repos.yaml"),
+      path.resolve(__dirname, "..", "..", "repos.yaml"),
+    ];
     this.reposYamlPath =
       process.env.REPOS_YAML_PATH ??
-      path.resolve(__dirname, "..", "..", "..", "..", "repos.yaml");
+      candidates.find((p) => existsSync(p)) ??
+      candidates[0];
   }
 
   /** Discover issues labelled llm-candidate via Jira JQL */
@@ -127,6 +138,31 @@ export class UnshiftEngine extends EventEmitter {
     );
   }
 
+  /**
+   * Clone the repo into the workspace directory if not already present.
+   * Returns the absolute path to the cloned repo.
+   */
+  async ensureRepo(repoEntry: RepoEntry): Promise<string> {
+    const repoName = path.basename(repoEntry.repo_url, ".git");
+    const workDir = path.join(WORKSPACE_DIR, repoName);
+
+    if (existsSync(path.join(workDir, ".git"))) {
+      return workDir;
+    }
+
+    const result = await bash(
+      `git clone ${repoEntry.repo_url} ${workDir}`,
+      { timeout: 120_000 }
+    );
+    if (result.exitCode !== 0) {
+      throw new Error(
+        `Failed to clone ${repoEntry.repo_url}: ${result.stderr || result.stdout}`
+      );
+    }
+
+    return workDir;
+  }
+
   /** Phase 1: Planning — read the Jira issue, create a branch, generate prd.json */
   async runPhase1(
     issueKey: string,
@@ -137,8 +173,9 @@ export class UnshiftEngine extends EventEmitter {
     const ts = new Date().toISOString();
     this.emit("run:phase", runId, "phase1", ts);
 
-    const prompt = buildPhase1Prompt(issueKey, repoEntry);
-    const tools = planningTools(repoEntry.local_dir);
+    const workDir = await this.ensureRepo(repoEntry);
+    const prompt = buildPhase1Prompt(issueKey, repoEntry, workDir);
+    const tools = planningTools(workDir);
 
     const result = await runPhase({
       model,
@@ -146,7 +183,7 @@ export class UnshiftEngine extends EventEmitter {
       userPrompt: prompt.user,
       tools,
       maxSteps: 50,
-      cwd: repoEntry.local_dir,
+      cwd: workDir,
       onLog: (line) => this.emit("run:log", runId, line, "phase1"),
       signal,
     });
@@ -154,7 +191,7 @@ export class UnshiftEngine extends EventEmitter {
     this.emitTokens(runId, result);
 
     // Parse context from the model's final output (JSON block)
-    const context = this.parseContextFromText(result.text, issueKey, repoEntry);
+    const context = this.parseContextFromText(result.text, issueKey, repoEntry, workDir);
     this.emit("run:context", runId, context);
 
     // Read prd.json from the repo
@@ -348,7 +385,8 @@ export class UnshiftEngine extends EventEmitter {
   private parseContextFromText(
     text: string,
     issueKey: string,
-    repoEntry: RepoEntry
+    repoEntry: RepoEntry,
+    workDir: string
   ): RunContext {
     // Try to extract JSON block from the model's response
     const jsonMatch = text.match(/```json\s*([\s\S]*?)```/);
@@ -359,7 +397,7 @@ export class UnshiftEngine extends EventEmitter {
       return {
         issueKey: raw.issue_key || issueKey,
         summary: raw.summary || "",
-        repoPath: raw.repo_path || repoEntry.local_dir,
+        repoPath: workDir,
         branchName: raw.branch_name || "",
         description: raw.description,
         issueType: raw.issue_type,
@@ -372,7 +410,7 @@ export class UnshiftEngine extends EventEmitter {
       return {
         issueKey,
         summary: "",
-        repoPath: repoEntry.local_dir,
+        repoPath: workDir,
         branchName: "",
         defaultBranch: repoEntry.default_branch,
         host: repoEntry.host,

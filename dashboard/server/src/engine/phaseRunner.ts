@@ -54,7 +54,7 @@ export async function runPhase(options: PhaseRunnerOptions): Promise<PhaseResult
           onLog(`[assistant] ${step.text}`);
         }
         for (const toolCall of step.toolCalls) {
-          onLog(`[tool_call] ${toolCall.toolName}(${JSON.stringify(toolCall.args)})`);
+          onLog(`[tool_call] ${toolCall.toolName}(${JSON.stringify(toolCall.input)})`);
         }
         for (const toolResult of step.toolResults) {
           const resultStr = typeof toolResult.result === "string"

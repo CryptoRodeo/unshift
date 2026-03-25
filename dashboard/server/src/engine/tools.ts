@@ -5,12 +5,8 @@ import { readdir } from "node:fs/promises";
 
 function assertWithinBase(baseDir: string, targetPath: string): string {
   const resolved = resolve(baseDir, targetPath);
-  const rel = relative(baseDir, resolved);
-  if (rel.startsWith("..") || resolve(resolved) !== resolved && rel.startsWith("..")) {
-    throw new Error(`Path traversal detected: ${targetPath} resolves outside base directory`);
-  }
   const normalized = normalize(resolved);
-  if (!normalized.startsWith(normalize(baseDir))) {
+  if (!normalized.startsWith(normalize(baseDir) + "/") && normalized !== normalize(baseDir)) {
     throw new Error(`Path traversal detected: ${targetPath} resolves outside base directory`);
   }
   return resolved;
@@ -42,8 +38,8 @@ export async function bash(
   return new Promise((res) => {
     exec(command, { cwd, timeout, maxBuffer: 10 * 1024 * 1024 }, (error, stdout, stderr) => {
       const exitCode = error
-        ? typeof (error as any).status === "number"
-          ? (error as any).status
+        ? typeof error.code === "number"
+          ? error.code
           : 1
         : 0;
       res({
@@ -55,7 +51,10 @@ export async function bash(
   });
 }
 
-export async function listFiles(pattern: string, cwd: string): Promise<string[]> {
+export async function listFiles(pattern: string, cwd: string, baseDir?: string): Promise<string[]> {
+  if (baseDir) {
+    assertWithinBase(baseDir, cwd);
+  }
   const results: string[] = [];
 
   async function walk(dir: string, base: string): Promise<void> {
@@ -90,8 +89,11 @@ function matchGlob(path: string, pattern: string): boolean {
 export async function grepFiles(
   pattern: string,
   path: string,
-  options?: { glob?: string }
+  options?: { glob?: string; baseDir?: string }
 ): Promise<string> {
+  if (options?.baseDir) {
+    assertWithinBase(options.baseDir, path);
+  }
   const args = ["--color=never", "-n", pattern, path];
   if (options?.glob) {
     args.push("--include", options.glob);

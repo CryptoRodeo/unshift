@@ -18,7 +18,7 @@
 - jira_projects: [MYPROJ]
   component: null
   labels: []
-  repo_url: git@github.com:my-org/my-repo.git
+  repo_url: https://github.com/my-org/my-repo.git
   local_dir: ~/work/my-repo
   default_branch: main
   host: GitHub
