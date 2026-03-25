@@ -8,6 +8,7 @@ import yaml from "js-yaml";
 import { UnshiftRunner } from "./unshift";
 import { isRunError } from "../../shared/types";
 import type { RunErrorCode } from "../../shared/types";
+import { DEFAULT_MODELS, getDefaultConfig, type Provider } from "./engine/providers";
 
 const app = express();
 app.use(express.json());
@@ -110,12 +111,30 @@ app.get("/api/discover", async (_req, res) => {
   }
 });
 
+app.get("/api/providers", (_req, res) => {
+  const providers = Object.entries(DEFAULT_MODELS).map(([provider, defaultModel]) => ({
+    provider,
+    defaultModel,
+  }));
+  res.json({ providers });
+});
+
+app.get("/api/config", (_req, res) => {
+  const config = getDefaultConfig();
+  res.json(config);
+});
+
 app.post("/api/runs", async (req, res) => {
-  const { issueKey, force } = req.body ?? {};
+  const { issueKey, force, provider, model } = req.body ?? {};
+
+  // Build optional provider config if provider/model specified
+  const providerConfig = provider || model
+    ? { provider: provider || "anthropic", model: model || DEFAULT_MODELS[provider as Provider || "anthropic"] }
+    : undefined;
 
   if (issueKey) {
     // Start a single run for the specified issue
-    const result = runner.startRun(issueKey, force === true);
+    const result = runner.startRun(issueKey, force === true, providerConfig);
     if (isRunError(result)) {
       res.status(ERROR_CODE_TO_STATUS[result.code]).json(result);
     } else {
@@ -124,7 +143,7 @@ app.post("/api/runs", async (req, res) => {
   } else {
     // Discover all issues and start a run for each
     try {
-      const result = await runner.startRuns();
+      const result = await runner.startRuns(providerConfig);
       res.json(result);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -177,7 +196,11 @@ app.post("/api/runs/:id/reject", async (req, res) => {
 
 app.post("/api/runs/:id/retry", async (req, res) => {
   try {
-    const result = await runner.retryRun(req.params.id);
+    const { provider, model } = req.body ?? {};
+    const retryProviderConfig = provider || model
+      ? { provider: provider || "anthropic", model: model || DEFAULT_MODELS[provider as Provider || "anthropic"] }
+      : undefined;
+    const result = await runner.retryRun(req.params.id, retryProviderConfig);
     if (isRunError(result)) {
       res.status(ERROR_CODE_TO_STATUS[result.code]).json(result);
     } else {
