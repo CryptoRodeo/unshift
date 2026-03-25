@@ -3,8 +3,8 @@ import http from "node:http";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { spawn } from "node:child_process";
 import { WebSocketServer, WebSocket } from "ws";
+import yaml from "js-yaml";
 import { UnshiftRunner } from "./unshift";
 import { isRunError } from "../../shared/types";
 import type { RunErrorCode, WsClientMessage } from "../../shared/types";
@@ -202,28 +202,58 @@ app.post("/api/runs/:id/retry", async (req, res) => {
   }
 });
 
-app.post("/api/runs/:id/open-editor", (req, res) => {
-  const run = runner.getRun(req.params.id);
-  if (!run) {
-    res.status(404).json({ error: "Run not found", code: "NOT_FOUND" });
-    return;
-  }
-  if (!run.repoPath) {
-    res.status(400).json({ error: "Run has no repo path yet", code: "BAD_REQUEST" });
-    return;
-  }
-  if (!fs.existsSync(run.repoPath)) {
-    res.status(400).json({ error: `Repo path does not exist: ${run.repoPath}`, code: "BAD_REQUEST" });
-    return;
-  }
-  const editorEnv = process.env.UNSHIFT_EDITOR || "code";
-  const parts = editorEnv.split(/\s+/);
-  const child = spawn(parts[0], [...parts.slice(1), run.repoPath], {
-    detached: true,
-    stdio: "ignore",
+interface RepoEntry {
+  repo_url: string;
+  local_dir: string;
+}
+
+function loadReposYaml(): RepoEntry[] {
+  // In dev: src/ → ../../repos.yaml; in prod: dist/ → ../../../repos.yaml
+  const thisDir = path.dirname(fileURLToPath(import.meta.url));
+  const candidates = [
+    path.resolve(thisDir, "../../../repos.yaml"),
+    path.resolve(thisDir, "../../repos.yaml"),
+  ];
+  const reposPath = candidates.find((p) => fs.existsSync(p));
+  if (!reposPath) return [];
+  const content = fs.readFileSync(reposPath, "utf-8");
+  return (yaml.load(content) as RepoEntry[]) || [];
+}
+
+function resolveLocalDir(repoPath: string): string | undefined {
+  const repos = loadReposYaml();
+  const repoBasename = path.basename(repoPath);
+  const entry = repos.find((r) => {
+    const localBasename = path.basename(r.local_dir.replace(/\/+$/, ""));
+    return localBasename === repoBasename;
   });
-  child.unref();
-  res.json({ ok: true });
+  return entry?.local_dir;
+}
+
+app.get("/api/runs/:id/editor-info", (req, res) => {
+  try {
+    const run = runner.getRun(req.params.id);
+    if (!run) {
+      res.status(404).json({ error: "Run not found", code: "NOT_FOUND" });
+      return;
+    }
+    if (!run.repoPath) {
+      res.status(400).json({ error: "Run has no repo path yet", code: "BAD_REQUEST" });
+      return;
+    }
+    const localDir = resolveLocalDir(run.repoPath);
+    if (!localDir) {
+      res.status(400).json({ error: "Could not resolve local directory from repos.yaml", code: "BAD_REQUEST" });
+      return;
+    }
+    const gitCommand = run.branchName
+      ? `cd ${localDir} && git fetch origin && git checkout ${run.branchName}`
+      : undefined;
+    res.json({ localDir, branchName: run.branchName || null, gitCommand: gitCommand || null });
+  } catch (err) {
+    console.error("Failed to resolve editor info:", err);
+    res.status(500).json({ error: "Failed to resolve editor info" });
+  }
 });
 
 // Static asset serving (production / built client)

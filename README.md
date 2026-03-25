@@ -153,7 +153,7 @@ Each entry is a YAML object with the following fields:
 | `component` | Optional Jira component to disambiguate projects that map to multiple repos (use `null` if not needed) |
 | `labels` | Array of Jira labels to disambiguate when the project cannot use components (e.g. `["TSD-UI"]`), or `[]` if not needed |
 | `repo_url` | The git remote URL |
-| `local_dir` | Absolute path where the repo is cloned on your machine |
+| `local_dir` | Absolute path where the repo is cloned on your machine. The dashboard uses this to show the local path in the "Open Locally" dialog. |
 | `default_branch` | Branch to base new work on (e.g. `main`) |
 | `host` | `GitHub` or `GitLab`  - determines whether `gh` or `glab` is used for PRs |
 | `validation` | Array of shell commands to verify correctness (e.g. `["npm test", "npx tsc --noEmit"]`), or `[]` if none |

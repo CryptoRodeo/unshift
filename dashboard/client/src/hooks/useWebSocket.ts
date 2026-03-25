@@ -356,13 +356,13 @@ export function useWebSocket() {
     return data;
   }, []);
 
-  const openInEditor = useCallback(async (runId: string) => {
-    const res = await fetch(`/api/runs/${runId}/open-editor`, { method: "POST" });
+  const fetchEditorInfo = useCallback(async (runId: string) => {
+    const res = await fetch(`/api/runs/${runId}/editor-info`);
     const data = await res.json();
     if (!res.ok) {
-      throw new Error(data.error || "Failed to open editor");
+      throw new Error(data.error || "Failed to get editor info");
     }
-    return data;
+    return data as { localDir: string; branchName: string | null; gitCommand: string | null };
   }, []);
 
   const setOnRunEvent = useCallback((cb: RunEventCallback | null) => {
@@ -389,7 +389,7 @@ export function useWebSocket() {
     rejectRun,
     retryRun,
     deleteRun,
-    openInEditor,
+    fetchEditorInfo,
     setOnRunEvent,
     fetchRunHistory,
     fetchRunLogs,
