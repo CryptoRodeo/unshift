@@ -1,0 +1,25 @@
+# Map Jira projects to repositories. Unshift uses this to determine which repo
+# to clone and work in when processing an issue.
+#
+# Fields:
+#   jira_projects  - Array of Jira project keys (e.g. ["MYPROJ"])
+#   component      - Optional Jira component to disambiguate when multiple repos
+#                    share a project key (use null or omit if not needed)
+#   labels         - Optional Jira labels for disambiguation (e.g. ["frontend"]),
+#                    use [] if not needed
+#   repo_url       - Git remote URL (SSH or HTTPS)
+#   local_dir      - Absolute path to the repo on your machine. The dashboard
+#                    uses this for the "Open Locally" dialog.
+#   default_branch - Branch to base new work on (e.g. main, develop)
+#   host           - "GitHub" or "GitLab" (determines gh vs glab for PRs)
+#   validation     - Array of shell commands to verify correctness after
+#                    implementation (e.g. ["npm test"]), or [] for none
+
+- jira_projects: [MYPROJ]
+  component: null
+  labels: []
+  repo_url: git@github.com:my-org/my-repo.git
+  local_dir: ~/work/my-repo
+  default_branch: main
+  host: GitHub
+  validation: [npm test, npx tsc --noEmit]

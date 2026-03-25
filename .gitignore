@@ -6,7 +6,9 @@ prd.json
 issues.md
 ralph.sh
 node_modules/
-workspace/
+workspace/*
+!workspace/README.md
 **/dist/
 .claude/settings.local.json
+repos.yaml
 

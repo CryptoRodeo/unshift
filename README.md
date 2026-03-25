@@ -38,9 +38,9 @@ Edit `.env` and fill in your credentials (see [Credentials Reference](#credentia
 
 ### 2. Configure repos.yaml
 
-Edit `repos.yaml` to map your Jira projects to repositories. See [Edit the project-to-repository mapping](#4-edit-the-project-to-repository-mapping) for the schema.
+Create a `repos.yaml` to map your Jira projects to repositories. See `repos.yaml.example` for the schema and a starting template.
 
-Inside the container, repos are cloned under `/app/workspace/`. Set `local_dir` accordingly (e.g. `/app/workspace/my-repo`). The compose file bind-mounts `./workspace` on the host to this path.
+Inside the container, repos are cloned under `/app/workspace/` (bind-mounted to `./workspace` on the host). Keep `local_dir` set to the path on your host machine (e.g. `~/work/my-repo`) — the dashboard uses it for the "Open Locally" dialog.
 
 ### 3. Start the dashboard
 
@@ -145,24 +145,7 @@ You also need active GCP credentials (`gcloud auth application-default login`). 
 
 See [Credentials Reference](#credentials-reference) for how to create each token and for Data Center configuration.
 
-### 4. Edit the project-to-repository mapping
-
-Open `repos.yaml` in the repo root and replace the example entries with your own Jira projects and local repo paths.
-
-Each entry is a YAML object with the following fields:
-
-| Field | Description |
-|---|---|
-| `jira_projects` | Array of Jira project keys that map to this repo (e.g. `["MYPROJ"]` or `["PROJ1", "PROJ2"]`) |
-| `component` | Optional Jira component to disambiguate projects that map to multiple repos (use `null` if not needed) |
-| `labels` | Array of Jira labels to disambiguate when the project cannot use components (e.g. `["TSD-UI"]`), or `[]` if not needed |
-| `repo_url` | The git remote URL |
-| `local_dir` | Absolute path where the repo is cloned on your machine. The dashboard uses this to show the local path in the "Open Locally" dialog. |
-| `default_branch` | Branch to base new work on (e.g. `main`) |
-| `host` | `GitHub` or `GitLab`  - determines whether `gh` or `glab` is used for PRs |
-| `validation` | Array of shell commands to verify correctness (e.g. `["npm test", "npx tsc --noEmit"]`), or `[]` if none |
-
-### 5. Run
+### 4. Run
 
 #### Dashboard (recommended)
 
@@ -274,7 +257,7 @@ Inside a Claude Code session, run:
 /unshift PROJ-123     # process a specific issue
 ```
 
-The skill reads `repos.yaml` from this repo's root to map Jira projects to repositories. See [Edit the project-to-repository mapping](#4-edit-the-project-to-repository-mapping) for the schema.
+The skill reads `repos.yaml` from this repo's root to map Jira projects to repositories. See `repos.yaml.example` for the schema.
 
 </details>
 
