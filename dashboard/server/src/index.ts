@@ -138,12 +138,8 @@ app.get("/api/config", (_req, res) => {
 });
 
 app.post("/api/runs", async (req, res) => {
-  const { issueKey, force, provider, model } = req.body ?? {};
-
-  // Build optional provider config if provider/model specified
-  const providerConfig = provider || model
-    ? { provider: provider || "anthropic", model: model || DEFAULT_MODELS[provider as Provider || "anthropic"] }
-    : undefined;
+  const { issueKey, force } = req.body ?? {};
+  const providerConfig = parseProviderConfig(req.body);
 
   let providerConfig: ProviderConfig | undefined;
   try {
