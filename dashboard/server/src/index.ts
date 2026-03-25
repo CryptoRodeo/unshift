@@ -1,6 +1,8 @@
 import express from "express";
 import http from "node:http";
 import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
 import { WebSocketServer, WebSocket } from "ws";
 import { UnshiftRunner } from "./unshift";
@@ -223,6 +225,22 @@ app.post("/api/runs/:id/open-editor", (req, res) => {
   child.unref();
   res.json({ ok: true });
 });
+
+// Static asset serving (production / built client)
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const clientDistPath = process.env.CLIENT_DIST_PATH || path.resolve(__dirname, "../../client/dist");
+
+if (fs.existsSync(clientDistPath)) {
+  app.use(express.static(clientDistPath));
+  app.use((req, res, next) => {
+    if (req.method === "GET" && !req.path.startsWith("/api") && !req.path.startsWith("/ws")) {
+      res.sendFile(path.join(clientDistPath, "index.html"));
+    } else {
+      next();
+    }
+  });
+}
 
 // Handle incoming WebSocket messages from clients
 wss.on("connection", (ws) => {

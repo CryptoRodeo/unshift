@@ -17,7 +17,60 @@ Unshift runs four phases per issue:
 2. **Implement** - `ralph.sh` works through the plan one entry at a time, each in a fresh `claude -p` session. If a validation step fails, it automatically retries once with the error context. This keeps token usage flat and gives every entry the full context window.
 3. **Deliver** - Commits, pushes, opens a PR, updates Jira, and cleans up. Runs in its own `claude -p` session. When started from the dashboard, the run pauses here for approval before proceeding.
 
-## Quickstart
+## Quick Start (Docker)
+
+The fastest way to run unshift. Only Docker is required.
+
+### 1. Clone and configure
+
+```bash
+git clone https://github.com/CryptoRodeo/unshift.git
+cd unshift
+cp .env.example .env
+```
+
+Edit `.env` and fill in your credentials (see [Credentials Reference](#credentials-reference)):
+
+- `ANTHROPIC_API_KEY` (or Vertex AI config) - required
+- `JIRA_BASE_URL`, `JIRA_USER_EMAIL`, `JIRA_API_TOKEN` - required for Jira integration
+- `GH_TOKEN` or `GITLAB_TOKEN` - required for PR/MR creation
+- `GIT_USER_NAME`, `GIT_USER_EMAIL` - used for git commits inside the container
+
+### 2. Configure repos.yaml
+
+Edit `repos.yaml` to map your Jira projects to repositories. See [Edit the project-to-repository mapping](#4-edit-the-project-to-repository-mapping) for the schema.
+
+Inside the container, repos are cloned under `/app/workspace/`. Set `local_dir` accordingly (e.g. `/app/workspace/my-repo`). The compose file bind-mounts `./workspace` on the host to this path.
+
+### 3. Start the dashboard
+
+```bash
+docker compose up --build
+```
+
+The dashboard will be available at `http://localhost:3000`.
+
+Run data (SQLite) persists in a Docker volume. Cloned repos persist in `./workspace` on the host.
+
+To stop: `docker compose down` (add `-v` to also delete the database volume).
+
+**Vertex AI users:** Run `gcloud auth application-default login` on the host before starting the container. The compose file mounts your ADC credentials file automatically.
+
+### 4. Troubleshooting
+
+| Issue | Solution |
+|---|---|
+| Native module build failures (`node-pty`, `better-sqlite3`) | Ensure you're building on a supported architecture (amd64/arm64). Run `docker compose build --no-cache` to rebuild from scratch. |
+| `gh` or `claude` not found inside container | The Dockerfile installs these during build. If the build was cached before they were added, run `docker compose build --no-cache`. |
+| Permission errors on `./workspace` volume | The container runs as UID 1000 (`unshift` user). If the host user has a different UID, adjust ownership: `sudo chown -R $(id -u):$(id -g) ./workspace` |
+| Git push/clone fails inside container | Verify `GH_TOKEN` (or `GITLAB_TOKEN`) is set in `.env`. The token needs `repo` scope (GitHub) or `api` scope (GitLab). |
+| Container exits immediately | Check logs with `docker compose logs dashboard`. Common cause: missing required env vars in `.env`. |
+| Database lost after `docker compose down` | Data is stored in a named volume (`dashboard-data`). Use `docker compose down` (without `-v`) to preserve it. Adding `-v` removes volumes. |
+| Vertex AI: auth errors | Ensure `gcloud auth application-default login` was run on the host and the ADC file exists before starting the container. |
+
+## Local Development
+
+Use this setup if you want to develop unshift itself (modify the dashboard, CLI scripts, etc.).
 
 ### 1. Install prerequisites
 
@@ -225,6 +278,10 @@ The skill reads `repos.yaml` from this repo's root to map Jira projects to repos
 | `cli/prompts/phase3.md` | `cli/` | Phase 3 prompt template for PR creation and Jira update |
 | `cli/init.sh` | `cli/` | Configures Claude Code permissions and authenticates `acli` |
 | `.claude/skills/unshift/SKILL.md` | Root | Claude Code custom skill  - run `/unshift` inside a session |
+| `compose.yml` | Root | Docker Compose service definition for the dashboard |
+| `dashboard/Dockerfile` | `dashboard/` | Multi-stage Docker build (build + production runtime) |
+| `dashboard/entrypoint.sh` | `dashboard/` | Container entrypoint — sets git identity and GCP credentials |
+| `.dockerignore` | Root | Files excluded from Docker build context |
 | `repos.yaml` | Root | Project-to-repository mapping (shared by dashboard and CLI) |
 | `prd.json` | Target repo root (at runtime) | Implementation plan, created per issue, cleaned up after |
 | `progress.txt` | Target repo root (at runtime) | Append-only execution log, cleaned up after |

@@ -3,6 +3,7 @@ import { EventEmitter } from "node:events";
 import { randomUUID } from "node:crypto";
 import { readFile, writeFile, unlink } from "node:fs/promises";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import kill from "tree-kill";
 
 import type { RunContext, Run, RunError, PrdEntry, LogEntry, RunPhase } from "../../shared/types";
@@ -32,6 +33,8 @@ export class UnshiftRunner extends EventEmitter {
 
   constructor() {
     super();
+    const __filename = fileURLToPath(import.meta.url);
+    const __dirname = path.dirname(__filename);
     this.scriptPath = process.env.UNSHIFT_SCRIPT_PATH ?? path.resolve(__dirname, "..", "..", "..", "cli", "unshift.sh");
 
     // Rebuild activeIssueKeys from DB for runs that survived a restart
