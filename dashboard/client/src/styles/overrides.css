@@ -897,7 +897,7 @@ code, pre, .pf-v6-c-code-block,
     display: flex;
     align-items: center;
     justify-content: space-between;
-    flex-wrap: nowrap;
+    flex-wrap: wrap;
   }
 
   .us-detail-subheader__actions {
@@ -1008,6 +1008,7 @@ code, pre, .pf-v6-c-code-block,
   padding-top: var(--us-space-3);
   margin-top: var(--us-space-3);
   border-top: 1px solid var(--us-border-subtle);
+  flex-basis: 100%;
 }
 
 .us-detail-metadata__item {
