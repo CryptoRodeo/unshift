@@ -1,0 +1,23 @@
+services:
+  dashboard:
+    build:
+      context: .
+      dockerfile: dashboard/Dockerfile
+    env_file: .env
+    ports:
+      - "3000:3000"
+    volumes:
+      - dashboard-data:/app/dashboard/server/data
+      - ./workspace:/app/workspace
+      # Uncomment for Vertex AI: mounts Google Application Default Credentials into the container
+      # - ${GOOGLE_APPLICATION_CREDENTIALS:-~/.config/gcloud/application_default_credentials.json}:/home/unshift/.config/gcloud/application_default_credentials.json:ro
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/api/runs"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+    restart: unless-stopped
+
+volumes:
+  dashboard-data:

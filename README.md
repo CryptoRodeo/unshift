@@ -12,27 +12,81 @@ An automation tool that picks up Jira issues labeled `llm-candidate`, implements
 
 Unshift runs four phases per issue:
 
-0. **Discover** - Queries the Jira REST API for issues labeled `llm-candidate`, checks required tools are installed, and determines which issues to process.
-1. **Plan** - Reads the Jira issue, maps it to a repo via `repos.yaml`, creates a branch, and generates an implementation plan (`prd.json`). Runs in its own `claude -p` session.
-2. **Implement** - `ralph.sh` works through the plan one entry at a time, each in a fresh `claude -p` session. If a validation step fails, it automatically retries once with the error context. This keeps token usage flat and gives every entry the full context window.
-3. **Deliver** - Commits, pushes, opens a PR, updates Jira, and cleans up. Runs in its own `claude -p` session. When started from the dashboard, the run pauses here for approval before proceeding.
+1. **Discover**  - Queries the Jira REST API for issues labeled `llm-candidate`, checks required tools are installed, and determines which issues to process.
+2. **Plan**  - Reads the Jira issue, maps it to a repo via `repos.yaml`, creates a branch, and generates an implementation plan (`prd.json`). Runs in its own `claude -p` session.
+3. **Implement**  - `ralph.sh` works through the plan one entry at a time, each in a fresh `claude -p` session. If a validation step fails, it automatically retries once with the error context. This keeps token usage flat and gives every entry the full context window.
+4. **Deliver**  - Commits, pushes, opens a PR, updates Jira, and cleans up. Runs in its own `claude -p` session. When started from the dashboard, the run pauses here for approval before proceeding.
 
-## Quickstart
+## Quick Start (Docker)
+
+The fastest way to run unshift. Only Docker is required.
+
+### 1. Clone and configure
+
+```bash
+git clone https://github.com/CryptoRodeo/unshift.git
+cd unshift
+cp .env.example .env
+```
+
+Edit `.env` and fill in your credentials (see [Credentials Reference](#credentials-reference)):
+
+- `ANTHROPIC_API_KEY` (or Vertex AI config)  - required
+- `JIRA_BASE_URL`, `JIRA_USER_EMAIL`, `JIRA_API_TOKEN`  - required for Jira integration
+- `GH_TOKEN` or `GITLAB_TOKEN`  - required for PR/MR creation
+- `GIT_USER_NAME`, `GIT_USER_EMAIL`  - used for git commits inside the container
+
+### 2. Configure repos.yaml
+
+Create a `repos.yaml` to map your Jira projects to repositories. See `repos.yaml.example` for the schema and a starting template.
+
+Inside the container, repos are cloned under `/app/workspace/` (bind-mounted to `./workspace` on the host). Keep `local_dir` set to the path on your host machine (e.g. `~/work/my-repo`) — the dashboard uses it for the "Open Locally" dialog.
+
+### 3. Start the dashboard
+
+```bash
+docker compose up --build
+```
+
+The dashboard will be available at `http://localhost:3000`.
+
+- Run data (SQLite) persists in a Docker volume
+- Cloned repos persist in `./workspace` on the host
+- To stop: `docker compose down` (add `-v` to also delete the database volume)
+
+**Vertex AI users:** Run `gcloud auth application-default login` on the host before starting the container. The compose file mounts your ADC credentials file automatically.
+
+### 4. Troubleshooting
+
+| Issue | Solution |
+|---|---|
+| Native module build failures (`node-pty`, `better-sqlite3`) | Ensure you're building on a supported architecture (amd64/arm64). Run `docker compose build --no-cache` to rebuild from scratch. |
+| `gh` or `claude` not found inside container | The Dockerfile installs these during build. If the build was cached before they were added, run `docker compose build --no-cache`. |
+| Permission errors on `./workspace` volume | The container runs as UID 1000 (`unshift` user). If the host user has a different UID, adjust ownership: `sudo chown -R $(id -u):$(id -g) ./workspace` |
+| Git push/clone fails inside container | Verify `GH_TOKEN` (or `GITLAB_TOKEN`) is set in `.env`. The token needs `repo` scope (GitHub) or `api` scope (GitLab). |
+| Container exits immediately | Check logs with `docker compose logs dashboard`. Common cause: missing required env vars in `.env`. |
+| Database lost after `docker compose down` | Data is stored in a named volume (`dashboard-data`). Use `docker compose down` (without `-v`) to preserve it. Adding `-v` removes volumes. |
+| Vertex AI: auth errors | Ensure `gcloud auth application-default login` was run on the host and the ADC file exists before starting the container. |
+
+## Local Development
+
+Use this setup if you want to develop unshift itself (modify the dashboard, CLI scripts, etc.).
 
 ### 1. Install prerequisites
 
-| Tool | Purpose | Install |
-|---|---|---|
-| [Node.js](https://nodejs.org/) (v18+) | Runtime for Claude Code and the dashboard | [Download](https://nodejs.org/) or `dnf install nodejs` / `brew install node` |
-| [Claude Code](https://docs.anthropic.com/en/docs/claude-code) | CLI agent that runs each phase | `npm install -g @anthropic-ai/claude-code` |
-| [acli](https://developer.atlassian.com/cloud/acli/) | Atlassian CLI for Jira integration | [Install guide](https://developer.atlassian.com/cloud/acli/guides/install-acli/) |
-| [curl](https://curl.se/) | Jira REST API fallback | Pre-installed on most systems |
-| [gh](https://cli.github.com/) | Create GitHub PRs | `dnf install gh` / `brew install gh` |
-| [glab](https://gitlab.com/gitlab-org/cli) | Create GitLab MRs | `dnf install glab` / `brew install glab` |
-| [jq](https://jqlang.github.io/jq/) | Used by the installer and orchestrator | `dnf install jq` / `brew install jq` |
-| [Git](https://git-scm.com/) | Version control | Pre-installed on most systems |
+| Tool | Purpose |
+|---|---|
+| [Node.js](https://nodejs.org/) (v18+) | Runtime for Claude Code and the dashboard |
+| [Claude Code](https://docs.anthropic.com/en/docs/claude-code) | CLI agent that runs each phase (`npm install -g @anthropic-ai/claude-code`) |
+| [acli](https://developer.atlassian.com/cloud/acli/) | Atlassian CLI for Jira integration |
+| [curl](https://curl.se/) | Jira REST API fallback (pre-installed on most systems) |
+| [jq](https://jqlang.github.io/jq/) | Used by the installer and orchestrator |
+| [Git](https://git-scm.com/) | Version control (pre-installed on most systems) |
 
-You only need `gh` or `glab` depending on which repositories you work with.
+**For PR/MR creation**, install one or both depending on your repos:
+
+- [gh](https://cli.github.com/)  - GitHub PRs
+- [glab](https://gitlab.com/gitlab-org/cli)  - GitLab MRs
 
 Git must be configured with push access to your target repositories (e.g. via SSH keys or a credential helper).
 
@@ -70,7 +124,8 @@ GH_TOKEN=ghp_...
 # GITLAB_TOKEN=glpat-...
 ```
 
-**With Vertex AI (Google Cloud):**
+<details>
+<summary><strong>With Vertex AI (Google Cloud)</strong></summary>
 
 ```bash
 CLAUDE_CODE_USE_VERTEX=1
@@ -84,28 +139,13 @@ GH_TOKEN=ghp_...
 # GITLAB_TOKEN=glpat-...
 ```
 
-> **Vertex AI users:** You also need active GCP credentials (`gcloud auth application-default login`). Run `claude` then `/status` to confirm the provider shows "Google Vertex AI".
+You also need active GCP credentials (`gcloud auth application-default login`). Run `claude` then `/status` to confirm the provider shows "Google Vertex AI".
+
+</details>
 
 See [Credentials Reference](#credentials-reference) for how to create each token and for Data Center configuration.
 
-### 4. Edit the project-to-repository mapping
-
-Open `repos.yaml` in the repo root and replace the example entries with your own Jira projects and local repo paths.
-
-Each entry is a YAML object with the following fields:
-
-| Field | Description |
-|---|---|
-| `jira_projects` | Array of Jira project keys that map to this repo (e.g. `["MYPROJ"]` or `["PROJ1", "PROJ2"]`) |
-| `component` | Optional Jira component to disambiguate projects that map to multiple repos (use `null` if not needed) |
-| `labels` | Array of Jira labels to disambiguate when the project cannot use components (e.g. `["TSD-UI"]`), or `[]` if not needed |
-| `repo_url` | The git remote URL |
-| `local_dir` | Absolute path where the repo is cloned on your machine |
-| `default_branch` | Branch to base new work on (e.g. `main`) |
-| `host` | `GitHub` or `GitLab`  - determines whether `gh` or `glab` is used for PRs |
-| `validation` | Array of shell commands to verify correctness (e.g. `["npm test", "npx tsc --noEmit"]`), or `[]` if none |
-
-### 5. Run
+### 4. Run
 
 #### Dashboard (recommended)
 
@@ -119,9 +159,10 @@ npm run dev
 
 This starts both the Express/WebSocket server and the Vite dev server using `concurrently`. The client is available at `http://localhost:5173` and the API server runs on `http://localhost:3000`.
 
-From the dashboard you can start and stop runs, view per-phase progress, and stream logs. After Phase 2 completes, the run pauses for your approval. You can review the changes and then approve, reject, or retry before Phase 3 creates the PR.
-
-Run history is stored in a local SQLite database (`dashboard/server/data/runs.db`) and persists across server restarts. Issues that already completed successfully are skipped automatically. To re-run a completed issue from the dashboard, use the force option.
+- Start and stop runs, view per-phase progress, and stream logs
+- After Phase 2 completes, the run pauses for your approval  - review changes, then approve, reject, or retry before Phase 3 creates the PR
+- Run history is stored in a local SQLite database (`dashboard/server/data/runs.db`) and persists across server restarts
+- Issues that already completed successfully are skipped automatically; use the force option to re-run
 
 #### CLI (alternative)
 
@@ -139,9 +180,10 @@ You can also target a single issue or just list what's available:
 ./cli/unshift.sh --retry --issue PROJ-123  # retry from prd.json (skips planning)
 ```
 
-`--retry` resets the branch to its merge-base, marks all prd.json entries as incomplete, and re-runs Phase 2 and 3. It requires the `UNSHIFT_CONTEXT_FILE` env var to point at the context file from the original run.
+`--retry` resets the branch to its merge-base, marks all prd.json entries as incomplete, and re-runs Phase 2 and 3. Requires the `UNSHIFT_CONTEXT_FILE` env var pointing at the context file from the original run.
 
-## Credentials Reference
+<details>
+<summary><h2>Credentials Reference</h2></summary>
 
 ### Jira API token
 
@@ -151,17 +193,20 @@ You can also target a single issue or just list what's available:
 
 ### GitHub token (`GH_TOKEN`)
 
-Create a token with the **`repo`** scope (classic) or **Contents + Pull requests** read/write (fine-grained) at [GitHub token settings](https://github.com/settings/tokens). The `gh` CLI recognizes `GH_TOKEN` automatically -no separate `gh auth login` is needed.
+Create a token with the **`repo`** scope (classic) or **Contents + Pull requests** read/write (fine-grained) at [GitHub token settings](https://github.com/settings/tokens). The `gh` CLI recognizes `GH_TOKEN` automatically  - no separate `gh auth login` is needed.
 
 ### GitLab token (`GITLAB_TOKEN`)
 
-Create a token with the **`api`** scope at [GitLab access tokens](https://gitlab.com/-/user_settings/personal_access_tokens). The `glab` CLI recognizes `GITLAB_TOKEN` automatically -no separate `glab auth login` is needed.
+Create a token with the **`api`** scope at [GitLab access tokens](https://gitlab.com/-/user_settings/personal_access_tokens). The `glab` CLI recognizes `GITLAB_TOKEN` automatically  - no separate `glab auth login` is needed.
 
-## Claude Code Skill (`/unshift`)
+</details>
+
+<details>
+<summary><h2>Claude Code Skill (<code>/unshift</code>)</h2></summary>
 
 Unshift also ships as a Claude Code [custom skill](https://docs.anthropic.com/en/docs/claude-code/skills) that you can invoke inside any Claude Code session with `/unshift`. The skill uses Jira MCP tools directly (instead of `acli`) and runs the full Jira-to-PR workflow from within Claude Code.
 
-The skill uses the `gh` or `glab` CLI to create pull/merge requests -see [Install prerequisites](#1-install-prerequisites) and [Credentials Reference](#credentials-reference).
+The skill uses the `gh` or `glab` CLI to create pull/merge requests  - see [Install prerequisites](#1-install-prerequisites) and [Credentials Reference](#credentials-reference).
 
 ### Install the skill
 
@@ -212,20 +257,26 @@ Inside a Claude Code session, run:
 /unshift PROJ-123     # process a specific issue
 ```
 
-The skill reads `repos.yaml` from this repo's root to map Jira projects to repositories. See [Edit the project-to-repository mapping](#4-edit-the-project-to-repository-mapping) for the schema.
+The skill reads `repos.yaml` from this repo's root to map Jira projects to repositories. See `repos.yaml.example` for the schema.
+
+</details>
 
 ## File Reference
 
-| File | Location | Purpose |
-|---|---|---|
-| `dashboard/` | Root | Web UI for starting, monitoring, and approving runs |
-| `cli/unshift.sh` | `cli/` | Shell orchestrator  - drives all four phases |
-| `cli/ralph/ralph.sh` | `cli/` | Implementation loop  - one `claude -p` per prd.json entry, with automatic retry on failure |
-| `cli/prompts/phase1.md` | `cli/` | Phase 1 prompt template for repo setup and planning |
-| `cli/prompts/phase3.md` | `cli/` | Phase 3 prompt template for PR creation and Jira update |
-| `cli/init.sh` | `cli/` | Configures Claude Code permissions and authenticates `acli` |
-| `.claude/skills/unshift/SKILL.md` | Root | Claude Code custom skill  - run `/unshift` inside a session |
-| `repos.yaml` | Root | Project-to-repository mapping (shared by dashboard and CLI) |
-| `prd.json` | Target repo root (at runtime) | Implementation plan, created per issue, cleaned up after |
-| `progress.txt` | Target repo root (at runtime) | Append-only execution log, cleaned up after |
-| `runs.db` | `dashboard/server/data/` (at runtime) | SQLite database storing run history, logs, and progress |
+| File | Purpose |
+|---|---|
+| `dashboard/` | Web UI for starting, monitoring, and approving runs |
+| `cli/unshift.sh` | Shell orchestrator  - drives all four phases |
+| `cli/ralph/ralph.sh` | Implementation loop  - one `claude -p` per prd.json entry, with automatic retry on failure |
+| `cli/prompts/phase1.md` | Phase 1 prompt template for repo setup and planning |
+| `cli/prompts/phase3.md` | Phase 3 prompt template for PR creation and Jira update |
+| `cli/init.sh` | Configures Claude Code permissions and authenticates `acli` |
+| `.claude/skills/unshift/SKILL.md` | Claude Code custom skill  - run `/unshift` inside a session |
+| `compose.yml` | Docker Compose service definition for the dashboard |
+| `dashboard/Dockerfile` | Multi-stage Docker build (build + production runtime) |
+| `dashboard/entrypoint.sh` | Container entrypoint  - sets git identity and GCP credentials |
+| `.dockerignore` | Files excluded from Docker build context |
+| `repos.yaml` | Project-to-repository mapping (shared by dashboard and CLI) |
+| `prd.json` | Implementation plan, created per issue, cleaned up after (in target repo at runtime) |
+| `progress.txt` | Append-only execution log, cleaned up after (in target repo at runtime) |
+| `runs.db` | SQLite database storing run history, logs, and progress (in `dashboard/server/data/` at runtime) |

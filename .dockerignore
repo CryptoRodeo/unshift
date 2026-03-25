@@ -1,0 +1,15 @@
+node_modules
+dashboard/node_modules
+dashboard/client/node_modules
+dashboard/server/node_modules
+dashboard/client/dist
+dashboard/server/dist
+dashboard/server/data
+.git
+*.db
+*.png
+*.md
+!cli/prompts/*.md
+.env
+.env.*
+!.env.example

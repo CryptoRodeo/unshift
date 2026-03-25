@@ -14,6 +14,8 @@ import {
   HistoryIcon,
   TimesIcon,
   ExclamationTriangleIcon,
+  CopyIcon,
+  CheckIcon,
 } from "@patternfly/react-icons";
 import { useWebSocket } from "../hooks/useWebSocket";
 import { useHeaderContext } from "../hooks/useHeaderContext";
@@ -60,7 +62,7 @@ function ConfirmModal({ title, message, confirmLabel, confirmVariant, onConfirm,
 export function RunDetailPage() {
   const { runId } = useParams<{ runId: string }>();
   const navigate = useNavigate();
-  const { runs, loading, connected, stopRun, approveRun, rejectRun, retryRun, deleteRun, openInEditor, fetchRunLogs, fetchProgress, fetchRunHistory, progressMap, startRunForIssue } = useWebSocket();
+  const { runs, loading, connected, stopRun, approveRun, rejectRun, retryRun, deleteRun, fetchEditorInfo, fetchRunLogs, fetchProgress, fetchRunHistory, progressMap, startRunForIssue } = useWebSocket();
   const headerCtx = useHeaderContext();
 
   useEffect(() => {
@@ -79,6 +81,8 @@ export function RunDetailPage() {
   const [retryError, setRetryError] = useState<string | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [editorError, setEditorError] = useState<string | null>(null);
+  const [editorInfo, setEditorInfo] = useState<{ localDir: string; branchName: string | null; gitCommand: string | null } | null>(null);
+  const [copied, setCopied] = useState<string | null>(null);
   const [progress, setProgress] = useState<string | null>(null);
   const [runHistory, setRunHistory] = useState<Run[]>([]);
   const [activeTab, setActiveTab] = useState<"logs" | "terminal">("logs");
@@ -240,10 +244,17 @@ export function RunDetailPage() {
   const handleOpenEditor = async () => {
     setEditorError(null);
     try {
-      await openInEditor(run.id);
+      const info = await fetchEditorInfo(run.id);
+      setEditorInfo(info);
     } catch (err) {
-      setEditorError(err instanceof Error ? err.message : "Failed to open editor");
+      setEditorError(err instanceof Error ? err.message : "Failed to get editor info");
     }
+  };
+
+  const handleCopy = (text: string, label: string) => {
+    navigator.clipboard.writeText(text);
+    setCopied(label);
+    setTimeout(() => setCopied(null), 2000);
   };
 
   const terminalDisabled = !isActive && activeTab !== "terminal";
@@ -285,8 +296,8 @@ export function RunDetailPage() {
             </Tooltip>
 
             {run.repoPath && (
-              <Tooltip content="Open in Editor">
-                <button className="us-detail-subheader__icon-btn" onClick={handleOpenEditor} aria-label="Open in Editor">
+              <Tooltip content="Open Locally">
+                <button className="us-detail-subheader__icon-btn" onClick={handleOpenEditor} aria-label="Open Locally">
                   <ExternalLinkAltIcon />
                 </button>
               </Tooltip>
@@ -402,7 +413,7 @@ export function RunDetailPage() {
         <div className="us-detail-alerts">
           {approveError && <Alert variant="danger" title="Approval failed" isInline>{approveError}</Alert>}
           {retryError && <Alert variant="danger" title="Retry failed" isInline>{retryError}</Alert>}
-          {editorError && <Alert variant="danger" title="Failed to open editor" isInline>{editorError}</Alert>}
+          {editorError && <Alert variant="danger" title="Failed to get editor info" isInline>{editorError}</Alert>}
           {deleteError && <Alert variant="danger" title="Delete failed" isInline>{deleteError}</Alert>}
         </div>
       )}
@@ -530,6 +541,47 @@ export function RunDetailPage() {
           onConfirm={doReject}
           onCancel={() => setConfirmAction(null)}
         />
+      )}
+
+      {editorInfo && (
+        <div className="us-modal-overlay" onClick={() => setEditorInfo(null)}>
+          <div className="us-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="us-modal__header">
+              <h3 className="us-modal__title">Open Locally</h3>
+              <button className="us-modal__close" onClick={() => setEditorInfo(null)} aria-label="Close">
+                <TimesIcon />
+              </button>
+            </div>
+            <div className="us-modal__body">
+              <label className="us-modal__label">Local path</label>
+              <div className="us-modal__copyable">
+                <code className="us-modal__code">{editorInfo.localDir}</code>
+                <button
+                  className="us-modal__copy-btn"
+                  onClick={() => handleCopy(editorInfo.localDir, "path")}
+                  aria-label="Copy path"
+                >
+                  {copied === "path" ? <CheckIcon /> : <CopyIcon />}
+                </button>
+              </div>
+              {editorInfo.gitCommand && (
+                <>
+                  <label className="us-modal__label">Checkout branch</label>
+                  <div className="us-modal__copyable">
+                    <code className="us-modal__code">{editorInfo.gitCommand}</code>
+                    <button
+                      className="us-modal__copy-btn"
+                      onClick={() => handleCopy(editorInfo.gitCommand!, "git")}
+                      aria-label="Copy git command"
+                    >
+                      {copied === "git" ? <CheckIcon /> : <CopyIcon />}
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
       )}
 
       {showHistory && runHistory.length > 1 && (

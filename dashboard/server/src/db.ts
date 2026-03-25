@@ -1,9 +1,12 @@
 import Database from "better-sqlite3";
 import path from "node:path";
 import { mkdirSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 
 let db: Database.Database | null = null;
 
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 const DB_PATH = path.resolve(__dirname, "..", "data", "runs.db");
 
 export function initDb(): Database.Database {
