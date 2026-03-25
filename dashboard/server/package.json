@@ -7,11 +7,16 @@
     "start": "node dist/index.mjs"
   },
   "dependencies": {
+    "@ai-sdk/anthropic": "^3.0.64",
+    "@ai-sdk/google": "^3.0.53",
+    "@ai-sdk/openai": "^3.0.48",
+    "ai": "^6.0.138",
     "better-sqlite3": "^12.8.0",
     "express": "^5.1.0",
     "node-pty": "^1.1.0",
     "tree-kill": "^1.2.2",
-    "ws": "^8.18.2"
+    "ws": "^8.18.2",
+    "zod": "^4.3.6"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.13",
