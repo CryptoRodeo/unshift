@@ -249,6 +249,30 @@ code, pre, .pf-v6-c-code-block,
   grid-column: 1 / -1;
 }
 
+/* ===== Provider/Model Selectors ===== */
+.us-select,
+.us-input {
+  padding: 6px 10px;
+  border: 1px solid var(--us-border-subtle);
+  border-radius: var(--us-radius-sm);
+  background: var(--us-surface-secondary);
+  color: var(--us-text-primary);
+  font-family: var(--us-font-sans);
+  font-size: 13px;
+  outline: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.us-select:focus,
+.us-input:focus {
+  border-color: var(--pf-t--global--color--status--info--default, #0066cc);
+  box-shadow: 0 0 0 2px rgba(0, 102, 204, 0.15);
+}
+
+.us-select {
+  cursor: pointer;
+}
+
 /* ===== Dashboard Stats Cards ===== */
 .us-stats-grid {
   display: grid;

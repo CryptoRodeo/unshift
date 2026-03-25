@@ -9,7 +9,6 @@ import {
   RedoIcon,
   TrashIcon,
   ExternalLinkAltIcon,
-  TerminalIcon,
   InfoCircleIcon,
   HistoryIcon,
   TimesIcon,
@@ -25,7 +24,6 @@ import { PhaseProgress } from "../components/PhaseProgress";
 import { StatusLabel } from "../components/StatusLabel";
 import { RunContextCard } from "../components/RunContextCard";
 import { PrdStatusCard } from "../components/PrdStatusCard";
-import { LiveTerminal } from "../components/LiveTerminal";
 import { RunLogsCard } from "../components/RunLogsCard";
 
 function ConfirmModal({ title, message, confirmLabel, confirmVariant, onConfirm, onCancel }: {
@@ -85,7 +83,6 @@ export function RunDetailPage() {
   const [copied, setCopied] = useState<string | null>(null);
   const [progress, setProgress] = useState<string | null>(null);
   const [runHistory, setRunHistory] = useState<Run[]>([]);
-  const [activeTab, setActiveTab] = useState<"logs" | "terminal">("logs");
   const [showMetadata, setShowMetadata] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   const [confirmAction, setConfirmAction] = useState<"approve" | "reject" | null>(null);
@@ -257,8 +254,6 @@ export function RunDetailPage() {
     setTimeout(() => setCopied(null), 2000);
   };
 
-  const terminalDisabled = !isActive && activeTab !== "terminal";
-
   return (
     <div className="us-detail us-fade-in">
       {/* Sticky sub-header */}
@@ -284,17 +279,6 @@ export function RunDetailPage() {
 
           {/* Secondary icon buttons */}
           <div className="us-detail-subheader__secondary">
-            <Tooltip content={terminalDisabled ? "Terminal session ended with the run" : activeTab === "terminal" ? "Switch to Logs" : "Attach Terminal"}>
-              <button
-                className={`us-detail-subheader__icon-btn ${activeTab === "terminal" ? "us-detail-subheader__icon-btn--active" : ""}`}
-                onClick={() => setActiveTab(activeTab === "terminal" ? "logs" : "terminal")}
-                disabled={terminalDisabled}
-                aria-label="Terminal"
-              >
-                <TerminalIcon />
-              </button>
-            </Tooltip>
-
             {run.repoPath && (
               <Tooltip content="Open Locally">
                 <button className="us-detail-subheader__icon-btn" onClick={handleOpenEditor} aria-label="Open Locally">
@@ -382,6 +366,12 @@ export function RunDetailPage() {
               <div className="us-detail-metadata__item">
                 <span className="us-detail-metadata__label">Pull Request</span>
                 <a href={run.prUrl} target="_blank" rel="noreferrer" className="us-detail-metadata__value us-detail-metadata__link">{run.prUrl}</a>
+              </div>
+            )}
+            {run.tokens?.model && (
+              <div className="us-detail-metadata__item">
+                <span className="us-detail-metadata__label">Model</span>
+                <code className="us-detail-metadata__value">{run.tokens.model}</code>
               </div>
             )}
             {run.retryCount != null && run.retryCount > 0 && (
@@ -487,36 +477,12 @@ export function RunDetailPage() {
           </section>
         )}
 
-        {/* Logs/Terminal — tabbed panel */}
+        {/* Logs */}
         <section className="us-detail-section us-detail-section--fill">
-          <div className="us-detail-tabs">
-            <div className="us-detail-tabs__bar">
-              <button
-                className={`us-detail-tabs__tab ${activeTab === "logs" ? "us-detail-tabs__tab--active" : ""}`}
-                onClick={() => setActiveTab("logs")}
-              >
-                Logs
-              </button>
-              <button
-                className={`us-detail-tabs__tab ${activeTab === "terminal" ? "us-detail-tabs__tab--active" : ""}`}
-                onClick={() => setActiveTab("terminal")}
-                disabled={terminalDisabled}
-              >
-                Terminal
-                {!isActive && <span className="us-detail-tabs__badge">ended</span>}
-              </button>
-            </div>
-            <div className="us-detail-tabs__content">
-              {activeTab === "logs" ? (
-                <RunLogsCard
-                  logs={run.logs}
-                  status={run.status}
-                />
-              ) : (
-                <LiveTerminal runId={run.id} isActive={isActive} />
-              )}
-            </div>
-          </div>
+          <RunLogsCard
+            logs={run.logs}
+            status={run.status}
+          />
         </section>
       </div>
 

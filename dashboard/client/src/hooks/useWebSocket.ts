@@ -288,11 +288,11 @@ export function useWebSocket() {
     };
   }, [fetchRuns]);
 
-  const startRun = useCallback(async (options?: { force?: boolean }): Promise<StartRunResponse> => {
+  const startRun = useCallback(async (options?: { force?: boolean; provider?: string; model?: string }): Promise<StartRunResponse> => {
     const res = await fetch("/api/runs", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ force: options?.force }),
+      body: JSON.stringify({ force: options?.force, provider: options?.provider, model: options?.model }),
     });
     const data = await res.json();
     if (!res.ok) {
@@ -301,11 +301,11 @@ export function useWebSocket() {
     return data;
   }, []);
 
-  const startRunForIssue = useCallback(async (issueKey: string, force?: boolean) => {
+  const startRunForIssue = useCallback(async (issueKey: string, force?: boolean, providerConfig?: { provider?: string; model?: string }) => {
     const res = await fetch("/api/runs", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ issueKey, force }),
+      body: JSON.stringify({ issueKey, force, ...providerConfig }),
     });
     const data = await res.json();
     return data;

@@ -30,8 +30,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     bash \
     curl \
     jq \
-    python3 \
-    python3-yaml \
     ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
@@ -51,13 +49,9 @@ RUN GLAB_VERSION=$(curl -sL "https://gitlab.com/api/v4/projects/34675721/release
     && dpkg -i /tmp/glab.deb \
     && rm /tmp/glab.deb
 
-# Install claude CLI
-RUN npm install -g @anthropic-ai/claude-code
-
 # Re-use the existing node user (UID/GID 1000) as the non-root runtime user.
 # This matches the typical host user's UID, avoiding permission issues with
 # mounted volumes (e.g. Google ADC credentials).
-# claude CLI refuses bypassPermissions as root, so a non-root user is required.
 RUN usermod -l unshift -d /home/unshift -m node && groupmod -n unshift node
 
 WORKDIR /app
