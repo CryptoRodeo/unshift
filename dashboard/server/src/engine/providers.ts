@@ -52,13 +52,14 @@ export function getDefaultConfig(): ProviderConfig {
     rawProvider = "vertex";
   }
 
-  const provider: Provider = (rawProvider || "anthropic") as Provider;
+  const providerStr = rawProvider || "anthropic";
 
-  if (!DEFAULT_MODELS[provider]) {
+  if (!(providerStr in DEFAULT_MODELS)) {
     throw new Error(
-      `Unknown provider: ${provider}. Must be one of: ${Object.keys(DEFAULT_MODELS).join(", ")}`
+      `Unknown provider: ${providerStr}. Must be one of: ${Object.keys(DEFAULT_MODELS).join(", ")}`
     );
   }
+  const provider = providerStr as Provider;
   const model = process.env.UNSHIFT_MODEL || DEFAULT_MODELS[provider];
   return { provider, model };
 }

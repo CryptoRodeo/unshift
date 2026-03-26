@@ -11,11 +11,15 @@ import type { RunErrorCode } from "../../shared/types";
 import { DEFAULT_MODELS, getDefaultConfig, type Provider, type ProviderConfig } from "./engine/providers";
 
 function parseProviderConfig(body: Record<string, unknown> | undefined): ProviderConfig | undefined {
-  const provider = (body?.provider as Provider) || undefined;
-  const model = (body?.model as string) || undefined;
-  if (!provider && !model) return undefined;
-  const resolvedProvider = provider || "anthropic";
-  return { provider: resolvedProvider, model: model || DEFAULT_MODELS[resolvedProvider] };
+  const rawProvider = typeof body?.provider === "string" ? body.provider : undefined;
+  const model = typeof body?.model === "string" ? body.model : undefined;
+  if (!rawProvider && !model) return undefined;
+  const providerStr = rawProvider || "anthropic";
+  if (!(providerStr in DEFAULT_MODELS)) {
+    throw new Error(`Unknown provider: ${providerStr}. Must be one of: ${Object.keys(DEFAULT_MODELS).join(", ")}`);
+  }
+  const provider = providerStr as Provider;
+  return { provider, model: model || DEFAULT_MODELS[provider] };
 }
 
 const app = express();
@@ -134,7 +138,15 @@ app.get("/api/config", (_req, res) => {
 
 app.post("/api/runs", async (req, res) => {
   const { issueKey, force } = req.body ?? {};
-  const providerConfig = parseProviderConfig(req.body);
+
+  let providerConfig: ProviderConfig | undefined;
+  try {
+    providerConfig = parseProviderConfig(req.body);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    res.status(400).json({ error: msg, code: "BAD_REQUEST" });
+    return;
+  }
 
   if (issueKey) {
     // Start a single run for the specified issue
@@ -213,12 +225,12 @@ app.post("/api/runs/:id/retry", async (req, res) => {
   }
 });
 
-interface RepoEntry {
+interface ReposYamlEntry {
   repo_url: string;
   local_dir: string;
 }
 
-function loadReposYaml(): RepoEntry[] {
+function loadReposYaml(): ReposYamlEntry[] {
   // In dev: src/ → ../../repos.yaml; in prod: dist/ → ../../../repos.yaml
   const thisDir = path.dirname(fileURLToPath(import.meta.url));
   const candidates = [
@@ -228,7 +240,12 @@ function loadReposYaml(): RepoEntry[] {
   const reposPath = candidates.find((p) => fs.existsSync(p));
   if (!reposPath) return [];
   const content = fs.readFileSync(reposPath, "utf-8");
-  return (yaml.load(content) as RepoEntry[]) || [];
+  const parsed = yaml.load(content);
+  if (!parsed) return [];
+  if (!Array.isArray(parsed)) {
+    throw new Error(`repos.yaml must contain a YAML array, got ${typeof parsed}`);
+  }
+  return parsed as ReposYamlEntry[];
 }
 
 function resolveLocalDir(repoPath: string): string | undefined {

@@ -279,12 +279,12 @@ export class UnshiftRunner extends EventEmitter {
       const completedAt = new Date().toISOString();
       this.repository.updateRunStatus(runId, "success", completedAt);
       this.emit("run:complete", runId, "success");
-    }).catch((err) => {
+    }).catch((err: unknown) => {
       const currentRun = this.repository.getRun(runId);
       const currentStatus = currentRun?.status;
       if (currentStatus && isCompleted(currentStatus)) return;
 
-      const isAborted = err?.name === "AbortError" || controller.signal.aborted;
+      const isAborted = (err instanceof Error && err.name === "AbortError") || controller.signal.aborted;
       const status = isAborted ? "stopped" : "failed";
       const completedAt = new Date().toISOString();
       this.repository.updateRunStatus(runId, status, completedAt);

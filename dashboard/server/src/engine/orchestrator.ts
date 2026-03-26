@@ -91,7 +91,11 @@ export class UnshiftEngine extends EventEmitter {
 
     // Parse repos.yaml
     const yamlContent = await readFile(this.reposYamlPath, "utf-8");
-    const entries = yaml.load(yamlContent) as RepoEntry[];
+    const parsed = yaml.load(yamlContent);
+    if (!Array.isArray(parsed)) {
+      throw new Error(`repos.yaml must contain a YAML array, got ${typeof parsed}`);
+    }
+    const entries = parsed as RepoEntry[];
 
     // Filter to entries whose jira_projects contain the project key
     const matching = entries.filter(

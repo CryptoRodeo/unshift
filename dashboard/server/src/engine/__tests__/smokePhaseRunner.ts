@@ -1,10 +1,9 @@
 import { runPhase } from "../phaseRunner.js";
-import { getDefaultModel, getDefaultConfig } from "../providers.js";
+import { getDefaultModel } from "../providers.js";
 import { createFileTools } from "../toolDefs.js";
 import { tmpdir } from "node:os";
-import { mkdtemp, writeFile, readFile, rm } from "node:fs/promises";
+import { mkdtemp, writeFile, rm } from "node:fs/promises";
 import { join } from "node:path";
-import type { LanguageModel } from "ai";
 
 let tempDir: string;
 
@@ -26,31 +25,9 @@ function assert(condition: boolean, message: string) {
   }
 }
 
-async function resolveModel(): Promise<LanguageModel> {
-  // Try direct API key first (standard providers)
-  if (process.env.ANTHROPIC_API_KEY?.startsWith("sk-ant-") ||
-      process.env.OPENAI_API_KEY ||
-      process.env.GOOGLE_GENERATIVE_AI_API_KEY) {
-    return getDefaultModel();
-  }
-
-  // Fall back to Google Vertex AI (Anthropic models via Vertex)
-  if (process.env.ANTHROPIC_VERTEX_PROJECT_ID || process.env.GOOGLE_CLOUD_PROJECT) {
-    const { createVertexAnthropic } = await import("@ai-sdk/google-vertex/anthropic");
-    const project = process.env.ANTHROPIC_VERTEX_PROJECT_ID || process.env.GOOGLE_CLOUD_PROJECT!;
-    const location = process.env.CLOUD_ML_REGION || "us-east5";
-    console.log(`  Using Vertex AI (project=${project}, location=${location})`);
-    const vertex = createVertexAnthropic({ project, location });
-    return vertex("claude-sonnet-4-6");
-  }
-
-  // Last resort: try default (will fail with a clear error if no auth)
-  return getDefaultModel();
-}
-
 async function testMultiTurnToolUse() {
   console.log("\n=== Test 1: Multi-turn tool use ===");
-  const model = await resolveModel();
+  const model = getDefaultModel();
   const tools = createFileTools(tempDir);
 
   const stepLogs: string[] = [];
@@ -98,7 +75,7 @@ async function testMultiTurnToolUse() {
 
 async function testAbortSignal() {
   console.log("\n=== Test 2: AbortSignal cancellation ===");
-  const model = await resolveModel();
+  const model = getDefaultModel();
   const tools = createFileTools(tempDir);
 
   const controller = new AbortController();
@@ -117,8 +94,8 @@ async function testAbortSignal() {
       cwd: tempDir,
       signal: controller.signal,
     });
-  } catch (err: any) {
-    if (err.name === "AbortError" || err.message?.includes("abort")) {
+  } catch (err: unknown) {
+    if (err instanceof Error && (err.name === "AbortError" || err.message.includes("abort"))) {
       aborted = true;
     } else {
       throw err;
@@ -131,7 +108,7 @@ async function testAbortSignal() {
 
 async function main() {
   console.log("Smoke test: phaseRunner + providers + toolDefs");
-  console.log(`Using provider from env: UNSHIFT_PROVIDER=${process.env.UNSHIFT_PROVIDER || "anthropic (default)"}`);
+  console.log(`Using provider: UNSHIFT_PROVIDER=${process.env.UNSHIFT_PROVIDER || "anthropic (default)"}`);
 
   await setup();
 
