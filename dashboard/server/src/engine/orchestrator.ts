@@ -20,7 +20,7 @@ import {
   buildPhase3Prompt,
   type RepoEntry,
 } from "./prompts.js";
-import { runPhase, type PhaseResult } from "./phaseRunner.js";
+import { runPhase, type PhaseResult, type PhaseRunnerOptions } from "./phaseRunner.js";
 import { readFile as toolReadFile, execCommand } from "./tools.js";
 
 const WORKSPACE_DIR = process.env.WORKSPACE_DIR || "/app/workspace";
@@ -196,7 +196,7 @@ export class UnshiftEngine extends EventEmitter {
     prd: PrdEntry[],
     opts: EngineRunOptions
   ): Promise<PrdEntry[]> {
-    const { model, signal, runId } = opts;
+    const { runId } = opts;
     const ts = new Date().toISOString();
     this.emit("run:phase", runId, "phase2", ts);
 
@@ -212,51 +212,19 @@ export class UnshiftEngine extends EventEmitter {
       if (!entry || entry.completed) continue;
 
       const prompt = buildRalphPrompt(entry, context.repoPath);
-
-      const result = await runPhase({
-        model,
-        systemPrompt: prompt.system,
-        userPrompt: prompt.user,
-        tools,
-        maxSteps: 100,
-        cwd: context.repoPath,
-        onLog: (line) => this.emit("run:log", runId, line, "phase2"),
-        signal,
-      });
-
-      this.emitTokens(runId, result);
-
-      // Re-read prd.json to check completion
-      currentPrd = await this.readPrdFromRepo(context.repoPath);
-      this.emit("run:prd", runId, currentPrd);
+      const result = await this.runImplementationStep(prompt, tools, context.repoPath, opts);
+      currentPrd = result.prd;
 
       // Check if entry is still incomplete — retry once
       const updatedEntry = currentPrd.find((e) => e.id === entryId);
       if (updatedEntry && !updatedEntry.completed) {
         const progress = await this.readProgressFromRepo(context.repoPath);
-
         const retryPrompt = buildRetryPrompt(
           updatedEntry,
           progress || result.text,
           context.repoPath
         );
-
-        const retryResult = await runPhase({
-          model,
-          systemPrompt: retryPrompt.system,
-          userPrompt: retryPrompt.user,
-          tools,
-          maxSteps: 100,
-          cwd: context.repoPath,
-          onLog: (line) => this.emit("run:log", runId, line, "phase2"),
-          signal,
-        });
-
-        this.emitTokens(runId, retryResult);
-
-        // Re-read prd.json after retry
-        currentPrd = await this.readPrdFromRepo(context.repoPath);
-        this.emit("run:prd", runId, currentPrd);
+        currentPrd = (await this.runImplementationStep(retryPrompt, tools, context.repoPath, opts)).prd;
       }
     }
 
@@ -376,6 +344,34 @@ export class UnshiftEngine extends EventEmitter {
     });
   }
 
+  /** Run a single implementation step: execute the phase, emit tokens, re-read and emit PRD. */
+  private async runImplementationStep(
+    prompt: { system: string; user: string },
+    tools: PhaseRunnerOptions["tools"],
+    repoPath: string,
+    opts: EngineRunOptions
+  ): Promise<{ text: string; prd: PrdEntry[] }> {
+    const { model, signal, runId } = opts;
+
+    const result = await runPhase({
+      model,
+      systemPrompt: prompt.system,
+      userPrompt: prompt.user,
+      tools,
+      maxSteps: 100,
+      cwd: repoPath,
+      onLog: (line) => this.emit("run:log", runId, line, "phase2"),
+      signal,
+    });
+
+    this.emitTokens(runId, result);
+
+    const prd = await this.readPrdFromRepo(repoPath);
+    this.emit("run:prd", runId, prd);
+
+    return { text: result.text, prd };
+  }
+
   private emitTokens(runId: string, result: PhaseResult): void {
     this.emit("run:tokens", runId, {
       inputTokens: result.usage.inputTokens,
@@ -406,7 +402,11 @@ export class UnshiftEngine extends EventEmitter {
       );
     }
 
-    const branchName = typeof raw.branch_name === "string" ? raw.branch_name : "";
+    /** Extract a string field from the parsed JSON, returning fallback if missing or non-string. */
+    const str = (key: string, fallback?: string): string | undefined =>
+      typeof raw[key] === "string" ? (raw[key] as string) : fallback;
+
+    const branchName = str("branch_name", "");
     if (!branchName) {
       throw new Error(
         `Phase 1 output for ${issueKey} is missing required field "branch_name"`
@@ -414,15 +414,15 @@ export class UnshiftEngine extends EventEmitter {
     }
 
     return {
-      issueKey: typeof raw.issue_key === "string" ? raw.issue_key : issueKey,
-      summary: typeof raw.summary === "string" ? raw.summary : "",
+      issueKey: str("issue_key", issueKey)!,
+      summary: str("summary", "")!,
       repoPath: workDir,
       branchName,
-      description: typeof raw.description === "string" ? raw.description : undefined,
-      issueType: typeof raw.issue_type === "string" ? raw.issue_type : undefined,
-      defaultBranch: typeof raw.default_branch === "string" ? raw.default_branch : repoEntry.default_branch,
-      host: typeof raw.host === "string" ? raw.host : repoEntry.host,
-      commitPrefix: typeof raw.commit_prefix === "string" ? raw.commit_prefix : undefined,
+      description: str("description"),
+      issueType: str("issue_type"),
+      defaultBranch: str("default_branch", repoEntry.default_branch)!,
+      host: str("host", repoEntry.host)!,
+      commitPrefix: str("commit_prefix"),
     };
   }
 
@@ -448,8 +448,11 @@ export class UnshiftEngine extends EventEmitter {
   private async readProgressFromRepo(repoPath: string): Promise<string | null> {
     try {
       return await toolReadFile("progress.txt", repoPath);
-    } catch {
-      return null;
+    } catch (err: unknown) {
+      if (err instanceof Error && "code" in err && (err as NodeJS.ErrnoException).code === "ENOENT") {
+        return null;
+      }
+      throw err;
     }
   }
 }
