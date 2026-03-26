@@ -104,13 +104,26 @@ export async function listFiles(pattern: string, cwd: string, baseDir?: string):
 }
 
 function compileGlob(pattern: string): RegExp {
-  const src = pattern
-    .replace(/[.+^${}()|[\]\\]/g, "\\$&")
-    .replace(/\*\*/g, "{{GLOBSTAR}}")
-    .replace(/\*/g, "[^/]*")
-    .replace(/\?/g, "[^/]")
-    .replace(/\{\{GLOBSTAR\}\}/g, ".*");
-  return new RegExp(`^${src}$`);
+  // Expand brace expressions like {ts,tsx} before escaping
+  const expanded = expandBraces(pattern);
+  const alts = expanded.map((p) => {
+    const src = p
+      .replace(/[.+^${}()|[\]\\]/g, "\\$&")
+      .replace(/\*\*/g, "{{GLOBSTAR}}")
+      .replace(/\*/g, "[^/]*")
+      .replace(/\?/g, "[^/]")
+      .replace(/\{\{GLOBSTAR\}\}/g, ".*");
+    return src;
+  });
+  return new RegExp(`^(?:${alts.join("|")})$`);
+}
+
+/** Simple single-level brace expansion: "*.{ts,tsx}" → ["*.ts", "*.tsx"] */
+function expandBraces(pattern: string): string[] {
+  const match = pattern.match(/^(.*)\{([^{}]+)\}(.*)$/);
+  if (!match) return [pattern];
+  const [, prefix, alternatives, suffix] = match;
+  return alternatives.split(",").map((alt) => `${prefix}${alt}${suffix}`);
 }
 
 export async function grepFiles(
@@ -152,6 +165,11 @@ export async function grepFiles(
     });
     proc.stderr.on("data", (chunk: Buffer) => {
       stderr += chunk.toString();
+    });
+
+    proc.on("error", (err) => {
+      clearTimeout(timer);
+      settle(rej, new Error(`grep spawn failed: ${err.message}`));
     });
 
     proc.on("close", (code) => {

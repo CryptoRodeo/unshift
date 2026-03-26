@@ -345,14 +345,20 @@ export class UnshiftEngine extends EventEmitter {
 
   waitForApproval(runId: string, signal?: AbortSignal): Promise<void> {
     return new Promise<void>((resolve, reject) => {
-      this.approvalGates.set(runId, { resolve, reject });
+      const cleanup = signal ? () => signal.removeEventListener("abort", onAbort) : undefined;
+
+      this.approvalGates.set(runId, {
+        resolve: () => { cleanup?.(); resolve(); },
+        reject: (err) => { cleanup?.(); reject(err); },
+      });
+
+      const onAbort = () => {
+        if (this.approvalGates.delete(runId)) {
+          reject(signal!.reason ?? new Error("Aborted"));
+        }
+      };
 
       if (signal) {
-        const onAbort = () => {
-          if (this.approvalGates.delete(runId)) {
-            reject(signal.reason ?? new Error("Aborted"));
-          }
-        };
         if (signal.aborted) {
           onAbort();
         } else {
