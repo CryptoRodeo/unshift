@@ -382,8 +382,13 @@ export class UnshiftEngine extends EventEmitter {
         host: raw.host || repoEntry.host,
         commitPrefix: raw.commit_prefix,
       };
-    } catch {
+    } catch (err) {
       // Fallback: construct minimal context from what we know
+      console.warn(
+        `[orchestrator] Failed to parse context JSON from phase 1 output for ${issueKey}. ` +
+        `Falling back to minimal context (empty branchName/summary). ` +
+        `Error: ${err instanceof Error ? err.message : String(err)}`
+      );
       return {
         issueKey,
         summary: "",

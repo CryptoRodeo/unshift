@@ -88,6 +88,7 @@ export async function listFiles(pattern: string, cwd: string, baseDir?: string):
     assertWithinBase(baseDir, cwd);
   }
   const results: string[] = [];
+  const regex = compileGlob(pattern);
 
   async function walk(dir: string, base: string): Promise<void> {
     const entries = await readdir(dir, { withFileTypes: true });
@@ -97,7 +98,7 @@ export async function listFiles(pattern: string, cwd: string, baseDir?: string):
         if (entry.name === "node_modules" || entry.name === ".git") continue;
         await walk(`${dir}/${entry.name}`, rel);
       } else {
-        if (matchGlob(rel, pattern)) {
+        if (regex.test(rel)) {
           results.push(rel);
         }
       }
@@ -108,14 +109,14 @@ export async function listFiles(pattern: string, cwd: string, baseDir?: string):
   return results.sort();
 }
 
-function matchGlob(path: string, pattern: string): boolean {
-  const regex = pattern
+function compileGlob(pattern: string): RegExp {
+  const src = pattern
     .replace(/[.+^${}()|[\]\\]/g, "\\$&")
     .replace(/\*\*/g, "{{GLOBSTAR}}")
     .replace(/\*/g, "[^/]*")
     .replace(/\?/g, "[^/]")
     .replace(/\{\{GLOBSTAR\}\}/g, ".*");
-  return new RegExp(`^${regex}$`).test(path);
+  return new RegExp(`^${src}$`);
 }
 
 export async function grepFiles(
@@ -126,10 +127,11 @@ export async function grepFiles(
   if (options?.baseDir) {
     assertWithinBase(options.baseDir, path);
   }
-  const args = ["--color=never", "-n", pattern, path];
+  const args = ["--color=never", "-n"];
   if (options?.glob) {
     args.push("--include", options.glob);
   }
+  args.push("--", pattern, path);
 
   return new Promise((res) => {
     const proc = spawn("grep", ["-r", ...args], {

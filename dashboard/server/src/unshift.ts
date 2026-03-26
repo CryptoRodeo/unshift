@@ -142,7 +142,7 @@ export class UnshiftRunner extends EventEmitter {
 
     // If the run was stopped before context was built, start a fresh run
     if (!sourceRun.context) {
-      return this.startRun(sourceRun.issueKey, false, providerConfig);
+      return this.startRun(sourceRun.issueKey, true, providerConfig);
     }
 
     if (this.activeIssueKeys.has(sourceRun.issueKey)) {
