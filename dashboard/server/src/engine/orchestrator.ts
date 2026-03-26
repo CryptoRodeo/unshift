@@ -168,7 +168,7 @@ export class UnshiftEngine extends EventEmitter {
 
     const workDir = await this.ensureRepo(repoEntry);
     const prompt = buildPhase1Prompt(issueKey, repoEntry, workDir);
-    const tools = planningTools(workDir);
+    const tools = planningTools(workDir, this.jira);
 
     const result = await runPhase({
       model,
@@ -251,7 +251,7 @@ export class UnshiftEngine extends EventEmitter {
     this.emit("run:phase", runId, "phase3", ts);
 
     const prompt = buildPhase3Prompt(context);
-    const tools = deliveryTools(context.repoPath);
+    const tools = deliveryTools(context.repoPath, this.jira);
 
     const result = await runPhase({
       model,

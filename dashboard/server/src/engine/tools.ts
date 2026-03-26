@@ -132,7 +132,7 @@ export async function grepFiles(
   options?: { glob?: string; baseDir?: string; timeout?: number }
 ): Promise<string> {
   const resolvedPath = options?.baseDir ? assertWithinBase(options.baseDir, path) : path;
-  const args = ["--color=never", "-n"];
+  const args = ["-r", "--color=never", "-n"];
   if (options?.glob) {
     args.push("--include", options.glob);
   }
@@ -143,7 +143,7 @@ export async function grepFiles(
   const timer = setTimeout(() => ac.abort(), timeout);
 
   return new Promise((resolve, reject) => {
-    const proc = spawn("grep", ["-r", ...args], {
+    const proc = spawn("grep", args, {
       stdio: ["ignore", "pipe", "pipe"],
       signal: ac.signal,
     });

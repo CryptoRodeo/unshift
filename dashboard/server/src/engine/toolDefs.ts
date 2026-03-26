@@ -54,14 +54,14 @@ export function createFileTools(cwd: string): ToolSet {
   };
 }
 
-export function createJiraTools(): ToolSet {
-  const jira = new JiraClient();
+export function createJiraTools(jira?: JiraClient): ToolSet {
+  const client = jira ?? new JiraClient();
   return {
     jira_search: tool({
       description: "Search Jira issues using JQL",
       inputSchema: z.object({ jql: z.string().describe("JQL query string") }),
       execute: async ({ jql }) => {
-        const issues = await jira.searchIssues(jql);
+        const issues = await client.searchIssues(jql);
         return JSON.stringify(issues, null, 2);
       },
     }),
@@ -69,7 +69,7 @@ export function createJiraTools(): ToolSet {
       description: "Get a single Jira issue by key",
       inputSchema: z.object({ key: z.string().describe("Issue key (e.g. PROJ-123)") }),
       execute: async ({ key }) => {
-        const issue = await jira.getIssue(key);
+        const issue = await client.getIssue(key);
         return JSON.stringify(issue, null, 2);
       },
     }),
@@ -80,7 +80,7 @@ export function createJiraTools(): ToolSet {
         transitionName: z.string().describe("Target transition name"),
       }),
       execute: async ({ key, transitionName }) => {
-        await jira.transitionIssue(key, transitionName);
+        await client.transitionIssue(key, transitionName);
         return `Transitioned ${key} via "${transitionName}"`;
       },
     }),
@@ -91,7 +91,7 @@ export function createJiraTools(): ToolSet {
         body: z.string().describe("Comment text"),
       }),
       execute: async ({ key, body }) => {
-        await jira.addComment(key, body);
+        await client.addComment(key, body);
         return `Added comment to ${key}`;
       },
     }),
@@ -116,10 +116,10 @@ export function createPRTool(repoPath: string): ToolSet {
   };
 }
 
-export function planningTools(cwd: string): ToolSet {
+export function planningTools(cwd: string, jira?: JiraClient): ToolSet {
   return {
     ...createFileTools(cwd),
-    ...createJiraTools(),
+    ...createJiraTools(jira),
   };
 }
 
@@ -127,10 +127,10 @@ export function implementationTools(cwd: string): ToolSet {
   return createFileTools(cwd);
 }
 
-export function deliveryTools(cwd: string): ToolSet {
+export function deliveryTools(cwd: string, jira?: JiraClient): ToolSet {
   return {
     ...createFileTools(cwd),
-    ...createJiraTools(),
+    ...createJiraTools(jira),
     ...createPRTool(cwd),
   };
 }
