@@ -197,10 +197,8 @@ export class UnshiftRunner extends EventEmitter {
     const approved = this.engine.approve(id);
     if (!approved) return { error: "No approval gate found for this run", code: "INVALID_STATE" };
 
-    const ts = new Date().toISOString();
-    this.repository.updateRunStatus(run.id, "phase3");
-    this.repository.updatePhaseTimestamp(run.id, "phase3", ts);
-    this.emit("run:phase", run.id, "phase3", ts);
+    // Status transition to phase3 is handled by the engine emitting run:phase,
+    // which wireEngineEvents picks up and persists to the repository.
     return { ok: true };
   }
 
@@ -254,15 +252,7 @@ export class UnshiftRunner extends EventEmitter {
   /** Launch an engine retry (phase2 → approval → phase3 using existing context) */
   private launchEngineRetry(runId: string, context: RunContext, prd: PrdEntry[], providerConfig?: ProviderConfig): void {
     this.launchWithErrorHandling(runId, context.issueKey, providerConfig, async (opts) => {
-      await this.engine.runPhase2(context, prd, opts);
-
-      const approvalTs = new Date().toISOString();
-      this.emit("run:phase", runId, "awaiting_approval", approvalTs);
-      this.repository.updateRunStatus(runId, "awaiting_approval");
-      this.repository.updatePhaseTimestamp(runId, "awaiting_approval", approvalTs);
-      await this.engine.waitForApproval(runId, opts.signal);
-
-      await this.engine.runPhase3(context, opts);
+      await this.engine.runFromPhase2(context, prd, opts);
     });
   }
 

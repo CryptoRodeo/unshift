@@ -297,6 +297,26 @@ export class UnshiftEngine extends EventEmitter {
   }
 
   /**
+   * Phase 2 → approval gate → phase 3.
+   * Shared by runIssue (full lifecycle) and retry (skips phase 1).
+   */
+  async runFromPhase2(
+    context: RunContext,
+    prd: PrdEntry[],
+    opts: EngineRunOptions
+  ): Promise<void> {
+    const { runId } = opts;
+
+    await this.runPhase2(context, prd, opts);
+
+    const approvalTs = new Date().toISOString();
+    this.emit("run:phase", runId, "awaiting_approval", approvalTs);
+    await this.waitForApproval(runId, opts.signal);
+
+    await this.runPhase3(context, opts);
+  }
+
+  /**
    * Full issue lifecycle: phase1 → phase2 → (await approval) → phase3
    */
   async runIssue(
@@ -304,25 +324,13 @@ export class UnshiftEngine extends EventEmitter {
     repoEntry: RepoEntry,
     opts: EngineRunOptions
   ): Promise<void> {
-    const { runId } = opts;
-
-    // Phase 1: Planning
     const { context, prd } = await this.runPhase1(
       issueKey,
       repoEntry,
       opts
     );
 
-    // Phase 2: Implementation
-    await this.runPhase2(context, prd, opts);
-
-    // Await approval gate
-    const approvalTs = new Date().toISOString();
-    this.emit("run:phase", runId, "awaiting_approval", approvalTs);
-    await this.waitForApproval(runId, opts.signal);
-
-    // Phase 3: Delivery
-    await this.runPhase3(context, opts);
+    await this.runFromPhase2(context, prd, opts);
   }
 
   /** Resolve the approval gate for a run, allowing phase 3 to proceed */
