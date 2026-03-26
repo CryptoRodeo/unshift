@@ -48,7 +48,7 @@ export interface EngineRunOptions {
  * - run:progress(runId, content)
  */
 export class UnshiftEngine extends EventEmitter {
-  private jira = new JiraClient();
+  private _jira: JiraClient | undefined;
   private reposYamlPath: string;
   private approvalGates = new Map<
     string,
@@ -69,6 +69,11 @@ export class UnshiftEngine extends EventEmitter {
       process.env.REPOS_YAML_PATH ??
       candidates.find((p) => existsSync(p)) ??
       candidates[0];
+  }
+
+  private get jira(): JiraClient {
+    this._jira ??= new JiraClient();
+    return this._jira;
   }
 
   /** Discover issues labelled llm-candidate via Jira JQL */

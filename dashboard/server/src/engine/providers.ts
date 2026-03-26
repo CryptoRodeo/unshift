@@ -44,15 +44,15 @@ export function getModel(config: ProviderConfig): LanguageModel {
 }
 
 export function getDefaultConfig(): ProviderConfig {
-  let provider = process.env.UNSHIFT_PROVIDER as Provider | undefined;
+  let rawProvider: string | undefined = process.env.UNSHIFT_PROVIDER;
 
   // Auto-detect Vertex AI when env vars are set and no explicit provider is configured
-  if (!provider && !process.env.ANTHROPIC_API_KEY &&
+  if (!rawProvider && !process.env.ANTHROPIC_API_KEY &&
       (process.env.ANTHROPIC_VERTEX_PROJECT_ID || process.env.GOOGLE_CLOUD_PROJECT)) {
-    provider = "vertex";
+    rawProvider = "vertex";
   }
 
-  provider = (provider || "anthropic") as Provider;
+  const provider: Provider = (rawProvider || "anthropic") as Provider;
 
   if (!DEFAULT_MODELS[provider]) {
     throw new Error(

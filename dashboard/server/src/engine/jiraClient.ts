@@ -23,14 +23,21 @@ function getConfig(): JiraConfig {
   const apiToken = process.env.JIRA_API_TOKEN;
   if (!apiToken) throw new Error("JIRA_API_TOKEN is not set");
 
-  const authType = (process.env.JIRA_AUTH_TYPE ?? "basic") as "basic" | "bearer";
+  const authType = process.env.JIRA_AUTH_TYPE ?? "basic";
+  if (authType !== "basic" && authType !== "bearer") {
+    throw new Error(`Invalid JIRA_AUTH_TYPE "${authType}". Expected "basic" or "bearer".`);
+  }
+
   const userEmail = process.env.JIRA_USER_EMAIL ?? "";
 
   if (authType === "basic" && !userEmail) {
     throw new Error("JIRA_USER_EMAIL is required for Basic auth (Jira Cloud). Set JIRA_AUTH_TYPE=bearer for Data Center PATs.");
   }
 
-  const apiVersion = (process.env.JIRA_API_VERSION ?? "3") as "2" | "3";
+  const apiVersion = process.env.JIRA_API_VERSION ?? "3";
+  if (apiVersion !== "2" && apiVersion !== "3") {
+    throw new Error(`Invalid JIRA_API_VERSION "${apiVersion}". Expected "2" or "3".`);
+  }
 
   return { baseUrl: baseUrl.replace(/\/+$/, ""), userEmail, apiToken, authType, apiVersion };
 }
