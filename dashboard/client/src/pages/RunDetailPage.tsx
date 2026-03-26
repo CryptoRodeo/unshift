@@ -19,6 +19,19 @@ import { useWebSocket } from "../hooks/useWebSocket";
 import { useHeaderContext } from "../hooks/useHeaderContext";
 import { isTerminal, isCompleted, isRunError, formatDuration } from "../types";
 import type { Run, RunPhase } from "../types";
+
+function relativeTimeFromNow(dateStr: string): string {
+  const ms = Date.now() - new Date(dateStr).getTime();
+  if (ms < 0) return "just now";
+  const s = Math.floor(ms / 1000);
+  if (s < 60) return "just now";
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  const d = Math.floor(h / 24);
+  return `${d}d ago`;
+}
 import { PhaseProgress } from "../components/PhaseProgress";
 import { StatusLabel } from "../components/StatusLabel";
 import { ActivityFeed } from "../components/ActivityFeed";
@@ -102,27 +115,6 @@ function PhaseTimingBreakdown({ phaseTimestamps }: { phaseTimestamps: Record<str
   );
 }
 
-function DescriptionPreview({ text }: { text: string }) {
-  const [expanded, setExpanded] = useState(false);
-  const lines = text.split("\n");
-  const isLong = lines.length > 3;
-  const preview = isLong && !expanded ? lines.slice(0, 3).join("\n") + "..." : text;
-
-  return (
-    <div className="us-detail-sidebar__desc-preview">
-      <span className="us-detail-sidebar__value">{preview}</span>
-      {isLong && (
-        <button
-          className="us-detail-sidebar__desc-toggle"
-          onClick={() => setExpanded((v) => !v)}
-        >
-          {expanded ? "Show less" : "Show more"}
-        </button>
-      )}
-    </div>
-  );
-}
-
 export function RunDetailPage() {
   const { runId } = useParams<{ runId: string }>();
   const navigate = useNavigate();
@@ -154,13 +146,33 @@ export function RunDetailPage() {
   const [providers, setProviders] = useState<{ provider: string; defaultModel: string; models: string[] }[]>([]);
   const [modalProvider, setModalProvider] = useState("");
   const [modalModel, setModalModel] = useState("");
+  const [jiraBaseUrl, setJiraBaseUrl] = useState<string | null>(null);
+  const [liveJiraStatus, setLiveJiraStatus] = useState<string | null>(null);
 
   useEffect(() => {
-    fetch("/api/providers")
-      .then((r) => r.json() as Promise<{ providers: { provider: string; defaultModel: string; models: string[] }[] }>)
-      .then((data) => setProviders(data.providers))
-      .catch(() => {});
+    Promise.all([
+      fetch("/api/providers").then((r) => r.json() as Promise<{ providers: { provider: string; defaultModel: string; models: string[] }[] }>),
+      fetch("/api/config").then((r) => r.json() as Promise<{ jiraBaseUrl?: string | null }>),
+    ]).then(([providersData, configData]) => {
+      setProviders(providersData.providers);
+      if (configData.jiraBaseUrl) setJiraBaseUrl(configData.jiraBaseUrl);
+    }).catch(() => {});
   }, []);
+
+  // Fetch live Jira ticket status
+  useEffect(() => {
+    if (!run?.issueKey) return;
+    let cancelled = false;
+    const fetchStatus = () => {
+      fetch(`/api/jira/issue/${encodeURIComponent(run.issueKey)}/status`)
+        .then((r) => r.ok ? r.json() as Promise<{ status: string }> : null)
+        .then((data) => { if (!cancelled && data) setLiveJiraStatus(data.status); })
+        .catch(() => {});
+    };
+    fetchStatus();
+    const interval = setInterval(fetchStatus, 60_000);
+    return () => { cancelled = true; clearInterval(interval); };
+  }, [run?.issueKey]);
 
   const doApprove = useCallback(async () => {
     if (!run) return;
@@ -339,6 +351,9 @@ export function RunDetailPage() {
     setTimeout(() => setCopied(null), 2000);
   };
 
+  const jiraIssueUrl = run.context?.jiraUrl
+    ?? (jiraBaseUrl && run.issueKey ? `${jiraBaseUrl.replace(/\/+$/, "")}/browse/${run.issueKey}` : null);
+
   return (
     <div className="us-detail us-fade-in">
       {/* Sticky sub-header */}
@@ -347,7 +362,20 @@ export function RunDetailPage() {
           <button className="us-detail-subheader__back" onClick={() => navigate("/")} aria-label="Back to dashboard">
             <ArrowLeftIcon />
           </button>
-          <h1 className="us-detail-subheader__title">{run.issueKey || run.id.slice(0, 8)}</h1>
+          <h1 className="us-detail-subheader__title">
+            {jiraIssueUrl ? (
+              <a
+                href={jiraIssueUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="us-detail-subheader__title-link"
+              >
+                {run.issueKey || run.id.slice(0, 8)}
+              </a>
+            ) : (
+              run.issueKey || run.id.slice(0, 8)
+            )}
+          </h1>
           <StatusLabel status={run.status} />
         </div>
         <div className="us-detail-subheader__actions">
@@ -433,7 +461,18 @@ export function RunDetailPage() {
           {/* Issue summary & description */}
           {run.context && (
             <section className="us-detail-section us-detail-description">
-              <h2 className="us-detail-description__summary">{run.context.summary}</h2>
+              <div className="us-detail-description__header">
+                <h2 className="us-detail-description__summary">
+                  {jiraIssueUrl ? (
+                    <a href={jiraIssueUrl} target="_blank" rel="noreferrer" className="us-detail-subheader__title-link">
+                      {run.context.summary}
+                    </a>
+                  ) : (
+                    run.context.summary
+                  )}
+                </h2>
+                <span className="us-detail-description__started">Started {relativeTimeFromNow(run.startedAt)}</span>
+              </div>
               {run.context.description && (
                 <p className="us-detail-description__body">{run.context.description}</p>
               )}
@@ -485,41 +524,38 @@ export function RunDetailPage() {
 
         {/* Right metadata sidebar */}
         <aside className="us-detail-sidebar">
-          {/* STATUS */}
-          <div className="us-detail-sidebar__group">
-            <h3 className="us-detail-sidebar__group-header">Status</h3>
-            <div className="us-detail-sidebar__section">
-              <div className="us-detail-sidebar__value">
-                <StatusLabel status={run.status} />
-              </div>
+          {/* RUN INFO */}
+          {(run.tokens?.model || (run.retryCount != null && run.retryCount > 0)) && (
+            <div className="us-detail-sidebar__group">
+              <h3 className="us-detail-sidebar__group-header">Run Info</h3>
+              {run.tokens?.model && (
+                <div className="us-detail-sidebar__section us-detail-sidebar__section--vertical">
+                  <span className="us-detail-sidebar__label">Model</span>
+                  <code className="us-detail-sidebar__value us-detail-sidebar__code">{run.tokens.model}</code>
+                </div>
+              )}
+              {run.retryCount != null && run.retryCount > 0 && (
+                <div className="us-detail-sidebar__section">
+                  <span className="us-detail-sidebar__label">Retry</span>
+                  <span className="us-detail-sidebar__value">
+                    #{run.retryCount}
+                    {run.sourceRunId && (
+                      <>
+                        {" from "}
+                        {runs.has(run.sourceRunId) ? (
+                          <a href={`/runs/${run.sourceRunId}`} className="us-detail-sidebar__link" onClick={(e) => { e.preventDefault(); navigate(`/runs/${run.sourceRunId}`); }}>
+                            {run.sourceRunId.slice(0, 8)}
+                          </a>
+                        ) : (
+                          <span>{run.sourceRunId.slice(0, 8)} (deleted)</span>
+                        )}
+                      </>
+                    )}
+                  </span>
+                </div>
+              )}
             </div>
-            {run.tokens?.model && (
-              <div className="us-detail-sidebar__section">
-                <span className="us-detail-sidebar__label">Model</span>
-                <code className="us-detail-sidebar__value us-detail-sidebar__code">{run.tokens.model}</code>
-              </div>
-            )}
-            {run.retryCount != null && run.retryCount > 0 && (
-              <div className="us-detail-sidebar__section">
-                <span className="us-detail-sidebar__label">Retry</span>
-                <span className="us-detail-sidebar__value">
-                  #{run.retryCount}
-                  {run.sourceRunId && (
-                    <>
-                      {" from "}
-                      {runs.has(run.sourceRunId) ? (
-                        <a href={`/runs/${run.sourceRunId}`} className="us-detail-sidebar__link" onClick={(e) => { e.preventDefault(); navigate(`/runs/${run.sourceRunId}`); }}>
-                          {run.sourceRunId.slice(0, 8)}
-                        </a>
-                      ) : (
-                        <span>{run.sourceRunId.slice(0, 8)} (deleted)</span>
-                      )}
-                    </>
-                  )}
-                </span>
-              </div>
-            )}
-          </div>
+          )}
 
           {/* TICKET */}
           {run.context && (
@@ -531,25 +567,10 @@ export function RunDetailPage() {
                   <span className="us-detail-sidebar__value us-detail-sidebar__issue-type">{run.context.issueType}</span>
                 </div>
               )}
-              <div className="us-detail-sidebar__section">
-                <span className="us-detail-sidebar__label">Key</span>
-                {(run.context.jiraUrl || run.context.host) ? (
-                  <a
-                    href={run.context.jiraUrl ?? `https://${run.context.host}/browse/${run.context.issueKey}`}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="us-detail-sidebar__value us-detail-sidebar__link"
-                  >
-                    {run.context.issueKey}
-                  </a>
-                ) : (
-                  <span className="us-detail-sidebar__value">{run.context.issueKey}</span>
-                )}
-              </div>
-              {run.context.jiraStatus && (
+              {(liveJiraStatus || run.context.jiraStatus) && (
                 <div className="us-detail-sidebar__section">
                   <span className="us-detail-sidebar__label">Status</span>
-                  <span className="us-detail-sidebar__value">{run.context.jiraStatus}</span>
+                  <span className="us-detail-sidebar__value">{liveJiraStatus || run.context.jiraStatus}</span>
                 </div>
               )}
               {run.context.priority && (
@@ -565,19 +586,13 @@ export function RunDetailPage() {
                 </div>
               )}
               {run.context.labels && run.context.labels.length > 0 && (
-                <div className="us-detail-sidebar__section">
+                <div className="us-detail-sidebar__section us-detail-sidebar__section--vertical">
                   <span className="us-detail-sidebar__label">Labels</span>
                   <span className="us-detail-sidebar__value us-detail-sidebar__labels">
                     {run.context.labels.map((label) => (
                       <span key={label} className="us-detail-sidebar__label-tag">{label}</span>
                     ))}
                   </span>
-                </div>
-              )}
-              {run.context.description && (
-                <div className="us-detail-sidebar__section">
-                  <span className="us-detail-sidebar__label">Description</span>
-                  <DescriptionPreview text={run.context.description} />
                 </div>
               )}
             </div>
@@ -588,19 +603,19 @@ export function RunDetailPage() {
             <div className="us-detail-sidebar__group">
               <h3 className="us-detail-sidebar__group-header">Git</h3>
               {run.repoPath && (
-                <div className="us-detail-sidebar__section">
+                <div className="us-detail-sidebar__section us-detail-sidebar__section--vertical">
                   <span className="us-detail-sidebar__label">Repository</span>
                   <code className="us-detail-sidebar__value us-detail-sidebar__code">{run.repoPath}</code>
                 </div>
               )}
               {run.branchName && (
-                <div className="us-detail-sidebar__section">
+                <div className="us-detail-sidebar__section us-detail-sidebar__section--vertical">
                   <span className="us-detail-sidebar__label">Branch</span>
                   <code className="us-detail-sidebar__value us-detail-sidebar__code">{run.branchName}</code>
                 </div>
               )}
               {run.prUrl && (
-                <div className="us-detail-sidebar__section">
+                <div className="us-detail-sidebar__section us-detail-sidebar__section--vertical">
                   <span className="us-detail-sidebar__label">Pull Request</span>
                   <a href={run.prUrl} target="_blank" rel="noreferrer" className="us-detail-sidebar__value us-detail-sidebar__link">
                     {run.prUrl.replace(/^https?:\/\/[^/]+\//, "")}
@@ -652,7 +667,7 @@ export function RunDetailPage() {
             </div>
             <div className="us-detail-sidebar__section">
               <span className="us-detail-sidebar__label">Duration</span>
-              <span className="us-detail-sidebar__value">
+              <span className="us-detail-sidebar__value us-detail-sidebar__mono">
                 {formatDuration(
                   (run.completedAt ? new Date(run.completedAt).getTime() : Date.now()) -
                   new Date(run.startedAt).getTime()

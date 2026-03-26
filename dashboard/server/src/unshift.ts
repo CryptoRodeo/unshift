@@ -63,6 +63,12 @@ export class UnshiftRunner extends EventEmitter {
     return this.repository.getComments(runId);
   }
 
+  /** Fetch a Jira issue's live status */
+  async getJiraIssueStatus(issueKey: string): Promise<{ status: string }> {
+    const issue = await this.engine.getJiraIssue(issueKey);
+    return { status: issue.status };
+  }
+
   /** Discover llm-candidate issues via Jira JQL */
   async discover(): Promise<string[]> {
     return this.engine.discover();
@@ -284,6 +290,10 @@ export class UnshiftRunner extends EventEmitter {
     const config = providerConfig ?? getDefaultConfig();
     const model = getModel(config);
     const opts: EngineRunOptions = { model, signal: controller.signal, runId };
+
+    // Persist the model name immediately so the UI can show it before tokens arrive
+    this.repository.updateTokens(runId, { model: config.model });
+    this.emit("run:tokens", runId, { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0, model: config.model });
 
     const cleanup = this.wireEngineEvents(runId);
 

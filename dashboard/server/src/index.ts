@@ -76,6 +76,10 @@ runner.on("run:tokens", (runId: string, tokens: object) =>
   broadcast({ type: "run:tokens", runId, tokens })
 );
 
+// Jira status cache: issueKey → { status, fetchedAt }
+const jiraStatusCache = new Map<string, { status: string; fetchedAt: number }>();
+const JIRA_STATUS_TTL_MS = 60_000; // 1 minute
+
 // REST endpoints
 app.get("/api/runs", (_req, res) => {
   res.json(runner.listRuns());
@@ -134,7 +138,24 @@ app.get("/api/providers", (_req, res) => {
 
 app.get("/api/config", (_req, res) => {
   const config = getDefaultConfig();
-  res.json(config);
+  res.json({ ...config, jiraBaseUrl: process.env.JIRA_BASE_URL ?? null });
+});
+
+app.get("/api/jira/issue/:key/status", async (req, res) => {
+  const issueKey = req.params.key;
+  const cached = jiraStatusCache.get(issueKey);
+  if (cached && Date.now() - cached.fetchedAt < JIRA_STATUS_TTL_MS) {
+    res.json({ status: cached.status, cached: true });
+    return;
+  }
+  try {
+    const result = await runner.getJiraIssueStatus(issueKey);
+    jiraStatusCache.set(issueKey, { status: result.status, fetchedAt: Date.now() });
+    res.json({ status: result.status, cached: false });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    res.status(502).json({ error: msg });
+  }
 });
 
 app.post("/api/runs", async (req, res) => {

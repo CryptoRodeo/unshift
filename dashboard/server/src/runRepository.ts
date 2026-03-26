@@ -202,13 +202,13 @@ export class RunRepository {
     const s = this.ensureInit();
     const result = s.insertComment.run(runId, author, content);
     const row = this.db!.prepare(`SELECT id, run_id, author, content, created_at FROM run_comments WHERE id = ?`).get(result.lastInsertRowid) as { id: number; run_id: string; author: string; content: string; created_at: string };
-    return { id: row.id, author: row.author, content: row.content, createdAt: row.created_at };
+    return { id: row.id, author: row.author, content: row.content, createdAt: row.created_at + "Z" };
   }
 
   getComments(runId: string): Comment[] {
     const s = this.ensureInit();
     const rows = s.getComments.all(runId) as { id: number; run_id: string; author: string; content: string; created_at: string }[];
-    return rows.map((r) => ({ id: r.id, author: r.author, content: r.content, createdAt: r.created_at }));
+    return rows.map((r) => ({ id: r.id, author: r.author, content: r.content, createdAt: r.created_at + "Z" }));
   }
 
   deleteRun(id: string): boolean {
@@ -239,7 +239,7 @@ export class RunRepository {
       retryCount: row.retry_count ?? undefined,
       sourceRunId: row.source_run_id ?? undefined,
       phaseTimestamps: row.phase_timestamps_json ? JSON.parse(row.phase_timestamps_json) : undefined,
-      tokens: (row.input_tokens || row.output_tokens || row.cache_read_tokens || row.cache_creation_tokens)
+      tokens: (row.input_tokens || row.output_tokens || row.cache_read_tokens || row.cache_creation_tokens || row.model)
         ? {
             inputTokens: row.input_tokens ?? 0,
             outputTokens: row.output_tokens ?? 0,

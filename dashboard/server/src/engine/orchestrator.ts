@@ -80,6 +80,11 @@ export class UnshiftEngine extends EventEmitter {
     return this._jira;
   }
 
+  /** Fetch a single Jira issue (used by the status endpoint) */
+  async getJiraIssue(issueKey: string) {
+    return this.jira.getIssue(issueKey);
+  }
+
   /** Discover issues labelled llm-candidate via Jira JQL */
   async discover(): Promise<string[]> {
     const issues = await this.jira.searchIssues("labels = llm-candidate");

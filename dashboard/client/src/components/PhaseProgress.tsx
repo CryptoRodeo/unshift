@@ -92,6 +92,9 @@ interface PhaseProgressProps {
 export function PhaseProgress({ status, phaseTimestamps, completedAt, compact = false }: PhaseProgressProps) {
   const [now, setNow] = useState(Date.now());
   const isActive = !isCompleted(status) && !isTerminal(status);
+  const isDone = isCompleted(status) || isTerminal(status);
+  const [expanded, setExpanded] = useState(false);
+  const collapsed = isDone && !expanded && !compact;
 
   useEffect(() => {
     if (!isActive || !phaseTimestamps) return;
@@ -101,8 +104,18 @@ export function PhaseProgress({ status, phaseTimestamps, completedAt, compact = 
 
   const estimatedPercent = isActive ? (PHASE_PROGRESS_ESTIMATE[status] ?? 0) : (isCompleted(status) ? 100 : 0);
 
+  const classNames = [
+    "us-phase-progress",
+    compact ? "us-phase-progress--compact" : "",
+    collapsed ? "us-phase-progress--collapsed" : "",
+  ].filter(Boolean).join(" ");
+
   return (
-    <div className={`us-phase-progress${compact ? " us-phase-progress--compact" : ""}`}>
+    <div
+      className={classNames}
+      onClick={collapsed ? () => setExpanded(true) : undefined}
+      title={collapsed ? "Click to expand phase details" : undefined}
+    >
       {isActive && !compact && (
         <div className="us-phase-progress__bar-wrap">
           <div className="us-phase-progress__bar">

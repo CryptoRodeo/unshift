@@ -43,22 +43,24 @@ export function Sidebar({ connected, notificationPermission, onRequestNotificati
     ? location.pathname.split("/")[2]
     : null;
 
-  // Recent runs: sorted by startedAt descending, take 8
+  // Recent runs: sorted by startedAt descending, take 12
   const recentRuns = useMemo(() => {
     if (!runs || runs.size === 0) return [];
     return Array.from(runs.values())
       .sort((a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime())
-      .slice(0, 8);
+      .slice(0, 12);
   }, [runs]);
 
-  // Count of awaiting_approval runs
-  const awaitingCount = useMemo(() => {
-    if (!runs) return 0;
-    let count = 0;
+  // Count of awaiting_approval and active runs
+  const { awaitingCount, activeCount } = useMemo(() => {
+    if (!runs) return { awaitingCount: 0, activeCount: 0 };
+    let awaiting = 0;
+    let active = 0;
     for (const run of runs.values()) {
-      if (run.status === "awaiting_approval") count++;
+      if (run.status === "awaiting_approval") awaiting++;
+      if (["pending", "phase0", "phase1", "phase2", "phase3"].includes(run.status)) active++;
     }
-    return count;
+    return { awaitingCount: awaiting, activeCount: active };
   }, [runs]);
 
   useEffect(() => {
@@ -145,12 +147,15 @@ export function Sidebar({ connected, notificationPermission, onRequestNotificati
                   <span className="us-sidebar__recent-time">{relativeTime(run.startedAt)}</span>
                 </button>
               ))}
+              <NavLink to="/" className="us-sidebar__view-all">
+                View all runs
+              </NavLink>
             </div>
           </div>
         )}
       </div>
 
-      {/* Bottom section: connection status, notifications, dark mode */}
+      {/* Bottom section: connection status, summary, notifications, dark mode */}
       <div className="us-sidebar__bottom">
         <div className="us-sidebar__bottom-row">
           {/* Connection status */}
@@ -162,6 +167,15 @@ export function Sidebar({ connected, notificationPermission, onRequestNotificati
                 aria-label={connected ? "Connected" : "Disconnected"}
               />
             </Tooltip>
+          )}
+
+          {/* Compact run summary */}
+          {(activeCount > 0 || awaitingCount > 0) && (
+            <span className="us-sidebar__summary">
+              {activeCount > 0 && <>{activeCount} active</>}
+              {activeCount > 0 && awaitingCount > 0 && " · "}
+              {awaitingCount > 0 && <>{awaitingCount} awaiting</>}
+            </span>
           )}
 
           {/* Notification bell */}

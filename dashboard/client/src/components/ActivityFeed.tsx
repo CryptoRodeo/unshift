@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef } from "react";
+import { useState, useMemo, useRef, useEffect, useReducer } from "react";
 import { PHASE_LABELS, formatDuration, isCompleted, isTerminal } from "../types";
 import type { Run, RunPhase, LogEntry, PrdEntry, Comment } from "../types";
 
@@ -292,6 +292,13 @@ interface ActivityFeedProps {
 export function ActivityFeed({ run, modelName, comments, onAddComment, progressText }: ActivityFeedProps) {
   const entries = useMemo(() => buildActivityFeed(run, comments), [run, comments]);
   const runIsActive = !isCompleted(run.status) && !isTerminal(run.status);
+
+  // Force re-render every 60s so relative timestamps ("just now", "5m ago") stay current
+  const [, tick] = useReducer((x: number) => x + 1, 0);
+  useEffect(() => {
+    const id = setInterval(tick, 60_000);
+    return () => clearInterval(id);
+  }, []);
 
   if (entries.length === 0) {
     return (
