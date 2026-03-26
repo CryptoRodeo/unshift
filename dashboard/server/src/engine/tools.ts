@@ -170,7 +170,7 @@ export async function grepFiles(
 
     const timer = setTimeout(() => {
       proc.kill();
-      rej(new Error(`grep timed out after ${timeout}ms`));
+      settle(rej, new Error(`grep timed out after ${timeout}ms`));
     }, timeout);
 
     let stdout = "";
