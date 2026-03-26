@@ -13,6 +13,16 @@ fi
 # Mark workspace directories as safe for git
 git config --global --add safe.directory '*'
 
+# Configure git credential helpers for token-based HTTPS auth
+if [[ -n "${GH_TOKEN:-}" ]]; then
+  git config --global url."https://${GH_TOKEN}@github.com/".insteadOf "git@github.com:"
+  git config --global url."https://${GH_TOKEN}@github.com/".insteadOf "https://github.com/"
+fi
+
+if [[ -n "${GITLAB_TOKEN:-}" ]]; then
+  git config --global url."https://oauth2:${GITLAB_TOKEN}@${GITLAB_HOST:-gitlab.com}/".insteadOf "https://${GITLAB_HOST:-gitlab.com}/"
+fi
+
 # Set GOOGLE_APPLICATION_CREDENTIALS if the ADC file is mounted
 if [[ -f "$HOME/.config/gcloud/application_default_credentials.json" ]]; then
   export GOOGLE_APPLICATION_CREDENTIALS="$HOME/.config/gcloud/application_default_credentials.json"

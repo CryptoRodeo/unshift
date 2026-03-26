@@ -1,16 +1,9 @@
-import { BrowserRouter, Routes, Route, useParams, useLocation } from "react-router-dom";
+import { BrowserRouter, Routes, Route, useLocation } from "react-router-dom";
 import { Page } from "@patternfly/react-core";
 import { AppHeader } from "./components/AppHeader";
 import { DashboardPage } from "./components/DashboardPage";
 import { RunDetailPage } from "./pages/RunDetailPage";
-import { LiveTerminal } from "./components/LiveTerminal";
 import { HeaderProvider, useHeaderContext } from "./hooks/useHeaderContext";
-
-function TerminalPage() {
-  const { runId } = useParams<{ runId: string }>();
-  if (!runId) return null;
-  return <LiveTerminal runId={runId} isActive fullScreen />;
-}
 
 function ConnectedAppHeader() {
   const ctx = useHeaderContext();
@@ -42,17 +35,9 @@ export function App() {
   return (
     <BrowserRouter>
       <HeaderProvider>
-        <Routes>
-          <Route path="/terminal/:runId" element={<TerminalPage />} />
-          <Route
-            path="*"
-            element={
-              <Page masthead={<ConnectedAppHeader />}>
-                <AnimatedRoutes />
-              </Page>
-            }
-          />
-        </Routes>
+        <Page masthead={<ConnectedAppHeader />}>
+          <AnimatedRoutes />
+        </Page>
       </HeaderProvider>
     </BrowserRouter>
   );

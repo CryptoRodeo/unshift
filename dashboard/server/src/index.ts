@@ -7,7 +7,20 @@ import { WebSocketServer, WebSocket } from "ws";
 import yaml from "js-yaml";
 import { UnshiftRunner } from "./unshift";
 import { isRunError } from "../../shared/types";
-import type { RunErrorCode, WsClientMessage } from "../../shared/types";
+import type { RunErrorCode } from "../../shared/types";
+import { DEFAULT_MODELS, AVAILABLE_MODELS, getDefaultConfig, type Provider, type ProviderConfig } from "./engine/providers";
+
+function parseProviderConfig(body: Record<string, unknown> | undefined): ProviderConfig | undefined {
+  const rawProvider = typeof body?.provider === "string" ? body.provider : undefined;
+  const model = typeof body?.model === "string" ? body.model : undefined;
+  if (!rawProvider && !model) return undefined;
+  const providerStr = rawProvider || "anthropic";
+  if (!(providerStr in DEFAULT_MODELS)) {
+    throw new Error(`Unknown provider: ${providerStr}. Must be one of: ${Object.keys(DEFAULT_MODELS).join(", ")}`);
+  }
+  const provider = providerStr as Provider;
+  return { provider, model: model || DEFAULT_MODELS[provider] };
+}
 
 const app = express();
 app.use(express.json());
@@ -63,19 +76,6 @@ runner.on("run:tokens", (runId: string, tokens: object) =>
   broadcast({ type: "run:tokens", runId, tokens })
 );
 
-// Terminal output — only send to clients attached to this run's terminal
-runner.on("terminal:output", (runId: string, data: string) => {
-  const json = JSON.stringify({ type: "terminal:output", runId, data });
-  for (const client of wss.clients) {
-    if (client.readyState === WebSocket.OPEN && terminalAttachments.get(client)?.has(runId)) {
-      client.send(json);
-    }
-  }
-});
-
-// Track which runs each WebSocket client is attached to for terminal streaming
-const terminalAttachments = new WeakMap<WebSocket, Set<string>>();
-
 // REST endpoints
 app.get("/api/runs", (_req, res) => {
   res.json(runner.listRuns());
@@ -123,12 +123,35 @@ app.get("/api/discover", async (_req, res) => {
   }
 });
 
+app.get("/api/providers", (_req, res) => {
+  const providers = Object.entries(DEFAULT_MODELS).map(([provider, defaultModel]) => ({
+    provider,
+    defaultModel,
+    models: AVAILABLE_MODELS[provider as Provider],
+  }));
+  res.json({ providers });
+});
+
+app.get("/api/config", (_req, res) => {
+  const config = getDefaultConfig();
+  res.json(config);
+});
+
 app.post("/api/runs", async (req, res) => {
   const { issueKey, force } = req.body ?? {};
 
+  let providerConfig: ProviderConfig | undefined;
+  try {
+    providerConfig = parseProviderConfig(req.body);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    res.status(400).json({ error: msg, code: "BAD_REQUEST" });
+    return;
+  }
+
   if (issueKey) {
     // Start a single run for the specified issue
-    const result = runner.startRun(issueKey, force === true);
+    const result = runner.startRun(issueKey, force === true, providerConfig);
     if (isRunError(result)) {
       res.status(ERROR_CODE_TO_STATUS[result.code]).json(result);
     } else {
@@ -137,7 +160,7 @@ app.post("/api/runs", async (req, res) => {
   } else {
     // Discover all issues and start a run for each
     try {
-      const result = await runner.startRuns();
+      const result = await runner.startRuns(providerConfig);
       res.json(result);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -146,8 +169,8 @@ app.post("/api/runs", async (req, res) => {
   }
 });
 
-app.delete("/api/runs/:id", (req, res) => {
-  const result = runner.deleteRun(req.params.id);
+app.delete("/api/runs/:id", async (req, res) => {
+  const result = await runner.deleteRun(req.params.id);
   if (isRunError(result)) {
     res.status(ERROR_CODE_TO_STATUS[result.code]).json(result);
   } else {
@@ -190,7 +213,8 @@ app.post("/api/runs/:id/reject", async (req, res) => {
 
 app.post("/api/runs/:id/retry", async (req, res) => {
   try {
-    const result = await runner.retryRun(req.params.id);
+    const retryProviderConfig = parseProviderConfig(req.body);
+    const result = await runner.retryRun(req.params.id, retryProviderConfig);
     if (isRunError(result)) {
       res.status(ERROR_CODE_TO_STATUS[result.code]).json(result);
     } else {
@@ -202,12 +226,12 @@ app.post("/api/runs/:id/retry", async (req, res) => {
   }
 });
 
-interface RepoEntry {
+interface ReposYamlEntry {
   repo_url: string;
   local_dir: string;
 }
 
-function loadReposYaml(): RepoEntry[] {
+function loadReposYaml(): ReposYamlEntry[] {
   // In dev: src/ → ../../repos.yaml; in prod: dist/ → ../../../repos.yaml
   const thisDir = path.dirname(fileURLToPath(import.meta.url));
   const candidates = [
@@ -217,7 +241,12 @@ function loadReposYaml(): RepoEntry[] {
   const reposPath = candidates.find((p) => fs.existsSync(p));
   if (!reposPath) return [];
   const content = fs.readFileSync(reposPath, "utf-8");
-  return (yaml.load(content) as RepoEntry[]) || [];
+  const parsed = yaml.load(content);
+  if (!parsed) return [];
+  if (!Array.isArray(parsed)) {
+    throw new Error(`repos.yaml must contain a YAML array, got ${typeof parsed}`);
+  }
+  return parsed as ReposYamlEntry[];
 }
 
 function resolveLocalDir(repoPath: string): string | undefined {
@@ -272,56 +301,6 @@ if (fs.existsSync(clientDistPath)) {
   });
 }
 
-// Handle incoming WebSocket messages from clients
-wss.on("connection", (ws) => {
-  ws.on("message", (raw) => {
-    let msg: WsClientMessage;
-    try {
-      msg = JSON.parse(raw.toString());
-    } catch {
-      return;
-    }
-
-    switch (msg.type) {
-      case "terminal:attach": {
-        let attached = terminalAttachments.get(ws);
-        if (!attached) {
-          attached = new Set();
-          terminalAttachments.set(ws, attached);
-        }
-        attached.add(msg.runId);
-
-        // Replay buffered history
-        const history = runner.ptyManager.getHistory(msg.runId);
-        if (history) {
-          ws.send(JSON.stringify({ type: "terminal:output", runId: msg.runId, data: history }));
-        }
-        ws.send(JSON.stringify({ type: "terminal:history_complete", runId: msg.runId }));
-        break;
-      }
-
-      case "terminal:detach": {
-        const set = terminalAttachments.get(ws);
-        if (set) set.delete(msg.runId);
-        break;
-      }
-
-      case "terminal:input": {
-        if (runner.hasPty(msg.runId)) {
-          runner.ptyManager.write(msg.runId, msg.data);
-        }
-        break;
-      }
-
-      case "terminal:resize": {
-        if (runner.hasPty(msg.runId)) {
-          runner.ptyManager.resize(msg.runId, msg.cols, msg.rows);
-        }
-        break;
-      }
-    }
-  });
-});
 
 const PORT = process.env.SERVER_PORT ?? 3000;
 server.listen(PORT, () => {

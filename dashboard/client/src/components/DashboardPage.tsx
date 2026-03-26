@@ -16,6 +16,7 @@ import {
   AlertGroup,
   ToggleGroup,
   ToggleGroupItem,
+  Tooltip,
 } from "@patternfly/react-core";
 import { ThIcon, ThLargeIcon, PlusCircleIcon, SearchIcon } from "@patternfly/react-icons";
 import { useWebSocket } from "../hooks/useWebSocket";
@@ -102,6 +103,22 @@ export function DashboardPage() {
     return (localStorage.getItem("unshift:viewMode") as "gallery" | "table") ?? "gallery";
   });
 
+  // Provider/model selection
+  const [providers, setProviders] = useState<{ provider: string; defaultModel: string; models: string[] }[]>([]);
+  const [selectedProvider, setSelectedProvider] = useState<string>("");
+  const [selectedModel, setSelectedModel] = useState<string>("");
+
+  useEffect(() => {
+    Promise.all([
+      fetch("/api/providers").then((r) => r.json() as Promise<{ providers: { provider: string; defaultModel: string; models: string[] }[] }>),
+      fetch("/api/config").then((r) => r.json() as Promise<{ provider: string; model: string }>),
+    ]).then(([providersData, configData]) => {
+      setProviders(providersData.providers);
+      setSelectedProvider(configData.provider);
+      setSelectedModel(configData.model);
+    }).catch(() => {});
+  }, []);
+
   const handleRunEvent = useCallback(
     (event: { runId: string; issueKey: string; status: string }) => {
       const label = STATUS_LABELS[event.status] ?? event.status;
@@ -126,10 +143,16 @@ export function DashboardPage() {
     return () => clearTimeout(timer);
   }, [startRunSummary]);
 
+  const handleProviderChange = (provider: string) => {
+    setSelectedProvider(provider);
+    const match = providers.find((p) => p.provider === provider);
+    if (match) setSelectedModel(match.defaultModel);
+  };
+
   const handleStartRun = async () => {
     setIsStarting(true);
     try {
-      const data = await startRun();
+      const data = await startRun({ provider: selectedProvider || undefined, model: selectedModel || undefined });
       setStartRunSummary(buildSummary(data));
     } catch {
       setStartRunSummary({ started: 0, alreadyActive: 0, skipped: [], errors: ["Failed to start runs"] });
@@ -173,14 +196,50 @@ export function DashboardPage() {
               <Title headingLevel="h2">Runs</Title>
             </ToolbarItem>
             <ToolbarItem align={{ default: "alignEnd" }}>
-              <Button
-                variant="primary"
-                onClick={handleStartRun}
-                isLoading={isStarting}
-                isDisabled={isStarting}
-              >
-                Start run
-              </Button>
+              <Flex alignItems={{ default: "alignItemsCenter" }} spaceItems={{ default: "spaceItemsSm" }}>
+                {providers.length > 0 && (
+                  <>
+                    <FlexItem>
+                      <Tooltip content="AI provider">
+                        <select
+                          className="us-select"
+                          value={selectedProvider}
+                          onChange={(e) => handleProviderChange(e.target.value)}
+                          aria-label="Provider"
+                        >
+                          {providers.map((p) => (
+                            <option key={p.provider} value={p.provider}>{p.provider}</option>
+                          ))}
+                        </select>
+                      </Tooltip>
+                    </FlexItem>
+                    <FlexItem>
+                      <Tooltip content="Model ID">
+                        <select
+                          className="us-select"
+                          value={selectedModel}
+                          onChange={(e) => setSelectedModel(e.target.value)}
+                          aria-label="Model"
+                        >
+                          {(providers.find((p) => p.provider === selectedProvider)?.models ?? []).map((m) => (
+                            <option key={m} value={m}>{m}</option>
+                          ))}
+                        </select>
+                      </Tooltip>
+                    </FlexItem>
+                  </>
+                )}
+                <FlexItem>
+                  <Button
+                    variant="primary"
+                    onClick={handleStartRun}
+                    isLoading={isStarting}
+                    isDisabled={isStarting}
+                  >
+                    Start run
+                  </Button>
+                </FlexItem>
+              </Flex>
             </ToolbarItem>
           </ToolbarContent>
         </Toolbar>
@@ -274,6 +333,34 @@ export function DashboardPage() {
               Click <strong>Start run</strong> to process llm-candidate Jira issues.
             </p>
             <div className="us-empty-state__action">
+              {providers.length > 0 && (
+                <Flex justifyContent={{ default: "justifyContentCenter" }} alignItems={{ default: "alignItemsCenter" }} spaceItems={{ default: "spaceItemsSm" }} style={{ marginBottom: "12px" }}>
+                  <FlexItem>
+                    <select
+                      className="us-select"
+                      value={selectedProvider}
+                      onChange={(e) => handleProviderChange(e.target.value)}
+                      aria-label="Provider"
+                    >
+                      {providers.map((p) => (
+                        <option key={p.provider} value={p.provider}>{p.provider}</option>
+                      ))}
+                    </select>
+                  </FlexItem>
+                  <FlexItem>
+                    <select
+                      className="us-select"
+                      value={selectedModel}
+                      onChange={(e) => setSelectedModel(e.target.value)}
+                      aria-label="Model"
+                    >
+                      {(providers.find((p) => p.provider === selectedProvider)?.models ?? []).map((m) => (
+                        <option key={m} value={m}>{m}</option>
+                      ))}
+                    </select>
+                  </FlexItem>
+                </Flex>
+              )}
               <Button variant="primary" onClick={handleStartRun} isLoading={isStarting} isDisabled={isStarting}>
                 Start run
               </Button>

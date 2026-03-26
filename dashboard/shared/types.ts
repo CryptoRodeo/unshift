@@ -102,16 +102,7 @@ export type WsMessage =
   | { type: "run:progress"; runId: string; content: string }
   | { type: "run:skipped"; skipped: { issueKey: string; reason: string }[] }
   | { type: "run:deleted"; runId: string }
-  | { type: "run:tokens"; runId: string; tokens: TokenData }
-  | { type: "terminal:output"; runId: string; data: string }
-  | { type: "terminal:history_complete"; runId: string };
-
-/** Messages sent from the client to the server over WebSocket */
-export type WsClientMessage =
-  | { type: "terminal:attach"; runId: string }
-  | { type: "terminal:detach"; runId: string }
-  | { type: "terminal:input"; runId: string; data: string }
-  | { type: "terminal:resize"; runId: string; cols: number; rows: number };
+  | { type: "run:tokens"; runId: string; tokens: TokenData };
 
 export function formatDuration(ms: number): string {
   const seconds = Math.floor(ms / 1000);
