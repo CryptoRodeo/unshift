@@ -88,22 +88,13 @@ export async function execCommand(
   executable: string,
   args: string[],
   options?: { cwd?: string; timeout?: number }
-): Promise<{ stdout: string; stderr: string; exitCode: number }> {
+): Promise<ExecResult> {
   const cwd = options?.cwd ?? process.cwd();
   const timeout = options?.timeout ?? 120_000;
 
   return new Promise((res) => {
     execFile(executable, args, { cwd, timeout, maxBuffer: 10 * 1024 * 1024 }, (error, stdout, stderr) => {
-      const exitCode = error
-        ? typeof error.code === "number"
-          ? error.code
-          : 1
-        : 0;
-      res({
-        stdout: typeof stdout === "string" ? stdout : stdout.toString(),
-        stderr: typeof stderr === "string" ? stderr : stderr.toString(),
-        exitCode,
-      });
+      res(toExecResult(error, stdout, stderr));
     });
   });
 }
@@ -176,6 +167,11 @@ export async function grepFiles(
       stdio: ["ignore", "pipe", "pipe"],
       signal: ac.signal,
     });
+
+    const timer = setTimeout(() => {
+      proc.kill();
+      rej(new Error(`grep timed out after ${timeout}ms`));
+    }, timeout);
 
     let stdout = "";
     let stderr = "";
