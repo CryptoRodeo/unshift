@@ -369,44 +369,46 @@ export class UnshiftEngine extends EventEmitter {
     const jsonMatch = text.match(/```json\s*([\s\S]*?)```/);
     const jsonStr = jsonMatch ? jsonMatch[1] : text;
 
+    let raw: Record<string, unknown>;
     try {
-      const raw = JSON.parse(jsonStr.trim());
-      return {
-        issueKey: raw.issue_key || issueKey,
-        summary: raw.summary || "",
-        repoPath: workDir,
-        branchName: raw.branch_name || "",
-        description: raw.description,
-        issueType: raw.issue_type,
-        defaultBranch: raw.default_branch || repoEntry.default_branch,
-        host: raw.host || repoEntry.host,
-        commitPrefix: raw.commit_prefix,
-      };
+      raw = JSON.parse(jsonStr.trim());
     } catch (err) {
-      // Fallback: construct minimal context from what we know
-      console.warn(
-        `[orchestrator] Failed to parse context JSON from phase 1 output for ${issueKey}. ` +
-        `Falling back to minimal context (empty branchName/summary). ` +
-        `Error: ${err instanceof Error ? err.message : String(err)}`
+      throw new Error(
+        `Failed to parse context JSON from phase 1 output for ${issueKey}: ` +
+        `${err instanceof Error ? err.message : String(err)}`
       );
-      return {
-        issueKey,
-        summary: "",
-        repoPath: workDir,
-        branchName: "",
-        defaultBranch: repoEntry.default_branch,
-        host: repoEntry.host,
-      };
     }
+
+    const branchName = typeof raw.branch_name === "string" ? raw.branch_name : "";
+    if (!branchName) {
+      throw new Error(
+        `Phase 1 output for ${issueKey} is missing required field "branch_name"`
+      );
+    }
+
+    return {
+      issueKey: typeof raw.issue_key === "string" ? raw.issue_key : issueKey,
+      summary: typeof raw.summary === "string" ? raw.summary : "",
+      repoPath: workDir,
+      branchName,
+      description: typeof raw.description === "string" ? raw.description : undefined,
+      issueType: typeof raw.issue_type === "string" ? raw.issue_type : undefined,
+      defaultBranch: typeof raw.default_branch === "string" ? raw.default_branch : repoEntry.default_branch,
+      host: typeof raw.host === "string" ? raw.host : repoEntry.host,
+      commitPrefix: typeof raw.commit_prefix === "string" ? raw.commit_prefix : undefined,
+    };
   }
 
   private async readPrdFromRepo(repoPath: string): Promise<PrdEntry[]> {
+    let content: string;
     try {
-      const content = await toolReadFile("prd.json", repoPath);
-      return JSON.parse(content);
+      content = await toolReadFile("prd.json", repoPath);
     } catch {
+      // File doesn't exist yet — expected before phase 1 writes it
       return [];
     }
+    // File exists but contains invalid JSON — this is a real error
+    return JSON.parse(content);
   }
 
   private async readProgressFromRepo(repoPath: string): Promise<string | null> {

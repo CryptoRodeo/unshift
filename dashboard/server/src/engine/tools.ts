@@ -3,6 +3,20 @@ import { exec, execFile, spawn } from "node:child_process";
 import { resolve, relative, normalize } from "node:path";
 import { readdir } from "node:fs/promises";
 
+export interface ExecResult {
+  stdout: string;
+  stderr: string;
+  exitCode: number;
+}
+
+function toExecResult(error: { code?: string | number | null } | null, stdout: string | Buffer, stderr: string | Buffer): ExecResult {
+  return {
+    stdout: typeof stdout === "string" ? stdout : stdout.toString(),
+    stderr: typeof stderr === "string" ? stderr : stderr.toString(),
+    exitCode: error ? (typeof error.code === "number" ? error.code : 1) : 0,
+  };
+}
+
 function assertWithinBase(baseDir: string, targetPath: string): string {
   const resolved = resolve(baseDir, targetPath);
   const normalized = normalize(resolved);
@@ -27,7 +41,7 @@ export async function writeFile(path: string, content: string, baseDir: string):
 export async function bash(
   command: string,
   options?: { cwd?: string; timeout?: number; baseDir?: string }
-): Promise<{ stdout: string; stderr: string; exitCode: number }> {
+): Promise<ExecResult> {
   let cwd: string;
   if (options?.cwd && options.baseDir) {
     cwd = assertWithinBase(options.baseDir, options.cwd);
@@ -40,16 +54,7 @@ export async function bash(
 
   return new Promise((res) => {
     exec(command, { cwd, timeout, maxBuffer: 10 * 1024 * 1024 }, (error, stdout, stderr) => {
-      const exitCode = error
-        ? typeof error.code === "number"
-          ? error.code
-          : 1
-        : 0;
-      res({
-        stdout: typeof stdout === "string" ? stdout : stdout.toString(),
-        stderr: typeof stderr === "string" ? stderr : stderr.toString(),
-        exitCode,
-      });
+      res(toExecResult(error, stdout, stderr));
     });
   });
 }
@@ -63,22 +68,13 @@ export async function execCommand(
   executable: string,
   args: string[],
   options?: { cwd?: string; timeout?: number }
-): Promise<{ stdout: string; stderr: string; exitCode: number }> {
+): Promise<ExecResult> {
   const cwd = options?.cwd ?? process.cwd();
   const timeout = options?.timeout ?? 120_000;
 
   return new Promise((res) => {
     execFile(executable, args, { cwd, timeout, maxBuffer: 10 * 1024 * 1024 }, (error, stdout, stderr) => {
-      const exitCode = error
-        ? typeof error.code === "number"
-          ? error.code
-          : 1
-        : 0;
-      res({
-        stdout: typeof stdout === "string" ? stdout : stdout.toString(),
-        stderr: typeof stderr === "string" ? stderr : stderr.toString(),
-        exitCode,
-      });
+      res(toExecResult(error, stdout, stderr));
     });
   });
 }
@@ -122,7 +118,7 @@ function compileGlob(pattern: string): RegExp {
 export async function grepFiles(
   pattern: string,
   path: string,
-  options?: { glob?: string; baseDir?: string }
+  options?: { glob?: string; baseDir?: string; timeout?: number }
 ): Promise<string> {
   if (options?.baseDir) {
     assertWithinBase(options.baseDir, path);
@@ -133,10 +129,17 @@ export async function grepFiles(
   }
   args.push("--", pattern, path);
 
-  return new Promise((res) => {
+  const timeout = options?.timeout ?? 120_000;
+
+  return new Promise((res, rej) => {
     const proc = spawn("grep", ["-r", ...args], {
       stdio: ["ignore", "pipe", "pipe"],
     });
+
+    const timer = setTimeout(() => {
+      proc.kill();
+      rej(new Error(`grep timed out after ${timeout}ms`));
+    }, timeout);
 
     let stdout = "";
     let stderr = "";
@@ -149,10 +152,11 @@ export async function grepFiles(
     });
 
     proc.on("close", (code) => {
+      clearTimeout(timer);
       if (code === 0 || code === 1) {
         res(stdout || "No matches found.");
       } else {
-        res(`grep error (exit ${code}): ${stderr}`);
+        rej(new Error(`grep failed (exit ${code}): ${stderr}`));
       }
     });
   });
