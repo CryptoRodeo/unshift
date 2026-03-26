@@ -188,6 +188,11 @@ export async function grepFiles(
       }
     });
 
+    proc.on("error", (err) => {
+      clearTimeout(timer);
+      settle(rej, new Error(`grep spawn failed: ${err.message}`));
+    });
+
     proc.on("close", (code) => {
       clearTimeout(timer);
       if (code === 0 || code === 1) {
