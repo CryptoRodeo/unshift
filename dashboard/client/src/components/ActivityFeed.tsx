@@ -52,7 +52,7 @@ export function buildActivityFeed(run: Run, comments?: Comment[]): ActivityEntry
       duration = formatDuration(Date.parse(run.completedAt) - Date.parse(timestamp));
     }
 
-    let variant: ActivityEntry["metadata"] extends { variant?: infer V } ? V : never = "info";
+    let variant: NonNullable<ActivityEntry["metadata"]>["variant"] = "info";
     if (phase === "success") variant = "success";
     else if (phase === "awaiting_approval") variant = "warning";
 

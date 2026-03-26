@@ -1,6 +1,6 @@
 import type Database from "better-sqlite3";
 import { getDb } from "./db";
-import type { Run, RunPhase, PrdEntry, LogEntry, TokenData, Comment } from "../../shared/types";
+import type { Run, RunPhase, PrdEntry, LogEntry, TokenData, Comment, ProjectSummary } from "../../shared/types";
 
 export class RunRepository {
   private db: Database.Database | null = null;
@@ -43,6 +43,17 @@ export class RunRepository {
       insertComment: db.prepare(`INSERT INTO run_comments (run_id, author, content) VALUES (?, ?, ?)`),
       getComments: db.prepare(`SELECT id, run_id, author, content, created_at FROM run_comments WHERE run_id = ? ORDER BY created_at ASC`),
       deleteRunComments: db.prepare(`DELETE FROM run_comments WHERE run_id = ?`),
+      projectSummaries: db.prepare(`
+        SELECT
+          issue_key,
+          context_json,
+          COUNT(*) as run_count,
+          MAX(started_at) as last_run_at,
+          (SELECT r2.status FROM runs r2 WHERE r2.issue_key = runs.issue_key ORDER BY r2.started_at DESC LIMIT 1) as latest_status
+        FROM runs
+        GROUP BY issue_key
+        ORDER BY last_run_at DESC
+      `),
     };
   }
 
@@ -209,6 +220,27 @@ export class RunRepository {
     const s = this.ensureInit();
     const rows = s.getComments.all(runId) as { id: number; run_id: string; author: string; content: string; created_at: string }[];
     return rows.map((r) => ({ id: r.id, author: r.author, content: r.content, createdAt: r.created_at + "Z" }));
+  }
+
+  getProjectSummaries(): ProjectSummary[] {
+    const s = this.ensureInit();
+    const rows = s.projectSummaries.all() as { issue_key: string; context_json: string | null; run_count: number; last_run_at: string; latest_status: string }[];
+    return rows.map((row) => {
+      let summary = "";
+      if (row.context_json) {
+        try {
+          const ctx = JSON.parse(row.context_json);
+          summary = ctx.summary ?? "";
+        } catch { /* ignore parse errors */ }
+      }
+      return {
+        issueKey: row.issue_key,
+        summary,
+        runCount: row.run_count,
+        lastRunAt: row.last_run_at,
+        latestStatus: row.latest_status as RunPhase,
+      };
+    });
   }
 
   deleteRun(id: string): boolean {

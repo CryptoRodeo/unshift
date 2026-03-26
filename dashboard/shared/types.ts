@@ -85,6 +85,38 @@ export interface Comment {
   createdAt: string;
 }
 
+export interface JiraIssueDetail {
+  key: string;
+  summary: string;
+  description?: string;
+  status: string;
+  priority?: string;
+  assignee?: string;
+  labels: string[];
+  issueType?: string;
+  created: string;
+  updated: string;
+  jiraUrl: string;
+}
+
+export interface JiraComment {
+  id: string;
+  author: string;
+  avatarUrl?: string;
+  body: string;
+  created: string;
+  updated: string;
+}
+
+export interface ProjectSummary {
+  issueKey: string;
+  summary: string;
+  runCount: number;
+  lastRunAt: string;
+  latestStatus: RunPhase;
+  jiraStatus?: string;
+}
+
 export interface Run {
   id: string;
   issueKey: string;

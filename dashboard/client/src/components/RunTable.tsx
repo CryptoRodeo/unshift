@@ -136,6 +136,7 @@ export function RunTable({ runs }: RunTableProps) {
 }
 
 function RunRow({ run, onClick, statusColor }: { run: Run; onClick: () => void; statusColor: string }) {
+  const navigate = useNavigate();
   const elapsed = useElapsedTime(run.startedAt, run.completedAt);
   const repo = getRepoName(run);
 
@@ -148,7 +149,21 @@ function RunRow({ run, onClick, statusColor }: { run: Run; onClick: () => void; 
       onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onClick(); } }}
     >
       <td className="us-table__td us-table__td--issue">
-        {run.issueKey || run.id.slice(0, 8)}
+        {run.issueKey ? (
+          <a
+            className="us-table__issue-link"
+            href={`/projects/${encodeURIComponent(run.issueKey)}`}
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              navigate(`/projects/${encodeURIComponent(run.issueKey)}`);
+            }}
+          >
+            {run.issueKey}
+          </a>
+        ) : (
+          run.id.slice(0, 8)
+        )}
       </td>
       <td className="us-table__td us-table__td--summary">
         {run.context?.summary || "—"}

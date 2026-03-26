@@ -19,6 +19,7 @@ import { useWebSocket } from "../hooks/useWebSocket";
 import { useHeaderContext } from "../hooks/useHeaderContext";
 import { isTerminal, isCompleted, isRunError, formatDuration } from "../types";
 import type { Run, RunPhase } from "../types";
+import { getRepoName } from "../hooks/useRunFilters";
 
 function relativeTimeFromNow(dateStr: string): string {
   const ms = Date.now() - new Date(dateStr).getTime();
@@ -363,17 +364,20 @@ export function RunDetailPage() {
             <ArrowLeftIcon />
           </button>
           <h1 className="us-detail-subheader__title">
-            {jiraIssueUrl ? (
-              <a
-                href={jiraIssueUrl}
-                target="_blank"
-                rel="noreferrer"
-                className="us-detail-subheader__title-link"
-              >
-                {run.issueKey || run.id.slice(0, 8)}
-              </a>
+            {run.issueKey ? (
+              <>
+                <a
+                  href={`/projects/${encodeURIComponent(run.issueKey)}`}
+                  className="us-detail-subheader__title-link"
+                  onClick={(e) => { e.preventDefault(); navigate(`/projects/${encodeURIComponent(run.issueKey)}`); }}
+                >
+                  {run.issueKey}
+                </a>
+                <span className="us-detail-subheader__breadcrumb-sep">&gt;</span>
+                <span className="us-detail-subheader__breadcrumb-run">Run #{run.id.slice(0, 8)}</span>
+              </>
             ) : (
-              run.issueKey || run.id.slice(0, 8)
+              run.id.slice(0, 8)
             )}
           </h1>
           <StatusLabel status={run.status} />
@@ -603,10 +607,18 @@ export function RunDetailPage() {
             <div className="us-detail-sidebar__group">
               <h3 className="us-detail-sidebar__group-header">Git</h3>
               {run.repoPath && (
-                <div className="us-detail-sidebar__section us-detail-sidebar__section--vertical">
-                  <span className="us-detail-sidebar__label">Repository</span>
-                  <code className="us-detail-sidebar__value us-detail-sidebar__code">{run.repoPath}</code>
-                </div>
+                <>
+                  <div className="us-detail-sidebar__section us-detail-sidebar__section--vertical">
+                    <span className="us-detail-sidebar__label">Repository</span>
+                    <code className="us-detail-sidebar__value us-detail-sidebar__code">{getRepoName(run) ?? run.repoPath}</code>
+                  </div>
+                  {run.repoPath.includes(".worktrees") && (
+                    <div className="us-detail-sidebar__section us-detail-sidebar__section--vertical">
+                      <span className="us-detail-sidebar__label">Work Tree</span>
+                      <code className="us-detail-sidebar__value us-detail-sidebar__code">{run.repoPath}</code>
+                    </div>
+                  )}
+                </>
               )}
               {run.branchName && (
                 <div className="us-detail-sidebar__section us-detail-sidebar__section--vertical">
@@ -684,7 +696,7 @@ export function RunDetailPage() {
       {confirmAction === "approve" && (
         <ConfirmModal
           title="Approve & Create PR"
-          message={`This will create a pull request for ${run.issueKey}${run.repoPath ? ` in ${run.repoPath.split("/").pop()}` : ""}.`}
+          message={`This will create a pull request for ${run.issueKey}${run.repoPath ? ` in ${getRepoName(run) ?? run.repoPath}` : ""}.`}
           confirmLabel="Approve"
           confirmVariant="primary"
           onConfirm={doApprove}

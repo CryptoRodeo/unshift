@@ -14,7 +14,11 @@ const STATUS_FILTER_PHASES: Record<StatusFilter, RunPhase[]> = {
 export function getRepoName(run: Run): string | null {
   const repoPath = run.context?.repoPath ?? run.repoPath;
   if (!repoPath) return null;
-  return repoPath.split("/").pop() ?? null;
+  // Worktree paths look like /app/workspace/{repoName}/.worktrees/{uuid}
+  const parts = repoPath.split("/");
+  const wtIdx = parts.indexOf(".worktrees");
+  if (wtIdx > 0) return parts[wtIdx - 1];
+  return parts.pop() ?? null;
 }
 
 export function useRunFilters() {

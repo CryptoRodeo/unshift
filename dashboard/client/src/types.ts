@@ -11,6 +11,7 @@ export type {
   RunErrorCode,
   RunError,
   TokenData,
+  Comment,
 } from "../../shared/types";
 
 export {

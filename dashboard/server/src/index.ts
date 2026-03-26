@@ -80,6 +80,11 @@ runner.on("run:tokens", (runId: string, tokens: object) =>
 const jiraStatusCache = new Map<string, { status: string; fetchedAt: number }>();
 const JIRA_STATUS_TTL_MS = 60_000; // 1 minute
 
+// Jira detail caches (5-minute TTL)
+const JIRA_DETAIL_TTL_MS = 300_000;
+const jiraIssueCache = new Map<string, { data: unknown; fetchedAt: number }>();
+const jiraCommentsCache = new Map<string, { data: unknown; fetchedAt: number }>();
+
 // REST endpoints
 app.get("/api/runs", (_req, res) => {
   res.json(runner.listRuns());
@@ -156,6 +161,44 @@ app.get("/api/jira/issue/:key/status", async (req, res) => {
     const msg = err instanceof Error ? err.message : String(err);
     res.status(502).json({ error: msg });
   }
+});
+
+app.get("/api/jira/issue/:key", async (req, res) => {
+  const issueKey = req.params.key;
+  const cached = jiraIssueCache.get(issueKey);
+  if (cached && Date.now() - cached.fetchedAt < JIRA_DETAIL_TTL_MS) {
+    res.json(cached.data);
+    return;
+  }
+  try {
+    const issue = await runner.getFullJiraIssue(issueKey);
+    jiraIssueCache.set(issueKey, { data: issue, fetchedAt: Date.now() });
+    res.json(issue);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    res.status(502).json({ error: msg });
+  }
+});
+
+app.get("/api/jira/issue/:key/comments", async (req, res) => {
+  const issueKey = req.params.key;
+  const cached = jiraCommentsCache.get(issueKey);
+  if (cached && Date.now() - cached.fetchedAt < JIRA_DETAIL_TTL_MS) {
+    res.json({ comments: cached.data });
+    return;
+  }
+  try {
+    const comments = await runner.getJiraIssueComments(issueKey, 10);
+    jiraCommentsCache.set(issueKey, { data: comments, fetchedAt: Date.now() });
+    res.json({ comments });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    res.status(502).json({ error: msg });
+  }
+});
+
+app.get("/api/projects", (_req, res) => {
+  res.json(runner.getProjectSummaries());
 });
 
 app.post("/api/runs", async (req, res) => {

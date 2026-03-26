@@ -2,6 +2,8 @@ import { BrowserRouter, Routes, Route, useLocation } from "react-router-dom";
 import { Sidebar } from "./components/Sidebar";
 import { DashboardPage } from "./components/DashboardPage";
 import { RunDetailPage } from "./pages/RunDetailPage";
+import { ProjectsPage } from "./pages/ProjectsPage";
+import { TicketDetailPage } from "./pages/TicketDetailPage";
 import { HeaderProvider, useHeaderContext } from "./hooks/useHeaderContext";
 import { useWebSocket } from "./hooks/useWebSocket";
 
@@ -27,6 +29,8 @@ function AnimatedRoutes() {
       <Routes>
         <Route path="/" element={<DashboardPage />} />
         <Route path="/runs/:runId" element={<RunDetailPage />} />
+        <Route path="/projects" element={<ProjectsPage />} />
+        <Route path="/projects/:issueKey" element={<TicketDetailPage />} />
       </Routes>
     </div>
   );

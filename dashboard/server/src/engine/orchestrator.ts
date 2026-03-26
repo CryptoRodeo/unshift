@@ -85,6 +85,16 @@ export class UnshiftEngine extends EventEmitter {
     return this.jira.getIssue(issueKey);
   }
 
+  /** Fetch full Jira issue details including created/updated dates */
+  async getFullJiraIssue(issueKey: string) {
+    return this.jira.getFullIssue(issueKey);
+  }
+
+  /** Fetch Jira issue comments */
+  async getJiraIssueComments(issueKey: string, maxResults?: number) {
+    return this.jira.getIssueComments(issueKey, maxResults);
+  }
+
   /** Discover issues labelled llm-candidate via Jira JQL */
   async discover(): Promise<string[]> {
     const issues = await this.jira.searchIssues("labels = llm-candidate");

@@ -1,3 +1,5 @@
+import type { JiraIssueDetail, JiraComment } from "../../../shared/types";
+
 export interface JiraIssue {
   key: string;
   summary: string;
@@ -97,6 +99,7 @@ function extractDescription(description: unknown): string | null {
 /** Raw shape returned by the Jira REST API for a single issue */
 interface RawJiraIssue {
   key: string;
+  self?: string;
   fields?: {
     summary?: string;
     description?: unknown;
@@ -106,7 +109,18 @@ interface RawJiraIssue {
     status?: { name?: string };
     priority?: { name?: string };
     assignee?: { displayName?: string };
+    created?: string;
+    updated?: string;
   };
+}
+
+/** Raw shape for a Jira comment */
+interface RawJiraComment {
+  id: string;
+  author?: { displayName?: string; avatarUrls?: Record<string, string> };
+  body?: unknown;
+  created?: string;
+  updated?: string;
 }
 
 function parseIssue(raw: RawJiraIssue): JiraIssue {
@@ -174,6 +188,50 @@ export class JiraClient {
       method: "POST",
       body: JSON.stringify({ transition: { id: transition.id } }),
     });
+  }
+
+  async getFullIssue(key: string): Promise<JiraIssueDetail> {
+    const { config } = this;
+    const params = new URLSearchParams({
+      fields: "summary,description,issuetype,components,labels,status,priority,assignee,created,updated",
+    });
+    const url = apiUrl(config, `/issue/${encodeURIComponent(key)}?${params}`);
+    const res = await jiraFetch(url, config);
+    const data = (await res.json()) as RawJiraIssue;
+    const fields = data.fields ?? {};
+    const jiraUrl = `${config.baseUrl}/browse/${encodeURIComponent(key)}`;
+    return {
+      key: data.key,
+      summary: fields.summary ?? "",
+      description: extractDescription(fields.description) ?? undefined,
+      status: fields.status?.name ?? "",
+      priority: fields.priority?.name ?? undefined,
+      assignee: fields.assignee?.displayName ?? undefined,
+      labels: fields.labels ?? [],
+      issueType: fields.issuetype?.name ?? undefined,
+      created: fields.created ?? "",
+      updated: fields.updated ?? "",
+      jiraUrl,
+    };
+  }
+
+  async getIssueComments(key: string, maxResults = 10): Promise<JiraComment[]> {
+    const { config } = this;
+    const params = new URLSearchParams({
+      maxResults: String(maxResults),
+      orderBy: "-created",
+    });
+    const url = apiUrl(config, `/issue/${encodeURIComponent(key)}/comment?${params}`);
+    const res = await jiraFetch(url, config);
+    const data = (await res.json()) as { comments?: RawJiraComment[] };
+    return (data.comments ?? []).map((c) => ({
+      id: c.id,
+      author: c.author?.displayName ?? "Unknown",
+      avatarUrl: c.author?.avatarUrls?.["24x24"] ?? undefined,
+      body: typeof c.body === "string" ? c.body : extractDescription(c.body) ?? "",
+      created: c.created ?? "",
+      updated: c.updated ?? "",
+    }));
   }
 
   async addComment(key: string, body: string): Promise<void> {

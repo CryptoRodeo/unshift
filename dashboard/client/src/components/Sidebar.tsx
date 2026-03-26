@@ -99,6 +99,18 @@ export function Sidebar({ connected, notificationPermission, onRequestNotificati
           </NavLink>
 
           <NavLink
+            to="/projects"
+            className={({ isActive }) =>
+              `us-sidebar__nav-item ${isActive ? "us-sidebar__nav-item--active" : ""}`
+            }
+          >
+            <svg className="us-sidebar__nav-icon" width="16" height="16" viewBox="0 0 16 16" fill="none">
+              <path d="M2 3h5l2 2h5v8H2V3z" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" fill="none"/>
+            </svg>
+            Projects
+          </NavLink>
+
+          <NavLink
             to="/?status=active"
             className={() =>
               `us-sidebar__nav-item ${location.pathname === "/" && location.search.includes("status=active") ? "us-sidebar__nav-item--active" : ""}`
@@ -119,7 +131,7 @@ export function Sidebar({ connected, notificationPermission, onRequestNotificati
           >
             <svg className="us-sidebar__nav-icon" width="16" height="16" viewBox="0 0 16 16" fill="none">
               <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="1.5"/>
-              <path d="M8 5v3l2 2" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinnejoin="round"/>
+              <path d="M8 5v3l2 2" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
             </svg>
             Awaiting Approval
             {awaitingCount > 0 && (

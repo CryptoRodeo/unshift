@@ -63,10 +63,25 @@ export class UnshiftRunner extends EventEmitter {
     return this.repository.getComments(runId);
   }
 
+  /** Get project summaries (unique issue keys with aggregated metadata) */
+  getProjectSummaries() {
+    return this.repository.getProjectSummaries();
+  }
+
   /** Fetch a Jira issue's live status */
   async getJiraIssueStatus(issueKey: string): Promise<{ status: string }> {
     const issue = await this.engine.getJiraIssue(issueKey);
     return { status: issue.status };
+  }
+
+  /** Fetch full Jira issue details */
+  async getFullJiraIssue(issueKey: string) {
+    return this.engine.getFullJiraIssue(issueKey);
+  }
+
+  /** Fetch Jira issue comments */
+  async getJiraIssueComments(issueKey: string, maxResults?: number) {
+    return this.engine.getJiraIssueComments(issueKey, maxResults);
   }
 
   /** Discover llm-candidate issues via Jira JQL */
@@ -206,16 +221,18 @@ export class UnshiftRunner extends EventEmitter {
     }
   }
 
-  approveRun(id: string): { ok: true } | RunError {
+  approveRun(id: string, providerConfig?: ProviderConfig): { ok: true } | RunError {
     const run = this.repository.getRun(id);
     if (!run) return { error: "Run not found", code: "NOT_FOUND" };
     if (run.status !== "awaiting_approval") return { error: `Run is not awaiting approval (status: ${run.status})`, code: "INVALID_STATE" };
 
     const approved = this.engine.approve(id);
-    if (!approved) return { error: "No approval gate found for this run", code: "INVALID_STATE" };
+    if (!approved) {
+      // Gate lost (e.g. container restart) — resume phase 3 from persisted state
+      if (!run.context) return { error: "No context available to resume phase 3", code: "INVALID_STATE" };
+      this.launchPhase3(id, run.context, providerConfig);
+    }
 
-    // Status transition to phase3 is handled by the engine emitting run:phase,
-    // which wireEngineEvents picks up and persists to the repository.
     return { ok: true };
   }
 
@@ -271,6 +288,13 @@ export class UnshiftRunner extends EventEmitter {
   private launchEngineRetry(runId: string, context: RunContext, prd: PrdEntry[], providerConfig?: ProviderConfig): void {
     this.launchWithErrorHandling(runId, context.issueKey, providerConfig, async (opts) => {
       await this.engine.runFromPhase2(context, prd, opts);
+    });
+  }
+
+  /** Launch phase 3 directly (used to resume after container restart loses the approval gate) */
+  private launchPhase3(runId: string, context: RunContext, providerConfig?: ProviderConfig): void {
+    this.launchWithErrorHandling(runId, context.issueKey, providerConfig, async (opts) => {
+      await this.engine.runPhase3(context, opts);
     });
   }
 
