@@ -347,8 +347,12 @@ export function useWebSocket() {
     await fetch(`/api/runs/${runId}/reject`, { method: "POST" });
   }, []);
 
-  const retryRun = useCallback(async (runId: string) => {
-    const res = await fetch(`/api/runs/${runId}/retry`, { method: "POST" });
+  const retryRun = useCallback(async (runId: string, providerConfig?: { provider?: string; model?: string }) => {
+    const res = await fetch(`/api/runs/${runId}/retry`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(providerConfig ?? {}),
+    });
     const data = await res.json();
     if (!res.ok) {
       throw new Error(data.error || "Retry failed");

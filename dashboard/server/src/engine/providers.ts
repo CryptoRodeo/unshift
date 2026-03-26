@@ -18,6 +18,13 @@ const DEFAULT_MODELS: Record<Provider, string> = {
   vertex: "claude-sonnet-4-6",
 };
 
+const AVAILABLE_MODELS: Record<Provider, string[]> = {
+  anthropic: ["claude-sonnet-4-6", "claude-opus-4-6", "claude-haiku-4-5-20251001"],
+  openai: ["gpt-4o", "gpt-4o-mini", "o3", "o4-mini"],
+  google: ["gemini-2.0-flash", "gemini-2.5-pro-preview-06-05"],
+  vertex: ["claude-sonnet-4-6", "claude-opus-4-6", "claude-haiku-4-5"],
+};
+
 const providerFactories: Record<Provider, (model: string) => LanguageModel> = {
   anthropic: (model) => anthropic(model),
   openai: (model) => openai(model),
@@ -48,7 +55,7 @@ export function getDefaultConfig(): ProviderConfig {
 
   // Auto-detect Vertex AI when env vars are set and no explicit provider is configured
   if (!rawProvider && !process.env.ANTHROPIC_API_KEY &&
-      (process.env.ANTHROPIC_VERTEX_PROJECT_ID || process.env.GOOGLE_CLOUD_PROJECT)) {
+    (process.env.ANTHROPIC_VERTEX_PROJECT_ID || process.env.GOOGLE_CLOUD_PROJECT)) {
     rawProvider = "vertex";
   }
 
@@ -68,4 +75,4 @@ export function getDefaultModel(): LanguageModel {
   return getModel(getDefaultConfig());
 }
 
-export { DEFAULT_MODELS };
+export { DEFAULT_MODELS, AVAILABLE_MODELS };

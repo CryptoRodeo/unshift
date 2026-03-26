@@ -104,13 +104,13 @@ export function DashboardPage() {
   });
 
   // Provider/model selection
-  const [providers, setProviders] = useState<{ provider: string; defaultModel: string }[]>([]);
+  const [providers, setProviders] = useState<{ provider: string; defaultModel: string; models: string[] }[]>([]);
   const [selectedProvider, setSelectedProvider] = useState<string>("");
   const [selectedModel, setSelectedModel] = useState<string>("");
 
   useEffect(() => {
     Promise.all([
-      fetch("/api/providers").then((r) => r.json() as Promise<{ providers: { provider: string; defaultModel: string }[] }>),
+      fetch("/api/providers").then((r) => r.json() as Promise<{ providers: { provider: string; defaultModel: string; models: string[] }[] }>),
       fetch("/api/config").then((r) => r.json() as Promise<{ provider: string; model: string }>),
     ]).then(([providersData, configData]) => {
       setProviders(providersData.providers);
@@ -215,14 +215,16 @@ export function DashboardPage() {
                     </FlexItem>
                     <FlexItem>
                       <Tooltip content="Model ID">
-                        <input
-                          className="us-input"
-                          type="text"
+                        <select
+                          className="us-select"
                           value={selectedModel}
                           onChange={(e) => setSelectedModel(e.target.value)}
                           aria-label="Model"
-                          style={{ width: "180px" }}
-                        />
+                        >
+                          {(providers.find((p) => p.provider === selectedProvider)?.models ?? []).map((m) => (
+                            <option key={m} value={m}>{m}</option>
+                          ))}
+                        </select>
                       </Tooltip>
                     </FlexItem>
                   </>
@@ -346,14 +348,16 @@ export function DashboardPage() {
                     </select>
                   </FlexItem>
                   <FlexItem>
-                    <input
-                      className="us-input"
-                      type="text"
+                    <select
+                      className="us-select"
                       value={selectedModel}
                       onChange={(e) => setSelectedModel(e.target.value)}
                       aria-label="Model"
-                      style={{ width: "180px" }}
-                    />
+                    >
+                      {(providers.find((p) => p.provider === selectedProvider)?.models ?? []).map((m) => (
+                        <option key={m} value={m}>{m}</option>
+                      ))}
+                    </select>
                   </FlexItem>
                 </Flex>
               )}

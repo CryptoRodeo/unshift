@@ -1307,6 +1307,17 @@ code, pre, .pf-v6-c-code-block,
   font-family: var(--us-font-sans);
 }
 
+.us-modal__fields {
+  display: flex;
+  flex-direction: column;
+  gap: var(--us-space-2);
+  margin-top: var(--us-space-2);
+}
+
+.us-select--full {
+  width: 100%;
+}
+
 .us-modal__copyable {
   display: flex;
   align-items: center;

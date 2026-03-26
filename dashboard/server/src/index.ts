@@ -8,7 +8,7 @@ import yaml from "js-yaml";
 import { UnshiftRunner } from "./unshift";
 import { isRunError } from "../../shared/types";
 import type { RunErrorCode } from "../../shared/types";
-import { DEFAULT_MODELS, getDefaultConfig, type Provider, type ProviderConfig } from "./engine/providers";
+import { DEFAULT_MODELS, AVAILABLE_MODELS, getDefaultConfig, type Provider, type ProviderConfig } from "./engine/providers";
 
 function parseProviderConfig(body: Record<string, unknown> | undefined): ProviderConfig | undefined {
   const rawProvider = typeof body?.provider === "string" ? body.provider : undefined;
@@ -127,6 +127,7 @@ app.get("/api/providers", (_req, res) => {
   const providers = Object.entries(DEFAULT_MODELS).map(([provider, defaultModel]) => ({
     provider,
     defaultModel,
+    models: AVAILABLE_MODELS[provider as Provider],
   }));
   res.json({ providers });
 });

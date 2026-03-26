@@ -57,6 +57,17 @@ function ConfirmModal({ title, message, confirmLabel, confirmVariant, onConfirm,
   );
 }
 
+function inferProvider(
+  model: string | undefined,
+  providers: { provider: string; models: string[] }[]
+): string | undefined {
+  if (!model) return undefined;
+  for (const p of providers) {
+    if (p.models.includes(model)) return p.provider;
+  }
+  return undefined;
+}
+
 export function RunDetailPage() {
   const { runId } = useParams<{ runId: string }>();
   const navigate = useNavigate();
@@ -86,6 +97,17 @@ export function RunDetailPage() {
   const [showMetadata, setShowMetadata] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   const [confirmAction, setConfirmAction] = useState<"approve" | "reject" | null>(null);
+  const [rerunModal, setRerunModal] = useState<"retry" | "rerun" | null>(null);
+  const [providers, setProviders] = useState<{ provider: string; defaultModel: string; models: string[] }[]>([]);
+  const [modalProvider, setModalProvider] = useState("");
+  const [modalModel, setModalModel] = useState("");
+
+  useEffect(() => {
+    fetch("/api/providers")
+      .then((r) => r.json() as Promise<{ providers: { provider: string; defaultModel: string; models: string[] }[] }>)
+      .then((data) => setProviders(data.providers))
+      .catch(() => {});
+  }, []);
 
   const doApprove = useCallback(async () => {
     if (!run) return;
@@ -204,13 +226,42 @@ export function RunDetailPage() {
   const canRetry = isTerminal(run.status);
   const isSuccess = run.status === "success";
 
-  const handleRetry = async () => {
+  const openRerunModal = (mode: "retry" | "rerun") => {
+    const runModel = run.tokens?.model;
+    const detectedProvider = inferProvider(runModel, providers);
+    if (detectedProvider) {
+      setModalProvider(detectedProvider);
+      setModalModel(runModel!);
+    } else if (providers.length > 0) {
+      setModalProvider(providers[0].provider);
+      setModalModel(providers[0].defaultModel);
+    }
+    setRerunModal(mode);
+  };
+
+  const handleRetryConfirm = async () => {
+    setRerunModal(null);
     setRetryError(null);
     try {
-      const result = await retryRun(run.id);
+      const result = await retryRun(run.id, { provider: modalProvider, model: modalModel });
       navigate(`/runs/${result.id}`);
     } catch (err) {
       setRetryError(err instanceof Error ? err.message : "Retry failed");
+    }
+  };
+
+  const handleRerunConfirm = async () => {
+    setRerunModal(null);
+    setRetryError(null);
+    try {
+      const result = await startRunForIssue(run.issueKey, true, { provider: modalProvider, model: modalModel });
+      if (isRunError(result)) {
+        setRetryError(result.error);
+      } else if (result.id) {
+        navigate(`/runs/${result.id}`);
+      }
+    } catch (err) {
+      setRetryError(err instanceof Error ? err.message : "Re-run failed");
     }
   };
 
@@ -225,19 +276,10 @@ export function RunDetailPage() {
     }
   };
 
-  const handleRerun = async () => {
-    if (!confirm("Re-run this previously successful ticket?")) return;
-    setRetryError(null);
-    try {
-      const result = await startRunForIssue(run.issueKey, true);
-      if (isRunError(result)) {
-        setRetryError(result.error);
-      } else if (result.id) {
-        navigate(`/runs/${result.id}`);
-      }
-    } catch (err) {
-      setRetryError(err instanceof Error ? err.message : "Re-run failed");
-    }
+  const handleModalProviderChange = (provider: string) => {
+    setModalProvider(provider);
+    const match = providers.find((p) => p.provider === provider);
+    if (match) setModalModel(match.defaultModel);
   };
 
   const handleOpenEditor = async () => {
@@ -291,7 +333,7 @@ export function RunDetailPage() {
 
             {isSuccess && (
               <Tooltip content="Re-run">
-                <button className="us-detail-subheader__icon-btn" onClick={handleRerun} aria-label="Re-run">
+                <button className="us-detail-subheader__icon-btn" onClick={() => openRerunModal("rerun")} aria-label="Re-run">
                   <RedoIcon />
                 </button>
               </Tooltip>
@@ -299,7 +341,7 @@ export function RunDetailPage() {
 
             {canRetry && (
               <Tooltip content="Retry">
-                <button className="us-detail-subheader__icon-btn" onClick={handleRetry} aria-label="Retry">
+                <button className="us-detail-subheader__icon-btn" onClick={() => openRerunModal("retry")} aria-label="Retry">
                   <RedoIcon />
                 </button>
               </Tooltip>
@@ -509,6 +551,55 @@ export function RunDetailPage() {
           onConfirm={doReject}
           onCancel={() => setConfirmAction(null)}
         />
+      )}
+
+      {rerunModal && (
+        <div className="us-modal-overlay" onClick={() => setRerunModal(null)}>
+          <div className="us-modal" onClick={(e) => e.stopPropagation()}>
+            <h3 className="us-modal__title">{rerunModal === "retry" ? "Retry Run" : "Re-run Ticket"}</h3>
+            <p className="us-modal__message">
+              {rerunModal === "retry"
+                ? `Retry ${run.issueKey} from the implementation phase with a different model.`
+                : `Re-run ${run.issueKey} from scratch with a different model.`}
+            </p>
+            {providers.length > 0 && (
+              <div className="us-modal__fields">
+                <label className="us-modal__label">Provider</label>
+                <select
+                  className="us-select us-select--full"
+                  value={modalProvider}
+                  onChange={(e) => handleModalProviderChange(e.target.value)}
+                  aria-label="Provider"
+                >
+                  {providers.map((p) => (
+                    <option key={p.provider} value={p.provider}>{p.provider}</option>
+                  ))}
+                </select>
+                <label className="us-modal__label">Model</label>
+                <select
+                  className="us-select us-select--full"
+                  value={modalModel}
+                  onChange={(e) => setModalModel(e.target.value)}
+                  aria-label="Model"
+                >
+                  {(providers.find((p) => p.provider === modalProvider)?.models ?? []).map((m) => (
+                    <option key={m} value={m}>{m}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+            <div className="us-modal__actions">
+              <button className="us-btn us-btn--ghost" onClick={() => setRerunModal(null)}>Cancel</button>
+              <button
+                className="us-btn us-btn--primary"
+                onClick={rerunModal === "retry" ? handleRetryConfirm : handleRerunConfirm}
+                autoFocus
+              >
+                {rerunModal === "retry" ? "Retry" : "Re-run"}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {editorInfo && (
