@@ -139,45 +139,36 @@ export async function grepFiles(
   args.push("--", pattern, resolvedPath);
 
   const timeout = options?.timeout ?? 120_000;
+  const ac = new AbortController();
+  const timer = setTimeout(() => ac.abort(), timeout);
 
-  return new Promise((res, rej) => {
-    let settled = false;
-    const settle = <T>(fn: (value: T) => void, value: T) => {
-      if (settled) return;
-      settled = true;
-      fn(value);
-    };
-
+  return new Promise((resolve, reject) => {
     const proc = spawn("grep", ["-r", ...args], {
       stdio: ["ignore", "pipe", "pipe"],
+      signal: ac.signal,
     });
-
-    const timer = setTimeout(() => {
-      proc.kill();
-      settle(rej, new Error(`grep timed out after ${timeout}ms`));
-    }, timeout);
 
     let stdout = "";
     let stderr = "";
 
-    proc.stdout.on("data", (chunk: Buffer) => {
-      stdout += chunk.toString();
-    });
-    proc.stderr.on("data", (chunk: Buffer) => {
-      stderr += chunk.toString();
-    });
+    proc.stdout.on("data", (chunk: Buffer) => { stdout += chunk.toString(); });
+    proc.stderr.on("data", (chunk: Buffer) => { stderr += chunk.toString(); });
 
     proc.on("error", (err) => {
       clearTimeout(timer);
-      settle(rej, new Error(`grep spawn failed: ${err.message}`));
+      if (err.name === "AbortError") {
+        reject(new Error(`grep timed out after ${timeout}ms`));
+      } else {
+        reject(new Error(`grep spawn failed: ${err.message}`));
+      }
     });
 
     proc.on("close", (code) => {
       clearTimeout(timer);
       if (code === 0 || code === 1) {
-        settle(res, stdout || "No matches found.");
+        resolve(stdout || "No matches found.");
       } else {
-        settle(rej, new Error(`grep failed (exit ${code}): ${stderr}`));
+        reject(new Error(`grep failed (exit ${code}): ${stderr}`));
       }
     });
   });

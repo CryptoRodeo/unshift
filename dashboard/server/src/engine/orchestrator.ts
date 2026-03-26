@@ -422,12 +422,19 @@ export class UnshiftEngine extends EventEmitter {
     let content: string;
     try {
       content = await toolReadFile("prd.json", repoPath);
-    } catch {
-      // File doesn't exist yet — expected before phase 1 writes it
-      return [];
+    } catch (err: unknown) {
+      // ENOENT means the file doesn't exist yet — expected before phase 1 writes it.
+      // Any other error (permission denied, I/O failure) should propagate.
+      if (err instanceof Error && "code" in err && (err as NodeJS.ErrnoException).code === "ENOENT") {
+        return [];
+      }
+      throw err;
     }
-    // File exists but contains invalid JSON — this is a real error
-    return JSON.parse(content);
+    try {
+      return JSON.parse(content);
+    } catch {
+      throw new Error(`prd.json in ${repoPath} contains invalid JSON`);
+    }
   }
 
   private async readProgressFromRepo(repoPath: string): Promise<string | null> {

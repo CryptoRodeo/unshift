@@ -303,6 +303,7 @@ export class UnshiftRunner extends EventEmitter {
       if (!isAborted) {
         const msg = err instanceof Error ? err.message : String(err);
         console.error(`Run ${runId} failed:`, msg);
+        this.repository.appendLog(runId, "failed", msg);
       }
     }).finally(() => {
       cleanup();
