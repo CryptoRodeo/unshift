@@ -80,9 +80,7 @@ export async function execCommand(
 }
 
 export async function listFiles(pattern: string, cwd: string, baseDir?: string): Promise<string[]> {
-  if (baseDir) {
-    assertWithinBase(baseDir, cwd);
-  }
+  const resolvedCwd = baseDir ? assertWithinBase(baseDir, cwd) : cwd;
   const results: string[] = [];
   const regex = compileGlob(pattern);
 
@@ -101,7 +99,7 @@ export async function listFiles(pattern: string, cwd: string, baseDir?: string):
     }
   }
 
-  await walk(cwd, "");
+  await walk(resolvedCwd, "");
   return results.sort();
 }
 
@@ -120,25 +118,30 @@ export async function grepFiles(
   path: string,
   options?: { glob?: string; baseDir?: string; timeout?: number }
 ): Promise<string> {
-  if (options?.baseDir) {
-    assertWithinBase(options.baseDir, path);
-  }
+  const resolvedPath = options?.baseDir ? assertWithinBase(options.baseDir, path) : path;
   const args = ["--color=never", "-n"];
   if (options?.glob) {
     args.push("--include", options.glob);
   }
-  args.push("--", pattern, path);
+  args.push("--", pattern, resolvedPath);
 
   const timeout = options?.timeout ?? 120_000;
 
   return new Promise((res, rej) => {
+    let settled = false;
+    const settle = <T>(fn: (value: T) => void, value: T) => {
+      if (settled) return;
+      settled = true;
+      fn(value);
+    };
+
     const proc = spawn("grep", ["-r", ...args], {
       stdio: ["ignore", "pipe", "pipe"],
     });
 
     const timer = setTimeout(() => {
       proc.kill();
-      rej(new Error(`grep timed out after ${timeout}ms`));
+      settle(rej, new Error(`grep timed out after ${timeout}ms`));
     }, timeout);
 
     let stdout = "";
@@ -154,9 +157,9 @@ export async function grepFiles(
     proc.on("close", (code) => {
       clearTimeout(timer);
       if (code === 0 || code === 1) {
-        res(stdout || "No matches found.");
+        settle(res, stdout || "No matches found.");
       } else {
-        rej(new Error(`grep failed (exit ${code}): ${stderr}`));
+        settle(rej, new Error(`grep failed (exit ${code}): ${stderr}`));
       }
     });
   });

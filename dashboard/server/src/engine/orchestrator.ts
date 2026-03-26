@@ -319,7 +319,7 @@ export class UnshiftEngine extends EventEmitter {
     // Await approval gate
     const approvalTs = new Date().toISOString();
     this.emit("run:phase", runId, "awaiting_approval", approvalTs);
-    await this.waitForApproval(runId);
+    await this.waitForApproval(runId, opts.signal);
 
     // Phase 3: Delivery
     await this.runPhase3(context, opts);
@@ -343,9 +343,22 @@ export class UnshiftEngine extends EventEmitter {
     return true;
   }
 
-  waitForApproval(runId: string): Promise<void> {
+  waitForApproval(runId: string, signal?: AbortSignal): Promise<void> {
     return new Promise<void>((resolve, reject) => {
       this.approvalGates.set(runId, { resolve, reject });
+
+      if (signal) {
+        const onAbort = () => {
+          if (this.approvalGates.delete(runId)) {
+            reject(signal.reason ?? new Error("Aborted"));
+          }
+        };
+        if (signal.aborted) {
+          onAbort();
+        } else {
+          signal.addEventListener("abort", onAbort, { once: true });
+        }
+      }
     });
   }
 

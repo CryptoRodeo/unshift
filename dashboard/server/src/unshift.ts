@@ -260,7 +260,7 @@ export class UnshiftRunner extends EventEmitter {
       this.emit("run:phase", runId, "awaiting_approval", approvalTs);
       this.repository.updateRunStatus(runId, "awaiting_approval");
       this.repository.updatePhaseTimestamp(runId, "awaiting_approval", approvalTs);
-      await this.engine.waitForApproval(runId);
+      await this.engine.waitForApproval(runId, opts.signal);
 
       await this.engine.runPhase3(context, opts);
     });
