@@ -168,11 +168,6 @@ export async function grepFiles(
       signal: ac.signal,
     });
 
-    const timer = setTimeout(() => {
-      proc.kill();
-      settle(rej, new Error(`grep timed out after ${timeout}ms`));
-    }, timeout);
-
     let stdout = "";
     let stderr = "";
 
@@ -190,7 +185,11 @@ export async function grepFiles(
 
     proc.on("error", (err) => {
       clearTimeout(timer);
-      settle(rej, new Error(`grep spawn failed: ${err.message}`));
+      if (err.name === "AbortError") {
+        reject(new Error(`grep timed out after ${timeout}ms`));
+      } else {
+        reject(new Error(`grep spawn failed: ${err.message}`));
+      }
     });
 
     proc.on("close", (code) => {
