@@ -139,7 +139,15 @@ app.get("/api/config", (_req, res) => {
 
 app.post("/api/runs", async (req, res) => {
   const { issueKey, force } = req.body ?? {};
-  const providerConfig = parseProviderConfig(req.body);
+
+  let providerConfig: ProviderConfig | undefined;
+  try {
+    providerConfig = parseProviderConfig(req.body);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    res.status(400).json({ error: msg, code: "BAD_REQUEST" });
+    return;
+  }
 
   let providerConfig: ProviderConfig | undefined;
   try {
