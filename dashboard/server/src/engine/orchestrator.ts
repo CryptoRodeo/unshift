@@ -54,6 +54,10 @@ export class UnshiftEngine extends EventEmitter {
     string,
     { resolve: () => void; reject: (err: Error) => void }
   >();
+  private activeWorktrees = new Map<
+    string,
+    { mainClone: string; worktree: string }
+  >();
 
   constructor() {
     super();
@@ -165,6 +169,96 @@ export class UnshiftEngine extends EventEmitter {
     return workDir;
   }
 
+  /**
+   * Create an isolated worktree for the given run.
+   * Ensures the main clone exists and is up-to-date, then creates a detached
+   * worktree at the latest default branch tip.
+   * Returns the worktree path.
+   */
+  async createWorktree(runId: string, repoEntry: RepoEntry): Promise<string> {
+    const mainClone = await this.ensureRepo(repoEntry);
+    const repoName = path.basename(repoEntry.repo_url, ".git");
+
+    // Fetch latest refs
+    const fetchResult = await execCommand("git", ["fetch", "origin"], {
+      timeout: 120_000,
+      cwd: mainClone,
+    });
+    if (fetchResult.exitCode !== 0) {
+      throw new Error(
+        `Failed to fetch origin in ${mainClone}: ${fetchResult.stderr || fetchResult.stdout}`
+      );
+    }
+
+    const worktreePath = path.join(
+      WORKSPACE_DIR,
+      repoName,
+      ".worktrees",
+      runId
+    );
+
+    const addResult = await execCommand(
+      "git",
+      [
+        "worktree",
+        "add",
+        "--detach",
+        worktreePath,
+        `origin/${repoEntry.default_branch}`,
+      ],
+      { timeout: 60_000, cwd: mainClone }
+    );
+    if (addResult.exitCode !== 0) {
+      throw new Error(
+        `Failed to create worktree for run ${runId}: ${addResult.stderr || addResult.stdout}`
+      );
+    }
+
+    // Ensure the main clone stays on the default branch (detached) so that
+    // worktrees are free to check out any branch without "already checked out" errors.
+    await execCommand(
+      "git",
+      ["checkout", "--detach", `origin/${repoEntry.default_branch}`],
+      { timeout: 30_000, cwd: mainClone }
+    );
+
+    this.activeWorktrees.set(runId, { mainClone, worktree: worktreePath });
+    return worktreePath;
+  }
+
+  /**
+   * Remove a worktree by force from its parent clone.
+   * Silently succeeds if the worktree is already gone.
+   */
+  async removeWorktree(
+    mainClonePath: string,
+    worktreePath: string
+  ): Promise<void> {
+    const result = await execCommand(
+      "git",
+      ["worktree", "remove", "--force", worktreePath],
+      { timeout: 30_000, cwd: mainClonePath }
+    );
+    // Ignore errors — worktree may already be gone
+    if (result.exitCode !== 0) {
+      console.warn(
+        `Warning: failed to remove worktree ${worktreePath}: ${result.stderr || result.stdout}`
+      );
+    }
+  }
+
+  /**
+   * Clean up the worktree for the given runId.
+   * Idempotent — safe to call multiple times for the same runId.
+   */
+  async cleanupRun(runId: string): Promise<void> {
+    const entry = this.activeWorktrees.get(runId);
+    if (!entry) return;
+
+    await this.removeWorktree(entry.mainClone, entry.worktree);
+    this.activeWorktrees.delete(runId);
+  }
+
   /** Phase 1: Planning — read the Jira issue, create a branch, generate prd.json */
   async runPhase1(
     issueKey: string,
@@ -175,7 +269,7 @@ export class UnshiftEngine extends EventEmitter {
     const ts = new Date().toISOString();
     this.emit("run:phase", runId, "phase1", ts);
 
-    const workDir = await this.ensureRepo(repoEntry);
+    const workDir = await this.createWorktree(runId, repoEntry);
     const prompt = buildPhase1Prompt(issueKey, repoEntry, workDir);
     const tools = planningTools(workDir, this.jira);
 
@@ -459,7 +553,16 @@ export class UnshiftEngine extends EventEmitter {
     } catch {
       throw new Error(`prd.json in ${repoPath} contains invalid JSON`);
     }
+    // Accept both a bare array and an object with a "tasks" array,
+    // since the LLM may wrap entries in an object despite instructions.
     if (!Array.isArray(parsed)) {
+      if (
+        parsed !== null &&
+        typeof parsed === "object" &&
+        Array.isArray((parsed as Record<string, unknown>).tasks)
+      ) {
+        return (parsed as Record<string, unknown>).tasks as PrdEntry[];
+      }
       throw new Error(`prd.json in ${repoPath} is not a JSON array`);
     }
     return parsed as PrdEntry[];

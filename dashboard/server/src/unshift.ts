@@ -185,6 +185,7 @@ export class UnshiftRunner extends EventEmitter {
       const completedAt = new Date().toISOString();
       this.repository.updateRunStatus(id, "stopped", completedAt);
       this.emit("run:complete", run.id, "stopped");
+      await this.engine.cleanupRun(id);
       this.cleanupRun(id, run.issueKey);
     }
   }
@@ -202,10 +203,11 @@ export class UnshiftRunner extends EventEmitter {
     return { ok: true };
   }
 
-  deleteRun(id: string): { ok: true } | RunError {
+  async deleteRun(id: string): Promise<{ ok: true } | RunError> {
     const run = this.repository.getRun(id);
     if (!run) return { error: "Run not found", code: "NOT_FOUND" };
     if (this.abortControllers.has(id)) return { error: "Cannot delete an active run", code: "INVALID_STATE" };
+    await this.engine.cleanupRun(id);
     this.activeIssueKeys.delete(run.issueKey);
     this.repository.deleteRun(id);
     this.emit("run:deleted", id);
@@ -296,8 +298,12 @@ export class UnshiftRunner extends EventEmitter {
         this.repository.appendLog(runId, "failed", msg);
       }
     }).finally(() => {
-      cleanup();
-      this.cleanupRun(runId, issueKey);
+      this.engine.cleanupRun(runId).catch((e) => {
+        console.warn(`Failed to clean up worktree for run ${runId}:`, e);
+      }).finally(() => {
+        cleanup();
+        this.cleanupRun(runId, issueKey);
+      });
     });
   }
 

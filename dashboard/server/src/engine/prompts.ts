@@ -66,13 +66,11 @@ ${repoJson}
 
 Fields: \`default_branch\`, \`host\` (GitHub or GitLab), \`repo_url\`, \`validation\` (array of command strings).
 
-## Step 2: Navigate to the repository and create a branch
+## Step 2: Create a branch
 
-1. The repository is already cloned at \`${workDir}\`. All file and bash tools are scoped to this directory.
-2. If \`git status --porcelain\` shows uncommitted changes, auto-stash:
-   \`git stash push -m "auto-stash before ${issueKey}: <branch-name> on <current-branch> (<date>)"\`
-3. \`git checkout ${repoEntry.default_branch} && git pull\`
-4. Create a branch:
+The working directory is an isolated worktree at the latest default branch (\`${repoEntry.default_branch}\`). No checkout or pull is needed.
+
+1. Create a branch:
    - \`feat/${issueKey}-<short-slug>\` for Stories/Features
    - \`fix/${issueKey}-<short-slug>\` for Bugs
    - \`chore/${issueKey}-<short-slug>\` for Tasks/Chores
@@ -82,8 +80,15 @@ Fields: \`default_branch\`, \`host\` (GitHub or GitLab), \`repo_url\`, \`validat
 Create \`prd.json\` in the repo root with an implementation plan based on the Jira issue.
 Create an empty \`progress.txt\` if it does not exist.
 
-Each prd.json entry must have: id, category, description, steps, validation, completed (starts false).
+**prd.json MUST be a JSON array** (not an object). Each element is an object with: id, category, description, steps, validation, completed (starts false).
 Use the validation commands from the repository entry above.
+
+Example format:
+\`\`\`json
+[
+  { "id": 1, "category": "Feature", "description": "...", "steps": ["..."], "validation": ["..."], "completed": false }
+]
+\`\`\`
 
 If \`prd.json\` already exists, preserve completed entries; only add/modify incomplete ones.
 

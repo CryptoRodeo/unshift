@@ -169,8 +169,8 @@ app.post("/api/runs", async (req, res) => {
   }
 });
 
-app.delete("/api/runs/:id", (req, res) => {
-  const result = runner.deleteRun(req.params.id);
+app.delete("/api/runs/:id", async (req, res) => {
+  const result = await runner.deleteRun(req.params.id);
   if (isRunError(result)) {
     res.status(ERROR_CODE_TO_STATUS[result.code]).json(result);
   } else {

@@ -19,7 +19,7 @@ const DEFAULT_MODELS: Record<Provider, string> = {
 };
 
 const AVAILABLE_MODELS: Record<Provider, string[]> = {
-  anthropic: ["claude-sonnet-4-6", "claude-opus-4-6", "claude-haiku-4-5-20251001"],
+  anthropic: ["claude-sonnet-4-6", "claude-opus-4-6", "claude-haiku-4-5"],
   openai: ["gpt-4o", "gpt-4o-mini", "o3", "o4-mini"],
   google: ["gemini-2.0-flash", "gemini-2.5-pro-preview-06-05"],
   vertex: ["claude-sonnet-4-6", "claude-opus-4-6", "claude-haiku-4-5"],
