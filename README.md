@@ -1,6 +1,6 @@
 # Unshift
 
-An automation tool that picks up Jira issues labeled `llm-candidate`, implements them using Claude, and opens a pull request.
+An automation tool that picks up Jira issues labeled `llm-candidate`, implements them using an LLM, and opens a pull request.
 
 > The dashboard engine uses the [Vercel AI SDK](https://sdk.vercel.ai/) and supports multiple LLM providers (Anthropic, OpenAI, Google). The CLI scripts in `cli/` are an alternative entry point that uses [Claude Code](https://docs.anthropic.com/en/docs/claude-code) directly.
 
@@ -16,6 +16,8 @@ Unshift runs four phases per issue:
 2. **Plan**  - Reads the Jira issue, maps it to a repo via `repos.yaml`, creates a branch, and generates an implementation plan (`prd.json`).
 3. **Implement**  - Works through the plan one entry at a time. If a validation step fails, it automatically retries once with the error context. This keeps token usage flat and gives every entry the full context window.
 4. **Deliver**  - Commits, pushes, opens a PR, updates Jira, and cleans up. When started from the dashboard, the run pauses here for approval before proceeding.
+
+Each run executes in an isolated [git worktree](https://git-scm.com/docs/git-worktree), so multiple runs against the same repository can proceed in parallel without branch conflicts.
 
 ## Quick Start (Docker)
 
@@ -75,6 +77,7 @@ The dashboard will be available at `http://localhost:3000`.
 | Container exits immediately | Check logs with `docker compose logs dashboard`. Common cause: missing required env vars in `.env`. |
 | Database lost after `docker compose down` | Data is stored in a named volume (`dashboard-data`). Use `docker compose down` (without `-v`) to preserve it. Adding `-v` removes volumes. |
 | Vertex AI: auth errors | Ensure `gcloud auth application-default login` was run on the host and the ADC file exists before starting the container. |
+| Stale worktrees in `workspace/` | If a run was interrupted, orphaned worktrees may remain. Clean up with `git -C workspace/<repo> worktree prune`. |
 
 ## Local Development
 
@@ -194,6 +197,8 @@ npm run dev
 This starts both the Express/WebSocket server and the Vite dev server using `concurrently`. The client is available at `http://localhost:5173` and the API server runs on `http://localhost:3000`.
 
 - Start and stop runs, view per-phase progress, and stream logs
+- Select an LLM provider and model per run, or use the defaults from your `.env`
+- Multiple runs on the same repo can execute in parallel (each gets its own worktree)
 - After Phase 2 completes, the run pauses for your approval  - review changes, then approve, reject, or retry before Phase 3 creates the PR
 - Run history is stored in a local SQLite database (`dashboard/server/data/runs.db`) and persists across server restarts
 - Issues that already completed successfully are skipped automatically; use the force option to re-run
@@ -300,6 +305,7 @@ The skill reads `repos.yaml` from this repo's root to map Jira projects to repos
 | File | Purpose |
 |---|---|
 | `dashboard/` | Web UI for starting, monitoring, and approving runs |
+| `dashboard/server/src/engine/` | Agentic engine (orchestrator, phase runner, prompts, tools, providers) |
 | `cli/unshift.sh` | Shell orchestrator  - drives all four phases |
 | `cli/ralph/ralph.sh` | Implementation loop  - one `claude -p` per prd.json entry, with automatic retry on failure |
 | `cli/prompts/phase1.md` | Phase 1 prompt template for repo setup and planning |
@@ -307,7 +313,7 @@ The skill reads `repos.yaml` from this repo's root to map Jira projects to repos
 | `cli/init.sh` | Configures Claude Code permissions for CLI usage |
 | `.claude/skills/unshift/SKILL.md` | Claude Code custom skill  - run `/unshift` inside a session |
 | `compose.yml` | Docker Compose service definition for the dashboard |
-| `dashboard/Dockerfile` | Multi-stage Docker build (build + production runtime) |
+| `dashboard/Dockerfile` | Multi-stage Docker build (no Claude Code — the engine calls LLM APIs directly) |
 | `dashboard/entrypoint.sh` | Container entrypoint  - sets git identity and GCP credentials |
 | `.dockerignore` | Files excluded from Docker build context |
 | `repos.yaml` | Project-to-repository mapping (shared by dashboard and CLI) |
