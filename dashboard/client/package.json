@@ -10,7 +10,7 @@
     "@patternfly/react-core": "^6.3.0",
     "@patternfly/react-icons": "^6.3.0",
     "@patternfly/react-table": "^6.3.0",
-"react": "^19.1.0",
+    "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "react-router-dom": "^7.6.1"
   },

@@ -110,8 +110,8 @@ export function DashboardPage() {
 
   useEffect(() => {
     Promise.all([
-      fetch("/api/providers").then((r) => r.json()),
-      fetch("/api/config").then((r) => r.json()),
+      fetch("/api/providers").then((r) => r.json() as Promise<{ providers: { provider: string; defaultModel: string }[] }>),
+      fetch("/api/config").then((r) => r.json() as Promise<{ provider: string; model: string }>),
     ]).then(([providersData, configData]) => {
       setProviders(providersData.providers);
       setSelectedProvider(configData.provider);

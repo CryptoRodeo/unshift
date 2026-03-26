@@ -2,7 +2,6 @@ import {
   generateText,
   stepCountIs,
   type LanguageModel,
-  type CoreTool,
   type StepResult,
   type ToolSet,
 } from "ai";
@@ -11,7 +10,7 @@ export interface PhaseRunnerOptions {
   model: LanguageModel;
   systemPrompt: string;
   userPrompt: string;
-  tools: Record<string, CoreTool>;
+  tools: ToolSet;
   maxSteps?: number;
   cwd: string;
   onLog?: (line: string) => void;
@@ -57,9 +56,9 @@ export async function runPhase(options: PhaseRunnerOptions): Promise<PhaseResult
           onLog(`[tool_call] ${toolCall.toolName}(${JSON.stringify(toolCall.input)})`);
         }
         for (const toolResult of step.toolResults) {
-          const resultStr = typeof toolResult.result === "string"
-            ? toolResult.result
-            : JSON.stringify(toolResult.result);
+          const resultStr = typeof toolResult.output === "string"
+            ? toolResult.output
+            : JSON.stringify(toolResult.output);
           const truncated = resultStr.length > 500
             ? resultStr.slice(0, 500) + "..."
             : resultStr;

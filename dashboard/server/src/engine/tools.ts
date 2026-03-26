@@ -1,6 +1,6 @@
 import { readFile as fsReadFile, writeFile as fsWriteFile, mkdir } from "node:fs/promises";
 import { exec, execFile, spawn } from "node:child_process";
-import { resolve, relative, normalize } from "node:path";
+import { resolve, normalize } from "node:path";
 import { readdir } from "node:fs/promises";
 
 export interface ExecResult {

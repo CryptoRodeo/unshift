@@ -1,10 +1,8 @@
-import { tool, type CoreTool } from "ai";
+import { tool, type ToolSet } from "ai";
 import { z } from "zod";
 import { readFile, writeFile, bash, listFiles, grepFiles } from "./tools.js";
 import { JiraClient } from "./jiraClient.js";
 import { createPR } from "./gitClient.js";
-
-type ToolSet = Record<string, CoreTool>;
 
 export function createFileTools(cwd: string): ToolSet {
   return {

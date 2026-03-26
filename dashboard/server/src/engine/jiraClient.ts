@@ -157,10 +157,10 @@ export class JiraClient {
     const data = (await res.json()) as { transitions?: { id: string; name: string }[] };
 
     const transition = (data.transitions ?? []).find(
-      (t) => t.name.toLowerCase() === transitionName.toLowerCase()
+      (t) => t.name?.toLowerCase() === transitionName.toLowerCase()
     );
     if (!transition) {
-      const available = (data.transitions ?? []).map((t) => t.name).join(", ");
+      const available = (data.transitions ?? []).map((t) => t.name ?? "(unnamed)").join(", ");
       throw new Error(`Transition "${transitionName}" not found for ${key}. Available: ${available}`);
     }
 

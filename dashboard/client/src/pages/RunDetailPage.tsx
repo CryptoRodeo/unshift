@@ -88,18 +88,20 @@ export function RunDetailPage() {
   const [confirmAction, setConfirmAction] = useState<"approve" | "reject" | null>(null);
 
   const doApprove = useCallback(async () => {
+    if (!run) return;
     setConfirmAction(null);
     setApproveError(null);
-    const result = await approveRun(run?.id ?? "");
+    const result = await approveRun(run.id);
     if (isRunError(result)) {
       setApproveError(result.error);
     }
-  }, [approveRun, run?.id]);
+  }, [approveRun, run]);
 
   const doReject = useCallback(async () => {
+    if (!run) return;
     setConfirmAction(null);
-    await rejectRun(run?.id ?? "");
-  }, [rejectRun, run?.id]);
+    await rejectRun(run.id);
+  }, [rejectRun, run]);
 
   const runLoaded = run !== undefined;
   useEffect(() => {

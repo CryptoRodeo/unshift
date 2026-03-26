@@ -403,7 +403,11 @@ export class UnshiftEngine extends EventEmitter {
 
     let raw: Record<string, unknown>;
     try {
-      raw = JSON.parse(jsonStr.trim());
+      const parsed: unknown = JSON.parse(jsonStr.trim());
+      if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+        throw new Error("Expected a JSON object");
+      }
+      raw = parsed as Record<string, unknown>;
     } catch (err) {
       throw new Error(
         `Failed to parse context JSON from phase 1 output for ${issueKey}: ` +
@@ -445,11 +449,16 @@ export class UnshiftEngine extends EventEmitter {
       if (isEnoent(err)) return [];
       throw err;
     }
+    let parsed: unknown;
     try {
-      return JSON.parse(content);
+      parsed = JSON.parse(content);
     } catch {
       throw new Error(`prd.json in ${repoPath} contains invalid JSON`);
     }
+    if (!Array.isArray(parsed)) {
+      throw new Error(`prd.json in ${repoPath} is not a JSON array`);
+    }
+    return parsed as PrdEntry[];
   }
 
   private async readProgressFromRepo(repoPath: string): Promise<string | null> {
