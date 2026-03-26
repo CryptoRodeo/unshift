@@ -63,6 +63,11 @@ export interface RunContext {
   defaultBranch?: string;
   host?: string;
   commitPrefix?: string;
+  priority?: string;
+  labels?: string[];
+  jiraStatus?: string;
+  assignee?: string;
+  jiraUrl?: string;
 }
 
 export interface TokenData {
@@ -71,6 +76,13 @@ export interface TokenData {
   cacheReadTokens: number;
   cacheCreationTokens: number;
   model?: string;
+}
+
+export interface Comment {
+  id: number;
+  author: string;
+  content: string;
+  createdAt: string;
 }
 
 export interface Run {
@@ -102,7 +114,8 @@ export type WsMessage =
   | { type: "run:progress"; runId: string; content: string }
   | { type: "run:skipped"; skipped: { issueKey: string; reason: string }[] }
   | { type: "run:deleted"; runId: string }
-  | { type: "run:tokens"; runId: string; tokens: TokenData };
+  | { type: "run:tokens"; runId: string; tokens: TokenData }
+  | { type: "run:comment"; runId: string; comment: Comment };
 
 export function formatDuration(ms: number): string {
   const seconds = Math.floor(ms / 1000);

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useCallback, useReducer, useState } from "react";
-import type { WsMessage, Run, RunContext, PrdEntry, RunPhase, CompletedStatus, TokenData } from "../types";
+import type { WsMessage, Run, RunContext, PrdEntry, RunPhase, CompletedStatus, TokenData, Comment } from "../types";
 import { isTerminal } from "../types";
 
 export interface StartRunResponse {
@@ -133,6 +133,7 @@ export function useWebSocket() {
   const [connected, setConnected] = useState(false);
   const [loading, setLoading] = useState(true);
   const [progressMap, setProgressMap] = useState<Map<string, string>>(new Map());
+  const [commentsMap, setCommentsMap] = useState<Map<string, Comment[]>>(new Map());
   const onRunEventRef = useRef<RunEventCallback | null>(null);
   const runsRef = useRef(runs);
   runsRef.current = runs;
@@ -266,9 +267,23 @@ export function useWebSocket() {
           case "run:tokens":
             dispatch({ type: "TokensUpdated", runId: msg.runId, tokens: msg.tokens });
             break;
+          case "run:comment":
+            setCommentsMap((prev) => {
+              const next = new Map(prev);
+              const existing = prev.get(msg.runId) ?? [];
+              next.set(msg.runId, [...existing, msg.comment]);
+              return next;
+            });
+            break;
           case "run:deleted":
             dispatch({ type: "RunDeleted", runId: msg.runId });
             setProgressMap((prev) => {
+              if (!prev.has(msg.runId)) return prev;
+              const next = new Map(prev);
+              next.delete(msg.runId);
+              return next;
+            });
+            setCommentsMap((prev) => {
               if (!prev.has(msg.runId)) return prev;
               const next = new Map(prev);
               next.delete(msg.runId);
@@ -326,6 +341,30 @@ export function useWebSocket() {
     } catch {
       // ignore fetch errors
     }
+  }, []);
+
+  const fetchComments = useCallback(async (runId: string) => {
+    try {
+      const res = await fetch(`/api/runs/${runId}/comments`);
+      if (!res.ok) return;
+      const comments: Comment[] = await res.json();
+      setCommentsMap((prev) => {
+        const next = new Map(prev);
+        next.set(runId, comments);
+        return next;
+      });
+    } catch {
+      // ignore fetch errors
+    }
+  }, []);
+
+  const addComment = useCallback(async (runId: string, content: string) => {
+    const res = await fetch(`/api/runs/${runId}/comments`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ content }),
+    });
+    return res.json();
   }, []);
 
   const fetchProgress = useCallback(async (runId: string): Promise<string | null> => {
@@ -399,5 +438,8 @@ export function useWebSocket() {
     fetchRunLogs,
     fetchProgress,
     progressMap,
+    commentsMap,
+    fetchComments,
+    addComment,
   };
 }

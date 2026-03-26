@@ -1,7 +1,7 @@
 import { EventEmitter } from "node:events";
 import { randomUUID } from "node:crypto";
 
-import type { RunContext, Run, RunError, PrdEntry, LogEntry, RunPhase, TokenData } from "../../shared/types";
+import type { RunContext, Run, RunError, PrdEntry, LogEntry, RunPhase, TokenData, Comment } from "../../shared/types";
 import { isTerminal, isCompleted, isRunError } from "../../shared/types";
 import { RunRepository } from "./runRepository";
 import { UnshiftEngine, type EngineRunOptions } from "./engine/orchestrator";
@@ -51,6 +51,16 @@ export class UnshiftRunner extends EventEmitter {
 
   getRunLogsSince(id: string, sinceId: number): { id: number; phase: RunPhase; line: string }[] {
     return this.repository.getRunLogsSince(id, sinceId);
+  }
+
+  addComment(runId: string, content: string): Comment | RunError {
+    const run = this.repository.getRun(runId);
+    if (!run) return { error: "Run not found", code: "NOT_FOUND" };
+    return this.repository.addComment(runId, "user", content);
+  }
+
+  getComments(runId: string): Comment[] {
+    return this.repository.getComments(runId);
   }
 
   /** Discover llm-candidate issues via Jira JQL */

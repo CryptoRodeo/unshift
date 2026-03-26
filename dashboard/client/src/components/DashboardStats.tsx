@@ -61,41 +61,25 @@ export function DashboardStats({ runs, onStatusClick }: DashboardStatsProps) {
   ];
 
   return (
-    <div className="us-stats-grid">
+    <div className="us-stats-bar">
       {items.map((item) => {
         const Icon = item.icon;
         const isClickable = item.filterKey !== null;
         const isZero = item.value === 0;
 
         return (
-          <div
+          <button
             key={item.label}
-            className={`us-stat-card${isClickable ? " us-stat-card--clickable" : ""}`}
-            style={{
-              borderLeftColor: item.color,
-              backgroundColor: `color-mix(in srgb, ${item.color} 5%, transparent)`,
-              opacity: isZero ? 0.5 : 1,
-            }}
+            className={`us-stats-bar__item${isClickable ? " us-stats-bar__item--clickable" : ""}`}
+            style={{ opacity: isZero ? 0.5 : 1 }}
             onClick={isClickable ? () => onStatusClick(item.filterKey!) : undefined}
-            role={isClickable ? "button" : undefined}
-            tabIndex={isClickable ? 0 : undefined}
-            onKeyDown={
-              isClickable
-                ? (e) => {
-                    if (e.key === "Enter" || e.key === " ") {
-                      e.preventDefault();
-                      onStatusClick(item.filterKey!);
-                    }
-                  }
-                : undefined
-            }
+            disabled={!isClickable}
+            type="button"
           >
-            <Icon style={{ color: item.color, fontSize: "16px", flexShrink: 0 }} />
-            <div className="us-stat-card__content">
-              <span className="us-stat-card__value">{item.value}</span>
-              <span className="us-stat-card__label">{item.label}</span>
-            </div>
-          </div>
+            <Icon style={{ color: item.color, fontSize: "13px", flexShrink: 0 }} />
+            <span className="us-stats-bar__value" style={{ color: item.color }}>{item.value}</span>
+            <span className="us-stats-bar__label">{item.label}</span>
+          </button>
         );
       })}
     </div>

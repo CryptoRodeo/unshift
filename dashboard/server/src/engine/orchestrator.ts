@@ -288,6 +288,20 @@ export class UnshiftEngine extends EventEmitter {
 
     // Parse context from the model's final output (JSON block)
     const context = this.parseContextFromText(result.text, issueKey, repoEntry, workDir);
+
+    // Enrich context with additional Jira metadata
+    try {
+      const issue = await this.jira.getIssue(issueKey);
+      if (issue.priority) context.priority = issue.priority;
+      if (issue.labels.length > 0) context.labels = issue.labels;
+      if (issue.status) context.jiraStatus = issue.status;
+      if (issue.assignee) context.assignee = issue.assignee;
+      const host = context.host ?? repoEntry.host;
+      if (host) context.jiraUrl = `https://${host}/browse/${issueKey}`;
+    } catch {
+      // Non-critical — continue without enriched metadata
+    }
+
     this.emit("run:context", runId, context);
 
     // Read prd.json from the repo

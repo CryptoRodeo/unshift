@@ -46,9 +46,18 @@ export function initDb(): Database.Database {
       content TEXT NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS run_comments (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      run_id TEXT NOT NULL REFERENCES runs(id),
+      author TEXT NOT NULL,
+      content TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
     CREATE INDEX IF NOT EXISTS idx_runs_issue_key ON runs(issue_key);
     CREATE INDEX IF NOT EXISTS idx_runs_status ON runs(status);
     CREATE INDEX IF NOT EXISTS idx_run_logs_run_id ON run_logs(run_id);
+    CREATE INDEX IF NOT EXISTS idx_run_comments_run_id ON run_comments(run_id);
   `);
 
   // Migration: add phase_timestamps_json column

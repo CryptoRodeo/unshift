@@ -1,6 +1,6 @@
 import type Database from "better-sqlite3";
 import { getDb } from "./db";
-import type { Run, RunPhase, PrdEntry, LogEntry, TokenData } from "../../shared/types";
+import type { Run, RunPhase, PrdEntry, LogEntry, TokenData, Comment } from "../../shared/types";
 
 export class RunRepository {
   private db: Database.Database | null = null;
@@ -40,6 +40,9 @@ export class RunRepository {
       updatePhaseTimestamps: db.prepare(`UPDATE runs SET phase_timestamps_json = ? WHERE id = ?`),
       getTokens: db.prepare(`SELECT input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens, model FROM runs WHERE id = ?`),
       updateTokens: db.prepare(`UPDATE runs SET input_tokens = ?, output_tokens = ?, cache_read_tokens = ?, cache_creation_tokens = ?, model = ? WHERE id = ?`),
+      insertComment: db.prepare(`INSERT INTO run_comments (run_id, author, content) VALUES (?, ?, ?)`),
+      getComments: db.prepare(`SELECT id, run_id, author, content, created_at FROM run_comments WHERE run_id = ? ORDER BY created_at ASC`),
+      deleteRunComments: db.prepare(`DELETE FROM run_comments WHERE run_id = ?`),
     };
   }
 
@@ -195,11 +198,25 @@ export class RunRepository {
     s.updatePhaseTimestamps.run(JSON.stringify(existing), id);
   }
 
+  addComment(runId: string, author: string, content: string): Comment {
+    const s = this.ensureInit();
+    const result = s.insertComment.run(runId, author, content);
+    const row = this.db!.prepare(`SELECT id, run_id, author, content, created_at FROM run_comments WHERE id = ?`).get(result.lastInsertRowid) as { id: number; run_id: string; author: string; content: string; created_at: string };
+    return { id: row.id, author: row.author, content: row.content, createdAt: row.created_at };
+  }
+
+  getComments(runId: string): Comment[] {
+    const s = this.ensureInit();
+    const rows = s.getComments.all(runId) as { id: number; run_id: string; author: string; content: string; created_at: string }[];
+    return rows.map((r) => ({ id: r.id, author: r.author, content: r.content, createdAt: r.created_at }));
+  }
+
   deleteRun(id: string): boolean {
     const s = this.ensureInit();
     const deleteAll = this.db!.transaction(() => {
       s.deleteRunLogs.run(id);
       s.deleteRunProgress.run(id);
+      s.deleteRunComments.run(id);
       return s.deleteRun.run(id);
     });
     const result = deleteAll();

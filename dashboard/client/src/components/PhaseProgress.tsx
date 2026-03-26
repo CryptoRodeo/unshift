@@ -72,6 +72,16 @@ function getPhaseDuration(
   return undefined;
 }
 
+const PHASE_PROGRESS_ESTIMATE: Record<string, number> = {
+  pending: 0,
+  phase0: 10,
+  phase1: 25,
+  phase2: 55,
+  awaiting_approval: 80,
+  phase3: 92,
+  success: 100,
+};
+
 interface PhaseProgressProps {
   status: RunPhase;
   phaseTimestamps?: Record<string, string>;
@@ -89,8 +99,18 @@ export function PhaseProgress({ status, phaseTimestamps, completedAt, compact = 
     return () => clearInterval(id);
   }, [isActive, phaseTimestamps]);
 
+  const estimatedPercent = isActive ? (PHASE_PROGRESS_ESTIMATE[status] ?? 0) : (isCompleted(status) ? 100 : 0);
+
   return (
     <div className={`us-phase-progress${compact ? " us-phase-progress--compact" : ""}`}>
+      {isActive && !compact && (
+        <div className="us-phase-progress__bar-wrap">
+          <div className="us-phase-progress__bar">
+            <div className="us-phase-progress__bar-fill" style={{ width: `${estimatedPercent}%` }} />
+          </div>
+          <span className="us-phase-progress__bar-label">{estimatedPercent}%</span>
+        </div>
+      )}
       {PHASE_CONFIG.map((p, idx) => {
         const state = getPhaseState(p.key, status);
         const duration = getPhaseDuration(p.key, status, phaseTimestamps, completedAt, now);

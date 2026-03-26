@@ -6,6 +6,8 @@ export interface JiraIssue {
   components: string[];
   labels: string[];
   status: string;
+  priority: string | null;
+  assignee: string | null;
 }
 
 interface JiraConfig {
@@ -102,6 +104,8 @@ interface RawJiraIssue {
     components?: { name: string }[];
     labels?: string[];
     status?: { name?: string };
+    priority?: { name?: string };
+    assignee?: { displayName?: string };
   };
 }
 
@@ -115,6 +119,8 @@ function parseIssue(raw: RawJiraIssue): JiraIssue {
     components: (fields.components ?? []).map((c) => c.name),
     labels: fields.labels ?? [],
     status: fields.status?.name ?? "",
+    priority: fields.priority?.name ?? null,
+    assignee: fields.assignee?.displayName ?? null,
   };
 }
 
@@ -129,7 +135,7 @@ export class JiraClient {
     const { config } = this;
     const params = new URLSearchParams({
       jql,
-      fields: "key,summary,description,issuetype,components,labels,status",
+      fields: "key,summary,description,issuetype,components,labels,status,priority,assignee",
     });
     const searchPath = config.apiVersion === "2" ? "/search" : "/search/jql";
     const url = apiUrl(config, `${searchPath}?${params}`);
@@ -142,7 +148,7 @@ export class JiraClient {
   async getIssue(key: string): Promise<JiraIssue> {
     const { config } = this;
     const params = new URLSearchParams({
-      fields: "summary,description,issuetype,components,labels,status",
+      fields: "summary,description,issuetype,components,labels,status,priority,assignee",
     });
     const url = apiUrl(config, `/issue/${encodeURIComponent(key)}?${params}`);
     const res = await jiraFetch(url, config);

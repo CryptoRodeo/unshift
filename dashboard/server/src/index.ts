@@ -235,6 +235,25 @@ app.post("/api/runs/:id/retry", async (req, res) => {
   }
 });
 
+app.get("/api/runs/:id/comments", (req, res) => {
+  res.json(runner.getComments(req.params.id));
+});
+
+app.post("/api/runs/:id/comments", (req, res) => {
+  const { content } = req.body ?? {};
+  if (!content || typeof content !== "string" || content.trim().length === 0) {
+    res.status(400).json({ error: "Content is required", code: "BAD_REQUEST" });
+    return;
+  }
+  const result = runner.addComment(req.params.id, content.trim());
+  if (isRunError(result)) {
+    res.status(ERROR_CODE_TO_STATUS[result.code]).json(result);
+  } else {
+    broadcast({ type: "run:comment", runId: req.params.id, comment: result });
+    res.json(result);
+  }
+});
+
 interface ReposYamlEntry {
   repo_url: string;
   local_dir: string;

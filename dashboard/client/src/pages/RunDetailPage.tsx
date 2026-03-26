@@ -9,7 +9,6 @@ import {
   RedoIcon,
   TrashIcon,
   ExternalLinkAltIcon,
-  InfoCircleIcon,
   HistoryIcon,
   TimesIcon,
   ExclamationTriangleIcon,
@@ -18,13 +17,11 @@ import {
 } from "@patternfly/react-icons";
 import { useWebSocket } from "../hooks/useWebSocket";
 import { useHeaderContext } from "../hooks/useHeaderContext";
-import { isTerminal, isCompleted, isRunError } from "../types";
-import type { Run } from "../types";
+import { isTerminal, isCompleted, isRunError, formatDuration } from "../types";
+import type { Run, RunPhase } from "../types";
 import { PhaseProgress } from "../components/PhaseProgress";
 import { StatusLabel } from "../components/StatusLabel";
-import { RunContextCard } from "../components/RunContextCard";
-import { PrdStatusCard } from "../components/PrdStatusCard";
-import { RunLogsCard } from "../components/RunLogsCard";
+import { ActivityFeed } from "../components/ActivityFeed";
 
 function ConfirmModal({ title, message, confirmLabel, confirmVariant, onConfirm, onCancel }: {
   title: string;
@@ -68,10 +65,68 @@ function inferProvider(
   return undefined;
 }
 
+const PHASE_LABELS: Record<string, string> = {
+  phase0: "Pre-flight",
+  phase1: "Planning",
+  phase2: "Implementation",
+  awaiting_approval: "Approval",
+  phase3: "Delivery",
+};
+
+function PhaseTimingBreakdown({ phaseTimestamps }: { phaseTimestamps: Record<string, string> }) {
+  const entries = Object.entries(phaseTimestamps).sort(
+    (a, b) => new Date(a[1]).getTime() - new Date(b[1]).getTime()
+  );
+  if (entries.length < 2) return null;
+
+  const durations: { label: string; ms: number }[] = [];
+  for (let i = 0; i < entries.length - 1; i++) {
+    const [phase] = entries[i];
+    const start = new Date(entries[i][1]).getTime();
+    const end = new Date(entries[i + 1][1]).getTime();
+    const ms = end - start;
+    if (ms > 0) {
+      durations.push({ label: PHASE_LABELS[phase] || phase, ms });
+    }
+  }
+
+  return (
+    <>
+      {durations.map((d) => (
+        <div key={d.label} className="us-detail-sidebar__section">
+          <span className="us-detail-sidebar__label">{d.label}</span>
+          <span className="us-detail-sidebar__value us-detail-sidebar__mono">{formatDuration(d.ms)}</span>
+        </div>
+      ))}
+    </>
+  );
+}
+
+function DescriptionPreview({ text }: { text: string }) {
+  const [expanded, setExpanded] = useState(false);
+  const lines = text.split("\n");
+  const isLong = lines.length > 3;
+  const preview = isLong && !expanded ? lines.slice(0, 3).join("\n") + "..." : text;
+
+  return (
+    <div className="us-detail-sidebar__desc-preview">
+      <span className="us-detail-sidebar__value">{preview}</span>
+      {isLong && (
+        <button
+          className="us-detail-sidebar__desc-toggle"
+          onClick={() => setExpanded((v) => !v)}
+        >
+          {expanded ? "Show less" : "Show more"}
+        </button>
+      )}
+    </div>
+  );
+}
+
 export function RunDetailPage() {
   const { runId } = useParams<{ runId: string }>();
   const navigate = useNavigate();
-  const { runs, loading, connected, stopRun, approveRun, rejectRun, retryRun, deleteRun, fetchEditorInfo, fetchRunLogs, fetchProgress, fetchRunHistory, progressMap, startRunForIssue } = useWebSocket();
+  const { runs, loading, connected, stopRun, approveRun, rejectRun, retryRun, deleteRun, fetchEditorInfo, fetchRunLogs, fetchRunHistory, startRunForIssue, commentsMap, fetchComments, addComment, progressMap } = useWebSocket();
   const headerCtx = useHeaderContext();
 
   useEffect(() => {
@@ -92,9 +147,7 @@ export function RunDetailPage() {
   const [editorError, setEditorError] = useState<string | null>(null);
   const [editorInfo, setEditorInfo] = useState<{ localDir: string; branchName: string | null; gitCommand: string | null } | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
-  const [progress, setProgress] = useState<string | null>(null);
   const [runHistory, setRunHistory] = useState<Run[]>([]);
-  const [showMetadata, setShowMetadata] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   const [confirmAction, setConfirmAction] = useState<"approve" | "reject" | null>(null);
   const [rerunModal, setRerunModal] = useState<"retry" | "rerun" | null>(null);
@@ -129,21 +182,9 @@ export function RunDetailPage() {
   useEffect(() => {
     if (runId && runLoaded) {
       fetchRunLogs(runId);
+      fetchComments(runId);
     }
-  }, [runId, runLoaded, fetchRunLogs]);
-
-  useEffect(() => {
-    if (runId) {
-      fetchProgress(runId).then((content) => setProgress(content));
-    }
-  }, [runId, fetchProgress]);
-
-  useEffect(() => {
-    if (runId) {
-      const wsProgress = progressMap.get(runId);
-      if (wsProgress) setProgress(wsProgress);
-    }
-  }, [runId, progressMap]);
+  }, [runId, runLoaded, fetchRunLogs, fetchComments]);
 
   useEffect(() => {
     if (run?.issueKey) {
@@ -347,16 +388,6 @@ export function RunDetailPage() {
               </Tooltip>
             )}
 
-            <Tooltip content={showMetadata ? "Hide details" : "Show details"}>
-              <button
-                className={`us-detail-subheader__icon-btn ${showMetadata ? "us-detail-subheader__icon-btn--active" : ""}`}
-                onClick={() => setShowMetadata((v) => !v)}
-                aria-label="Toggle details"
-              >
-                <InfoCircleIcon />
-              </button>
-            </Tooltip>
-
             {runHistory.length > 1 && (
               <Tooltip content="Run history">
                 <button
@@ -383,63 +414,6 @@ export function RunDetailPage() {
           )}
         </div>
 
-        {/* Collapsible metadata row */}
-        {showMetadata && (
-          <div className="us-detail-metadata">
-            <div className="us-detail-metadata__item">
-              <span className="us-detail-metadata__label">Run ID</span>
-              <code className="us-detail-metadata__value">{run.issueKey || run.id}</code>
-            </div>
-            <div className="us-detail-metadata__item">
-              <span className="us-detail-metadata__label">Started</span>
-              <span className="us-detail-metadata__value">{new Date(run.startedAt).toLocaleString()}</span>
-            </div>
-            {run.repoPath && (
-              <div className="us-detail-metadata__item">
-                <span className="us-detail-metadata__label">Repository</span>
-                <code className="us-detail-metadata__value">{run.repoPath}</code>
-              </div>
-            )}
-            {run.branchName && (
-              <div className="us-detail-metadata__item">
-                <span className="us-detail-metadata__label">Branch</span>
-                <code className="us-detail-metadata__value">{run.branchName}</code>
-              </div>
-            )}
-            {run.prUrl && (
-              <div className="us-detail-metadata__item">
-                <span className="us-detail-metadata__label">Pull Request</span>
-                <a href={run.prUrl} target="_blank" rel="noreferrer" className="us-detail-metadata__value us-detail-metadata__link">{run.prUrl}</a>
-              </div>
-            )}
-            {run.tokens?.model && (
-              <div className="us-detail-metadata__item">
-                <span className="us-detail-metadata__label">Model</span>
-                <code className="us-detail-metadata__value">{run.tokens.model}</code>
-              </div>
-            )}
-            {run.retryCount != null && run.retryCount > 0 && (
-              <div className="us-detail-metadata__item">
-                <span className="us-detail-metadata__label">Retry</span>
-                <span className="us-detail-metadata__value">
-                  #{run.retryCount}
-                  {run.sourceRunId && (
-                    <>
-                      {" from "}
-                      {runs.has(run.sourceRunId) ? (
-                        <a href={`/runs/${run.sourceRunId}`} onClick={(e) => { e.preventDefault(); navigate(`/runs/${run.sourceRunId}`); }}>
-                          {run.sourceRunId.slice(0, 8)}
-                        </a>
-                      ) : (
-                        <span>{run.sourceRunId.slice(0, 8)} (deleted)</span>
-                      )}
-                    </>
-                  )}
-                </span>
-              </div>
-            )}
-          </div>
-        )}
       </div>
 
       {/* Error alerts */}
@@ -452,82 +426,242 @@ export function RunDetailPage() {
         </div>
       )}
 
-      {/* Single-column stacked layout */}
-      <div className="us-detail-content">
-        {/* Phase Progress — full width */}
-        <section className="us-detail-section">
-          <PhaseProgress status={run.status} phaseTimestamps={run.phaseTimestamps} completedAt={run.completedAt} />
-        </section>
+      {/* Two-panel layout */}
+      <div className="us-detail-panels">
+        {/* Center content area */}
+        <div className="us-detail-main">
+          {/* Issue summary & description */}
+          {run.context && (
+            <section className="us-detail-section us-detail-description">
+              <h2 className="us-detail-description__summary">{run.context.summary}</h2>
+              {run.context.description && (
+                <p className="us-detail-description__body">{run.context.description}</p>
+              )}
+            </section>
+          )}
 
-        {/* Approval banner */}
-        {run.status === "awaiting_approval" && (
-          <section className="us-detail-section us-approval-banner us-approval-banner--pulse">
-            <div className="us-approval-banner__content">
-              <div className="us-approval-banner__header">
-                <ExclamationTriangleIcon className="us-approval-banner__icon" />
-                <div className="us-approval-banner__text">
-                  <strong>Approval Required</strong>
-                  <p>Implementation is complete. Review the changes before proceeding to create a PR.</p>
+          {/* Phase Progress */}
+          <section className="us-detail-section">
+            <PhaseProgress status={run.status} phaseTimestamps={run.phaseTimestamps} completedAt={run.completedAt} />
+          </section>
+
+          {/* Approval banner */}
+          {run.status === "awaiting_approval" && (
+            <section className="us-detail-section us-approval-banner us-approval-banner--pulse">
+              <div className="us-approval-banner__content">
+                <div className="us-approval-banner__header">
+                  <ExclamationTriangleIcon className="us-approval-banner__icon" />
+                  <div className="us-approval-banner__text">
+                    <strong>Approval Required</strong>
+                    <p>Implementation is complete. Review the changes before proceeding to create a PR.</p>
+                  </div>
+                </div>
+                <div className="us-approval-banner__actions">
+                  <button className="us-btn us-btn--primary" onClick={() => setConfirmAction("approve")}>
+                    Approve &amp; Create PR
+                  </button>
+                  <button className="us-btn us-btn--danger" onClick={() => setConfirmAction("reject")}>
+                    Reject
+                  </button>
+                  <span className="us-approval-banner__shortcuts">
+                    Press <kbd>A</kbd> to approve · <kbd>R</kbd> to reject
+                  </span>
                 </div>
               </div>
-              <div className="us-approval-banner__actions">
-                <button className="us-btn us-btn--primary" onClick={() => setConfirmAction("approve")}>
-                  Approve &amp; Create PR
-                </button>
-                <button className="us-btn us-btn--danger" onClick={() => setConfirmAction("reject")}>
-                  Reject
-                </button>
-                <span className="us-approval-banner__shortcuts">
-                  Press <kbd>A</kbd> to approve · <kbd>R</kbd> to reject
+            </section>
+          )}
+
+          {/* Activity Feed — unified timeline replacing separate logs, PRD, and progress sections */}
+          <section className="us-detail-section us-detail-section--fill">
+            <ActivityFeed
+              run={run}
+              modelName={run.tokens?.model}
+              comments={commentsMap.get(run.id)}
+              onAddComment={(content) => addComment(run.id, content)}
+              progressText={progressMap.get(run.id)}
+            />
+          </section>
+        </div>
+
+        {/* Right metadata sidebar */}
+        <aside className="us-detail-sidebar">
+          {/* STATUS */}
+          <div className="us-detail-sidebar__group">
+            <h3 className="us-detail-sidebar__group-header">Status</h3>
+            <div className="us-detail-sidebar__section">
+              <div className="us-detail-sidebar__value">
+                <StatusLabel status={run.status} />
+              </div>
+            </div>
+            {run.tokens?.model && (
+              <div className="us-detail-sidebar__section">
+                <span className="us-detail-sidebar__label">Model</span>
+                <code className="us-detail-sidebar__value us-detail-sidebar__code">{run.tokens.model}</code>
+              </div>
+            )}
+            {run.retryCount != null && run.retryCount > 0 && (
+              <div className="us-detail-sidebar__section">
+                <span className="us-detail-sidebar__label">Retry</span>
+                <span className="us-detail-sidebar__value">
+                  #{run.retryCount}
+                  {run.sourceRunId && (
+                    <>
+                      {" from "}
+                      {runs.has(run.sourceRunId) ? (
+                        <a href={`/runs/${run.sourceRunId}`} className="us-detail-sidebar__link" onClick={(e) => { e.preventDefault(); navigate(`/runs/${run.sourceRunId}`); }}>
+                          {run.sourceRunId.slice(0, 8)}
+                        </a>
+                      ) : (
+                        <span>{run.sourceRunId.slice(0, 8)} (deleted)</span>
+                      )}
+                    </>
+                  )}
                 </span>
               </div>
-              {run.logs.length > 0 && (
-                <details className="us-approval-banner__details">
-                  <summary>View recent output</summary>
-                  <pre className="us-approval-banner__logs">
-                    {run.logs
-                      .filter((l) => l.phase === "phase2")
-                      .slice(-20)
-                      .map((l) => l.line)
-                      .join("\n")}
-                  </pre>
-                </details>
+            )}
+          </div>
+
+          {/* TICKET */}
+          {run.context && (
+            <div className="us-detail-sidebar__group">
+              <h3 className="us-detail-sidebar__group-header">Ticket</h3>
+              {run.context.issueType && (
+                <div className="us-detail-sidebar__section">
+                  <span className="us-detail-sidebar__label">Type</span>
+                  <span className="us-detail-sidebar__value us-detail-sidebar__issue-type">{run.context.issueType}</span>
+                </div>
+              )}
+              <div className="us-detail-sidebar__section">
+                <span className="us-detail-sidebar__label">Key</span>
+                {(run.context.jiraUrl || run.context.host) ? (
+                  <a
+                    href={run.context.jiraUrl ?? `https://${run.context.host}/browse/${run.context.issueKey}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="us-detail-sidebar__value us-detail-sidebar__link"
+                  >
+                    {run.context.issueKey}
+                  </a>
+                ) : (
+                  <span className="us-detail-sidebar__value">{run.context.issueKey}</span>
+                )}
+              </div>
+              {run.context.jiraStatus && (
+                <div className="us-detail-sidebar__section">
+                  <span className="us-detail-sidebar__label">Status</span>
+                  <span className="us-detail-sidebar__value">{run.context.jiraStatus}</span>
+                </div>
+              )}
+              {run.context.priority && (
+                <div className="us-detail-sidebar__section">
+                  <span className="us-detail-sidebar__label">Priority</span>
+                  <span className={`us-detail-sidebar__value us-detail-sidebar__priority us-detail-sidebar__priority--${run.context.priority.toLowerCase()}`}>{run.context.priority}</span>
+                </div>
+              )}
+              {run.context.assignee && (
+                <div className="us-detail-sidebar__section">
+                  <span className="us-detail-sidebar__label">Assignee</span>
+                  <span className="us-detail-sidebar__value">{run.context.assignee}</span>
+                </div>
+              )}
+              {run.context.labels && run.context.labels.length > 0 && (
+                <div className="us-detail-sidebar__section">
+                  <span className="us-detail-sidebar__label">Labels</span>
+                  <span className="us-detail-sidebar__value us-detail-sidebar__labels">
+                    {run.context.labels.map((label) => (
+                      <span key={label} className="us-detail-sidebar__label-tag">{label}</span>
+                    ))}
+                  </span>
+                </div>
+              )}
+              {run.context.description && (
+                <div className="us-detail-sidebar__section">
+                  <span className="us-detail-sidebar__label">Description</span>
+                  <DescriptionPreview text={run.context.description} />
+                </div>
               )}
             </div>
-          </section>
-        )}
+          )}
 
-        {/* Context Card — full width */}
-        {run.context && (
-          <section className="us-detail-section">
-            <RunContextCard context={run.context} />
-          </section>
-        )}
-
-        {/* PRD Card — full width, collapsible */}
-        {run.prd.length > 0 && (
-          <section className="us-detail-section">
-            <PrdStatusCard entries={run.prd} />
-          </section>
-        )}
-
-        {/* Progress */}
-        {progress && (
-          <section className="us-detail-section">
-            <div className="us-detail-card">
-              <h3 className="us-detail-card__title">Progress</h3>
-              <pre className="us-detail-card__pre">{progress}</pre>
+          {/* GIT */}
+          {(run.repoPath || run.branchName || run.prUrl) && (
+            <div className="us-detail-sidebar__group">
+              <h3 className="us-detail-sidebar__group-header">Git</h3>
+              {run.repoPath && (
+                <div className="us-detail-sidebar__section">
+                  <span className="us-detail-sidebar__label">Repository</span>
+                  <code className="us-detail-sidebar__value us-detail-sidebar__code">{run.repoPath}</code>
+                </div>
+              )}
+              {run.branchName && (
+                <div className="us-detail-sidebar__section">
+                  <span className="us-detail-sidebar__label">Branch</span>
+                  <code className="us-detail-sidebar__value us-detail-sidebar__code">{run.branchName}</code>
+                </div>
+              )}
+              {run.prUrl && (
+                <div className="us-detail-sidebar__section">
+                  <span className="us-detail-sidebar__label">Pull Request</span>
+                  <a href={run.prUrl} target="_blank" rel="noreferrer" className="us-detail-sidebar__value us-detail-sidebar__link">
+                    {run.prUrl.replace(/^https?:\/\/[^/]+\//, "")}
+                  </a>
+                </div>
+              )}
             </div>
-          </section>
-        )}
+          )}
 
-        {/* Logs */}
-        <section className="us-detail-section us-detail-section--fill">
-          <RunLogsCard
-            logs={run.logs}
-            status={run.status}
-          />
-        </section>
+          {/* USAGE */}
+          {run.tokens && (
+            <div className="us-detail-sidebar__group">
+              <h3 className="us-detail-sidebar__group-header">Usage</h3>
+              <div className="us-detail-sidebar__section">
+                <span className="us-detail-sidebar__label">Input Tokens</span>
+                <span className="us-detail-sidebar__value us-detail-sidebar__mono">{run.tokens.inputTokens.toLocaleString()}</span>
+              </div>
+              <div className="us-detail-sidebar__section">
+                <span className="us-detail-sidebar__label">Output Tokens</span>
+                <span className="us-detail-sidebar__value us-detail-sidebar__mono">{run.tokens.outputTokens.toLocaleString()}</span>
+              </div>
+              {run.tokens.cacheReadTokens > 0 && (
+                <div className="us-detail-sidebar__section">
+                  <span className="us-detail-sidebar__label">Cache Read</span>
+                  <span className="us-detail-sidebar__value us-detail-sidebar__mono">{run.tokens.cacheReadTokens.toLocaleString()}</span>
+                </div>
+              )}
+              {run.tokens.cacheCreationTokens > 0 && (
+                <div className="us-detail-sidebar__section">
+                  <span className="us-detail-sidebar__label">Cache Creation</span>
+                  <span className="us-detail-sidebar__value us-detail-sidebar__mono">{run.tokens.cacheCreationTokens.toLocaleString()}</span>
+                </div>
+              )}
+              <div className="us-detail-sidebar__section us-detail-sidebar__total">
+                <span className="us-detail-sidebar__label">Total</span>
+                <span className="us-detail-sidebar__value us-detail-sidebar__mono">
+                  {(run.tokens.inputTokens + run.tokens.outputTokens + run.tokens.cacheReadTokens + run.tokens.cacheCreationTokens).toLocaleString()}
+                </span>
+              </div>
+            </div>
+          )}
+
+          {/* TIMING */}
+          <div className="us-detail-sidebar__group">
+            <h3 className="us-detail-sidebar__group-header">Timing</h3>
+            <div className="us-detail-sidebar__section">
+              <span className="us-detail-sidebar__label">Started</span>
+              <span className="us-detail-sidebar__value">{new Date(run.startedAt).toLocaleString()}</span>
+            </div>
+            <div className="us-detail-sidebar__section">
+              <span className="us-detail-sidebar__label">Duration</span>
+              <span className="us-detail-sidebar__value">
+                {formatDuration(
+                  (run.completedAt ? new Date(run.completedAt).getTime() : Date.now()) -
+                  new Date(run.startedAt).getTime()
+                )}
+              </span>
+            </div>
+            {run.phaseTimestamps && <PhaseTimingBreakdown phaseTimestamps={run.phaseTimestamps} />}
+          </div>
+        </aside>
       </div>
 
       {/* History Drawer — slides in from right */}
