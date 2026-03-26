@@ -63,30 +63,49 @@ async function jiraFetch(url: string, config: JiraConfig, options?: RequestInit)
   return res;
 }
 
+/** Minimal shape for an Atlassian Document Format node */
+interface AdfNode {
+  text?: string;
+  content?: AdfNode[];
+}
+
 function extractDescription(description: unknown): string | null {
   if (!description) return null;
   if (typeof description === "string") return description;
   // ADF format (API v3) — extract text nodes
   if (typeof description === "object" && description !== null && "content" in description) {
     const texts: string[] = [];
-    function walk(node: any): void {
+    function walk(node: AdfNode): void {
       if (node.text) texts.push(node.text);
       if (Array.isArray(node.content)) node.content.forEach(walk);
     }
-    walk(description);
+    walk(description as AdfNode);
     return texts.join("") || null;
   }
   return null;
 }
 
-function parseIssue(raw: any): JiraIssue {
+/** Raw shape returned by the Jira REST API for a single issue */
+interface RawJiraIssue {
+  key: string;
+  fields?: {
+    summary?: string;
+    description?: unknown;
+    issuetype?: { name?: string };
+    components?: { name: string }[];
+    labels?: string[];
+    status?: { name?: string };
+  };
+}
+
+function parseIssue(raw: RawJiraIssue): JiraIssue {
   const fields = raw.fields ?? {};
   return {
     key: raw.key,
     summary: fields.summary ?? "",
     description: extractDescription(fields.description),
     issueType: fields.issuetype?.name ?? "",
-    components: (fields.components ?? []).map((c: any) => c.name),
+    components: (fields.components ?? []).map((c) => c.name),
     labels: fields.labels ?? [],
     status: fields.status?.name ?? "",
   };
@@ -109,7 +128,7 @@ export class JiraClient {
     const url = apiUrl(config, `${searchPath}?${params}`);
 
     const res = await jiraFetch(url, config);
-    const data = await res.json() as any;
+    const data = (await res.json()) as { issues?: RawJiraIssue[] };
     return (data.issues ?? []).map(parseIssue);
   }
 
@@ -120,7 +139,7 @@ export class JiraClient {
     });
     const url = apiUrl(config, `/issue/${encodeURIComponent(key)}?${params}`);
     const res = await jiraFetch(url, config);
-    const data = await res.json() as any;
+    const data = (await res.json()) as RawJiraIssue;
     return parseIssue(data);
   }
 
@@ -128,13 +147,13 @@ export class JiraClient {
     const { config } = this;
     const transUrl = apiUrl(config, `/issue/${encodeURIComponent(key)}/transitions`);
     const res = await jiraFetch(transUrl, config);
-    const data = await res.json() as any;
+    const data = (await res.json()) as { transitions?: { id: string; name: string }[] };
 
     const transition = (data.transitions ?? []).find(
-      (t: any) => t.name.toLowerCase() === transitionName.toLowerCase()
+      (t) => t.name.toLowerCase() === transitionName.toLowerCase()
     );
     if (!transition) {
-      const available = (data.transitions ?? []).map((t: any) => t.name).join(", ");
+      const available = (data.transitions ?? []).map((t) => t.name).join(", ");
       throw new Error(`Transition "${transitionName}" not found for ${key}. Available: ${available}`);
     }
 
