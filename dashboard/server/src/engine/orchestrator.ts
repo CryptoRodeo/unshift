@@ -25,6 +25,10 @@ import { readFile as toolReadFile, execCommand } from "./tools.js";
 
 const WORKSPACE_DIR = process.env.WORKSPACE_DIR || "/app/workspace";
 
+function isEnoent(err: unknown): boolean {
+  return err instanceof Error && "code" in err && (err as NodeJS.ErrnoException).code === "ENOENT";
+}
+
 export interface EngineRunOptions {
   model: LanguageModel;
   signal: AbortSignal;
@@ -433,9 +437,7 @@ export class UnshiftEngine extends EventEmitter {
     } catch (err: unknown) {
       // ENOENT means the file doesn't exist yet — expected before phase 1 writes it.
       // Any other error (permission denied, I/O failure) should propagate.
-      if (err instanceof Error && "code" in err && (err as NodeJS.ErrnoException).code === "ENOENT") {
-        return [];
-      }
+      if (isEnoent(err)) return [];
       throw err;
     }
     try {
@@ -449,9 +451,7 @@ export class UnshiftEngine extends EventEmitter {
     try {
       return await toolReadFile("progress.txt", repoPath);
     } catch (err: unknown) {
-      if (err instanceof Error && "code" in err && (err as NodeJS.ErrnoException).code === "ENOENT") {
-        return null;
-      }
+      if (isEnoent(err)) return null;
       throw err;
     }
   }
