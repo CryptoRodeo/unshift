@@ -1045,12 +1045,14 @@ body {
   color: #d1242f;
 }
 
-.us-detail-subheader__icon-btn:disabled {
+.us-detail-subheader__icon-btn:disabled,
+.us-detail-subheader__icon-btn--disabled {
   opacity: 0.4;
   cursor: not-allowed;
 }
 
-.us-detail-subheader__icon-btn:disabled:hover {
+.us-detail-subheader__icon-btn:disabled:hover,
+.us-detail-subheader__icon-btn--disabled:hover {
   background: transparent;
   color: var(--us-text-secondary);
 }

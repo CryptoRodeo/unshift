@@ -12,8 +12,6 @@ import {
   HistoryIcon,
   TimesIcon,
   ExclamationTriangleIcon,
-  CopyIcon,
-  CheckIcon,
 } from "@patternfly/react-icons";
 import { useWebSocketContext } from "../hooks/useWebSocket";
 import { useHeaderContext } from "../hooks/useHeaderContext";
@@ -98,7 +96,7 @@ function PhaseTimingBreakdown({ phaseTimestamps }: { phaseTimestamps: Record<str
 export function RunDetailPage() {
   const { runId } = useParams<{ runId: string }>();
   const navigate = useNavigate();
-  const { runs, loading, connected, stopRun, approveRun, rejectRun, retryRun, deleteRun, fetchEditorInfo, fetchRunLogs, fetchRunHistory, startRunForIssue, commentsMap, fetchComments, addComment, progressMap } = useWebSocketContext();
+  const { runs, loading, connected, stopRun, approveRun, rejectRun, retryRun, deleteRun, fetchRepoUrl, fetchRunLogs, fetchRunHistory, startRunForIssue, commentsMap, fetchComments, addComment, progressMap } = useWebSocketContext();
   const headerCtx = useHeaderContext();
 
   useEffect(() => {
@@ -116,9 +114,7 @@ export function RunDetailPage() {
   const [approveError, setApproveError] = useState<string | null>(null);
   const [retryError, setRetryError] = useState<string | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
-  const [editorError, setEditorError] = useState<string | null>(null);
-  const [editorInfo, setEditorInfo] = useState<{ localDir: string; branchName: string | null; gitCommand: string | null } | null>(null);
-  const [copied, setCopied] = useState<string | null>(null);
+  const [repoUrl, setRepoUrl] = useState<string | null>(null);
   const [runHistory, setRunHistory] = useState<Run[]>([]);
   const [showHistory, setShowHistory] = useState(false);
   const [confirmAction, setConfirmAction] = useState<"approve" | "reject" | null>(null);
@@ -203,6 +199,11 @@ export function RunDetailPage() {
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
   }, [run?.status, confirmAction]);
+
+  useEffect(() => {
+    if (!run?.repoPath) return;
+    fetchRepoUrl(run.id).then((data) => setRepoUrl(data.repoUrl)).catch(() => {});
+  }, [run?.id, run?.repoPath, fetchRepoUrl]);
 
   if (!run && loading) {
     return (
@@ -315,22 +316,6 @@ export function RunDetailPage() {
     if (match) setModalModel(match.defaultModel);
   };
 
-  const handleOpenEditor = async () => {
-    setEditorError(null);
-    try {
-      const info = await fetchEditorInfo(run.id);
-      setEditorInfo(info);
-    } catch (err) {
-      setEditorError(err instanceof Error ? err.message : "Failed to get editor info");
-    }
-  };
-
-  const handleCopy = (text: string, label: string) => {
-    navigator.clipboard.writeText(text);
-    setCopied(label);
-    setTimeout(() => setCopied(null), 2000);
-  };
-
   const jiraIssueUrl = (jiraBaseUrl && run.issueKey ? `${jiraBaseUrl.replace(/\/+$/, "")}/browse/${run.issueKey}` : null)
     ?? run.context?.jiraUrl;
 
@@ -376,10 +361,18 @@ export function RunDetailPage() {
           {/* Secondary icon buttons */}
           <div className="us-detail-subheader__secondary">
             {run.repoPath && (
-              <Tooltip content="Open Locally">
-                <button className="us-detail-subheader__icon-btn" onClick={handleOpenEditor} aria-label="Open Locally">
+              <Tooltip content={repoUrl ? "Open Repository" : "Repository URL not available"}>
+                <a
+                  className={`us-detail-subheader__icon-btn${repoUrl ? "" : " us-detail-subheader__icon-btn--disabled"}`}
+                  href={repoUrl ?? undefined}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  aria-label="Open Repository"
+                  aria-disabled={!repoUrl}
+                  onClick={repoUrl ? undefined : (e) => e.preventDefault()}
+                >
                   <ExternalLinkAltIcon />
-                </button>
+                </a>
               </Tooltip>
             )}
 
@@ -428,11 +421,10 @@ export function RunDetailPage() {
       </div>
 
       {/* Error alerts */}
-      {(retryError || editorError || deleteError || approveError) && (
+      {(retryError || deleteError || approveError) && (
         <div className="us-detail-alerts">
           {approveError && <Alert variant="danger" title="Approval failed" isInline>{approveError}</Alert>}
           {retryError && <Alert variant="danger" title="Retry failed" isInline>{retryError}</Alert>}
-          {editorError && <Alert variant="danger" title="Failed to get editor info" isInline>{editorError}</Alert>}
           {deleteError && <Alert variant="danger" title="Delete failed" isInline>{deleteError}</Alert>}
         </div>
       )}
@@ -742,46 +734,6 @@ export function RunDetailPage() {
         </div>
       )}
 
-      {editorInfo && (
-        <div className="us-modal-overlay" onClick={() => setEditorInfo(null)}>
-          <div className="us-modal" onClick={(e) => e.stopPropagation()}>
-            <div className="us-modal__header">
-              <h3 className="us-modal__title">Open Locally</h3>
-              <button className="us-modal__close" onClick={() => setEditorInfo(null)} aria-label="Close">
-                <TimesIcon />
-              </button>
-            </div>
-            <div className="us-modal__body">
-              <label className="us-modal__label">Local path</label>
-              <div className="us-modal__copyable">
-                <code className="us-modal__code">{editorInfo.localDir}</code>
-                <button
-                  className="us-modal__copy-btn"
-                  onClick={() => handleCopy(editorInfo.localDir, "path")}
-                  aria-label="Copy path"
-                >
-                  {copied === "path" ? <CheckIcon /> : <CopyIcon />}
-                </button>
-              </div>
-              {editorInfo.gitCommand && (
-                <>
-                  <label className="us-modal__label">Checkout branch</label>
-                  <div className="us-modal__copyable">
-                    <code className="us-modal__code">{editorInfo.gitCommand}</code>
-                    <button
-                      className="us-modal__copy-btn"
-                      onClick={() => handleCopy(editorInfo.gitCommand ?? "", "git")}
-                      aria-label="Copy git command"
-                    >
-                      {copied === "git" ? <CheckIcon /> : <CopyIcon />}
-                    </button>
-                  </div>
-                </>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
 
       {showHistory && runHistory.length > 1 && (
         <div className="us-drawer-overlay" onClick={() => setShowHistory(false)}>

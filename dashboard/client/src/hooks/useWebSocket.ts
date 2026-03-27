@@ -1,7 +1,7 @@
 import { createElement, createContext, useContext, useEffect, useRef, useCallback, useReducer, useState } from "react";
 import type { ReactNode } from "react";
 import type { WsMessage, Run, RunContext, PrdEntry, RunPhase, CompletedStatus, TokenData, Comment, RunError } from "../types";
-import { isTerminal } from "../types";
+import { isTerminal, isRunError } from "../types";
 
 export interface StartRunResponse {
   runs: Run[];
@@ -411,13 +411,13 @@ export function useWebSocket() {
     return data;
   }, []);
 
-  const fetchEditorInfo = useCallback(async (runId: string) => {
-    const res = await fetch(`/api/runs/${runId}/editor-info`);
+  const fetchRepoUrl = useCallback(async (runId: string) => {
+    const res = await fetch(`/api/runs/${runId}/repo-url`);
     const data = await res.json();
     if (!res.ok) {
-      throw new Error(data.error || "Failed to get editor info");
+      throw new Error(data.error || "Failed to get repo URL");
     }
-    return data as { localDir: string; branchName: string | null; gitCommand: string | null };
+    return data as { repoUrl: string };
   }, []);
 
   const setOnRunEvent = useCallback((cb: RunEventCallback | null) => {
@@ -444,7 +444,7 @@ export function useWebSocket() {
     rejectRun,
     retryRun,
     deleteRun,
-    fetchEditorInfo,
+    fetchRepoUrl,
     setOnRunEvent,
     fetchRunHistory,
     fetchRunLogs,

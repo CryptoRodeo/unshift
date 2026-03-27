@@ -347,17 +347,27 @@ function loadReposYaml(): ReposYamlEntry[] {
   );
 }
 
-function resolveLocalDir(repoPath: string): string | undefined {
+function resolveRepoEntry(repoPath: string): ReposYamlEntry | undefined {
   const repos = loadReposYaml();
-  const repoBasename = path.basename(repoPath);
-  const entry = repos.find((r) => {
+  // Strip .worktrees/<id> suffix so worktree paths resolve to the parent repo
+  const normalized = repoPath.replace(/\/\.worktrees\/[^/]+\/?$/, "");
+  const repoBasename = path.basename(normalized);
+  return repos.find((r) => {
     const localBasename = path.basename(r.local_dir.replace(/\/+$/, ""));
     return localBasename === repoBasename;
   });
-  return entry?.local_dir;
 }
 
-app.get("/api/runs/:id/editor-info", (req, res) => {
+/** Convert a git clone URL (https or ssh) to a browsable HTTPS URL */
+function toBrowsableUrl(repoUrl: string): string {
+  // Handle ssh: git@github.com:org/repo.git → https://github.com/org/repo
+  const sshMatch = repoUrl.match(/^git@([^:]+):(.+?)(?:\.git)?$/);
+  if (sshMatch) return `https://${sshMatch[1]}/${sshMatch[2]}`;
+  // Handle https: strip trailing .git
+  return repoUrl.replace(/\.git$/, "");
+}
+
+app.get("/api/runs/:id/repo-url", (req, res) => {
   try {
     const run = runner.getRun(req.params.id);
     if (!run) {
@@ -368,18 +378,16 @@ app.get("/api/runs/:id/editor-info", (req, res) => {
       res.status(400).json({ error: "Run has no repo path yet", code: "BAD_REQUEST" });
       return;
     }
-    const localDir = resolveLocalDir(run.repoPath);
-    if (!localDir) {
-      res.status(400).json({ error: "Could not resolve local directory from repos.yaml", code: "BAD_REQUEST" });
+    const entry = resolveRepoEntry(run.repoPath);
+    if (!entry) {
+      res.status(400).json({ error: "Could not resolve repository from repos.yaml", code: "BAD_REQUEST" });
       return;
     }
-    const gitCommand = run.branchName
-      ? `cd '${localDir.replace(/'/g, "'\\''")}' && git fetch origin && git checkout '${run.branchName.replace(/'/g, "'\\''")}'`
-      : undefined;
-    res.json({ localDir, branchName: run.branchName || null, gitCommand: gitCommand || null });
+    const repoUrl = toBrowsableUrl(entry.repo_url);
+    res.json({ repoUrl });
   } catch (err) {
-    console.error("Failed to resolve editor info:", err);
-    res.status(500).json({ error: "Failed to resolve editor info" });
+    console.error("Failed to resolve repo URL:", err);
+    res.status(500).json({ error: "Failed to resolve repo URL" });
   }
 });
 
