@@ -1258,13 +1258,14 @@ body {
 }
 
 .us-detail-sidebar__group-header {
-  font-size: 11px;
+  font-size: 12.5px;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.05em;
   color: var(--us-text-muted, var(--us-text-secondary));
   font-family: var(--us-font-sans);
   margin: 0 0 8px 0;
+  padding-left: var(--us-space-2);
 }
 
 .us-detail-sidebar__mono {
@@ -2057,39 +2058,6 @@ body {
   margin-top: 2px;
 }
 
-/* Progress bar estimate */
-.us-phase-progress__bar-wrap {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  margin-bottom: 12px;
-}
-
-.us-phase-progress__bar {
-  flex: 1;
-  height: 4px;
-  border-radius: 2px;
-  background: var(--us-border-subtle);
-  overflow: hidden;
-}
-
-.us-phase-progress__bar-fill {
-  height: 100%;
-  border-radius: 2px;
-  background: var(--us-accent);
-  transition: width 0.6s ease;
-}
-
-.us-phase-progress__bar-label {
-  font-size: 11px;
-  font-family: var(--us-font-mono);
-  color: var(--us-text-tertiary);
-  flex-shrink: 0;
-  min-width: 28px;
-  text-align: right;
-}
-
 /* Need bottom padding for the labels */
 .us-phase-progress:not(.us-phase-progress--compact) {
   padding-bottom: 48px;
@@ -2136,10 +2104,6 @@ body {
 }
 
 .us-phase-progress--collapsed .us-phase-progress__label-group {
-  display: none;
-}
-
-.us-phase-progress--collapsed .us-phase-progress__bar-wrap {
   display: none;
 }
 

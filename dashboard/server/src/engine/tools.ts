@@ -79,26 +79,6 @@ export async function execCommand(
   });
 }
 
-/**
- * Execute a command with an argument array — no shell involved.
- * Use this for internal programmatic calls where arguments come from config
- * or user input. Unlike bash(), this avoids command injection by design.
- */
-export async function execCommand(
-  executable: string,
-  args: string[],
-  options?: { cwd?: string; timeout?: number }
-): Promise<ExecResult> {
-  const cwd = options?.cwd ?? process.cwd();
-  const timeout = options?.timeout ?? 120_000;
-
-  return new Promise((res) => {
-    execFile(executable, args, { cwd, timeout, maxBuffer: 10 * 1024 * 1024 }, (error, stdout, stderr) => {
-      res(toExecResult(error, stdout, stderr));
-    });
-  });
-}
-
 export async function listFiles(pattern: string, cwd: string, baseDir?: string): Promise<string[]> {
   const resolvedCwd = baseDir ? assertWithinBase(baseDir, cwd) : cwd;
   const results: string[] = [];

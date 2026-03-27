@@ -213,15 +213,6 @@ app.post("/api/runs", async (req, res) => {
     return;
   }
 
-  let providerConfig: ProviderConfig | undefined;
-  try {
-    providerConfig = parseProviderConfig(req.body);
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    res.status(400).json({ error: msg, code: "BAD_REQUEST" });
-    return;
-  }
-
   if (issueKey) {
     // Start a single run for the specified issue
     const result = runner.startRun(issueKey, force === true, providerConfig);
