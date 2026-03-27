@@ -264,7 +264,7 @@ export function RunDetailPage() {
     const detectedProvider = inferProvider(runModel, providers);
     if (detectedProvider) {
       setModalProvider(detectedProvider);
-      setModalModel(runModel!);
+      setModalModel(runModel ?? "");
     } else if (providers.length > 0) {
       setModalProvider(providers[0].provider);
       setModalModel(providers[0].defaultModel);
@@ -770,7 +770,7 @@ export function RunDetailPage() {
                     <code className="us-modal__code">{editorInfo.gitCommand}</code>
                     <button
                       className="us-modal__copy-btn"
-                      onClick={() => handleCopy(editorInfo.gitCommand!, "git")}
+                      onClick={() => handleCopy(editorInfo.gitCommand ?? "", "git")}
                       aria-label="Copy git command"
                     >
                       {copied === "git" ? <CheckIcon /> : <CopyIcon />}

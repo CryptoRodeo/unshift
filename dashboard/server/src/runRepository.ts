@@ -2,6 +2,11 @@ import type Database from "better-sqlite3";
 import { getDb } from "./db";
 import type { Run, RunPhase, PrdEntry, LogEntry, TokenData, Comment, ProjectSummary } from "../../shared/types";
 
+function safeParse<T>(json: string | null, fallback: T): T {
+  if (!json) return fallback;
+  try { return JSON.parse(json); } catch { return fallback; }
+}
+
 export class RunRepository {
   private db: Database.Database | null = null;
   private stmts: ReturnType<typeof this.prepareStatements> | null = null;
@@ -42,6 +47,7 @@ export class RunRepository {
       updateTokens: db.prepare(`UPDATE runs SET input_tokens = ?, output_tokens = ?, cache_read_tokens = ?, cache_creation_tokens = ?, model = ? WHERE id = ?`),
       insertComment: db.prepare(`INSERT INTO run_comments (run_id, author, content) VALUES (?, ?, ?)`),
       getComments: db.prepare(`SELECT id, run_id, author, content, created_at FROM run_comments WHERE run_id = ? ORDER BY created_at ASC`),
+      getComment: db.prepare(`SELECT id, run_id, author, content, created_at FROM run_comments WHERE id = ?`),
       deleteRunComments: db.prepare(`DELETE FROM run_comments WHERE run_id = ?`),
       projectSummaries: db.prepare(`
         SELECT
@@ -204,7 +210,7 @@ export class RunRepository {
   updatePhaseTimestamp(id: string, phase: string, timestamp: string): void {
     const s = this.ensureInit();
     const row = s.getPhaseTimestamps.get(id) as { phase_timestamps_json: string | null } | undefined;
-    const existing: Record<string, string> = row?.phase_timestamps_json ? JSON.parse(row.phase_timestamps_json) : {};
+    const existing = safeParse<Record<string, string>>(row?.phase_timestamps_json ?? null, {});
     existing[phase] = timestamp;
     s.updatePhaseTimestamps.run(JSON.stringify(existing), id);
   }
@@ -212,7 +218,7 @@ export class RunRepository {
   addComment(runId: string, author: string, content: string): Comment {
     const s = this.ensureInit();
     const result = s.insertComment.run(runId, author, content);
-    const row = this.db!.prepare(`SELECT id, run_id, author, content, created_at FROM run_comments WHERE id = ?`).get(result.lastInsertRowid) as { id: number; run_id: string; author: string; content: string; created_at: string };
+    const row = s.getComment.get(result.lastInsertRowid) as { id: number; run_id: string; author: string; content: string; created_at: string };
     return { id: row.id, author: row.author, content: row.content, createdAt: row.created_at + "Z" };
   }
 
@@ -226,13 +232,7 @@ export class RunRepository {
     const s = this.ensureInit();
     const rows = s.projectSummaries.all() as { issue_key: string; context_json: string | null; run_count: number; last_run_at: string; latest_status: string }[];
     return rows.map((row) => {
-      let summary = "";
-      if (row.context_json) {
-        try {
-          const ctx = JSON.parse(row.context_json);
-          summary = ctx.summary ?? "";
-        } catch { /* ignore parse errors */ }
-      }
+      const summary = safeParse<{ summary?: string } | null>(row.context_json, null)?.summary ?? "";
       return {
         issueKey: row.issue_key,
         summary,
@@ -265,12 +265,12 @@ export class RunRepository {
       repoPath: row.repo_path ?? undefined,
       branchName: row.branch_name ?? undefined,
       prUrl: row.pr_url ?? undefined,
-      context: row.context_json ? JSON.parse(row.context_json) : undefined,
-      prd: row.prd_json ? JSON.parse(row.prd_json) : [],
+      context: safeParse(row.context_json, undefined),
+      prd: safeParse(row.prd_json, []),
       logs: logs.map((l) => ({ phase: l.phase as RunPhase, line: l.line })),
       retryCount: row.retry_count ?? undefined,
       sourceRunId: row.source_run_id ?? undefined,
-      phaseTimestamps: row.phase_timestamps_json ? JSON.parse(row.phase_timestamps_json) : undefined,
+      phaseTimestamps: safeParse(row.phase_timestamps_json, undefined),
       tokens: (row.input_tokens || row.output_tokens || row.cache_read_tokens || row.cache_creation_tokens || row.model)
         ? {
             inputTokens: row.input_tokens ?? 0,
