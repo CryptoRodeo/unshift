@@ -1,5 +1,5 @@
 import { useState, useMemo, useRef, useEffect, useReducer } from "react";
-import { PHASE_LABELS, formatDuration, isCompleted, isTerminal } from "../types";
+import { PHASE_LABELS, formatDuration, isCompleted, isTerminal, relativeTime } from "../types";
 import type { Run, RunPhase, LogEntry, PrdEntry, Comment } from "../types";
 
 /* ------------------------------------------------------------------ */
@@ -227,16 +227,6 @@ function actorLabel(actor: ActorKind): string {
   return "System";
 }
 
-function relativeTime(iso: string): string {
-  const diff = Date.now() - Date.parse(iso);
-  if (diff < 60_000) return "just now";
-  const mins = Math.floor(diff / 60_000);
-  if (mins < 60) return `${mins}m ago`;
-  const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  return `${days}d ago`;
-}
 
 function VariantDot({ variant }: { variant?: string }) {
   if (!variant) return null;

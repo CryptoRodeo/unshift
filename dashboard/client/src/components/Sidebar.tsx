@@ -3,7 +3,7 @@ import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import { Tooltip } from "@patternfly/react-core";
 import { SunIcon, MoonIcon, BellIcon, BellSlashIcon } from "@patternfly/react-icons";
 import type { Run } from "../types";
-import { STATUS_COLORS } from "../types";
+import { STATUS_COLORS, relativeTime } from "../types";
 
 const DARK_MODE_KEY = "unshift-dark-mode";
 const DARK_MODE_CLASS = "pf-v6-theme-dark";
@@ -12,18 +12,6 @@ function getInitialDarkMode(): boolean {
   const stored = localStorage.getItem(DARK_MODE_KEY);
   if (stored !== null) return stored === "true";
   return window.matchMedia("(prefers-color-scheme: dark)").matches;
-}
-
-function relativeTime(dateStr: string): string {
-  const diff = Date.now() - new Date(dateStr).getTime();
-  const seconds = Math.floor(diff / 1000);
-  if (seconds < 60) return "just now";
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  return `${days}d ago`;
 }
 
 export interface SidebarProps {

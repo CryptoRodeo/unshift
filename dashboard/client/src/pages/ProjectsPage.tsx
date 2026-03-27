@@ -2,19 +2,7 @@ import { useState, useEffect, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { SearchIcon } from "@patternfly/react-icons";
 import type { ProjectSummary } from "../../../shared/types";
-import { STATUS_COLORS, PHASE_LABELS } from "../types";
-
-function relativeTime(dateStr: string): string {
-  const diff = Date.now() - Date.parse(dateStr);
-  const seconds = Math.floor(diff / 1000);
-  if (seconds < 60) return "just now";
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  return `${days}d ago`;
-}
+import { STATUS_COLORS, PHASE_LABELS, relativeTime } from "../types";
 
 export function ProjectsPage() {
   const navigate = useNavigate();

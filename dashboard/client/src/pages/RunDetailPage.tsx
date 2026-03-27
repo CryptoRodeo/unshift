@@ -17,22 +17,9 @@ import {
 } from "@patternfly/react-icons";
 import { useWebSocket } from "../hooks/useWebSocket";
 import { useHeaderContext } from "../hooks/useHeaderContext";
-import { isTerminal, isCompleted, isRunError, formatDuration } from "../types";
+import { isTerminal, isCompleted, isRunError, formatDuration, PHASE_LABELS, relativeTime } from "../types";
 import type { Run, RunPhase } from "../types";
 import { getRepoName } from "../hooks/useRunFilters";
-
-function relativeTimeFromNow(dateStr: string): string {
-  const ms = Date.now() - new Date(dateStr).getTime();
-  if (ms < 0) return "just now";
-  const s = Math.floor(ms / 1000);
-  if (s < 60) return "just now";
-  const m = Math.floor(s / 60);
-  if (m < 60) return `${m}m ago`;
-  const h = Math.floor(m / 60);
-  if (h < 24) return `${h}h ago`;
-  const d = Math.floor(h / 24);
-  return `${d}d ago`;
-}
 import { PhaseProgress } from "../components/PhaseProgress";
 import { StatusLabel } from "../components/StatusLabel";
 import { ActivityFeed } from "../components/ActivityFeed";
@@ -78,14 +65,6 @@ function inferProvider(
   }
   return undefined;
 }
-
-const PHASE_LABELS: Record<string, string> = {
-  phase0: "Pre-flight",
-  phase1: "Planning",
-  phase2: "Implementation",
-  awaiting_approval: "Approval",
-  phase3: "Delivery",
-};
 
 function PhaseTimingBreakdown({ phaseTimestamps }: { phaseTimestamps: Record<string, string> }) {
   const entries = Object.entries(phaseTimestamps).sort(
@@ -475,7 +454,7 @@ export function RunDetailPage() {
                     run.context.summary
                   )}
                 </h2>
-                <span className="us-detail-description__started">Started {relativeTimeFromNow(run.startedAt)}</span>
+                <span className="us-detail-description__started">Started {relativeTime(run.startedAt)}</span>
               </div>
               {run.context.description && (
                 <p className="us-detail-description__body">{run.context.description}</p>
