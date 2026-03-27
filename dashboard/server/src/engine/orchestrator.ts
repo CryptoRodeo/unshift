@@ -311,7 +311,8 @@ export class UnshiftEngine extends EventEmitter {
       if (issue.labels.length > 0) context.labels = issue.labels;
       if (issue.status) context.jiraStatus = issue.status;
       if (issue.assignee) context.assignee = issue.assignee;
-      context.jiraUrl = issue.jiraUrl;
+      const jiraBase = process.env.JIRA_BASE_URL?.replace(/\/+$/, "");
+      if (jiraBase) context.jiraUrl = `${jiraBase}/browse/${encodeURIComponent(issueKey)}`;
     } catch {
       // Non-critical — continue without enriched metadata
     }
