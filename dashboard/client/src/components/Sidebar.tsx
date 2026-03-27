@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
-import { NavLink, useLocation, useParams, useNavigate } from "react-router-dom";
+import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import { Tooltip } from "@patternfly/react-core";
 import { SunIcon, MoonIcon, BellIcon, BellSlashIcon } from "@patternfly/react-icons";
 import type { Run } from "../types";
