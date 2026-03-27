@@ -5,11 +5,11 @@ import { RunDetailPage } from "./pages/RunDetailPage";
 import { ProjectsPage } from "./pages/ProjectsPage";
 import { TicketDetailPage } from "./pages/TicketDetailPage";
 import { HeaderProvider, useHeaderContext } from "./hooks/useHeaderContext";
-import { useWebSocket } from "./hooks/useWebSocket";
+import { WebSocketProvider, useWebSocketContext } from "./hooks/useWebSocket";
 
 function ConnectedSidebar() {
   const ctx = useHeaderContext();
-  const { runs } = useWebSocket();
+  const { runs } = useWebSocketContext();
   return (
     <Sidebar
       connected={ctx?.connected}
@@ -40,12 +40,14 @@ export function App() {
   return (
     <BrowserRouter>
       <HeaderProvider>
-        <div className="us-app-layout">
-          <ConnectedSidebar />
-          <main className="us-app-layout__main">
-            <AnimatedRoutes />
-          </main>
-        </div>
+        <WebSocketProvider>
+          <div className="us-app-layout">
+            <ConnectedSidebar />
+            <main className="us-app-layout__main">
+              <AnimatedRoutes />
+            </main>
+          </div>
+        </WebSocketProvider>
       </HeaderProvider>
     </BrowserRouter>
   );

@@ -36,7 +36,9 @@ export const PHASE_LABELS: Record<string, string> = Object.fromEntries(
 );
 
 export function relativeTime(dateStr: string): string {
-  const diff = Date.now() - Date.parse(dateStr);
+  const parsed = Date.parse(dateStr);
+  if (Number.isNaN(parsed)) return dateStr;
+  const diff = Date.now() - parsed;
   const seconds = Math.floor(diff / 1000);
   if (seconds < 60) return "just now";
   const minutes = Math.floor(seconds / 60);

@@ -15,7 +15,7 @@ import {
   CopyIcon,
   CheckIcon,
 } from "@patternfly/react-icons";
-import { useWebSocket } from "../hooks/useWebSocket";
+import { useWebSocketContext } from "../hooks/useWebSocket";
 import { useHeaderContext } from "../hooks/useHeaderContext";
 import { isTerminal, isCompleted, isRunError, formatDuration, PHASE_LABELS, relativeTime } from "../types";
 import type { Run, RunPhase } from "../types";
@@ -98,7 +98,7 @@ function PhaseTimingBreakdown({ phaseTimestamps }: { phaseTimestamps: Record<str
 export function RunDetailPage() {
   const { runId } = useParams<{ runId: string }>();
   const navigate = useNavigate();
-  const { runs, loading, connected, stopRun, approveRun, rejectRun, retryRun, deleteRun, fetchEditorInfo, fetchRunLogs, fetchRunHistory, startRunForIssue, commentsMap, fetchComments, addComment, progressMap } = useWebSocket();
+  const { runs, loading, connected, stopRun, approveRun, rejectRun, retryRun, deleteRun, fetchEditorInfo, fetchRunLogs, fetchRunHistory, startRunForIssue, commentsMap, fetchComments, addComment, progressMap } = useWebSocketContext();
   const headerCtx = useHeaderContext();
 
   useEffect(() => {

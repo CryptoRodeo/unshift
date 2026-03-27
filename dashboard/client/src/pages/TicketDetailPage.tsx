@@ -6,14 +6,14 @@ import {
   PlusIcon,
 } from "@patternfly/react-icons";
 import type { JiraIssueDetail, JiraComment, Run } from "../../../shared/types";
-import { useWebSocket } from "../hooks/useWebSocket";
+import { useWebSocketContext } from "../hooks/useWebSocket";
 import { StatusLabel } from "../components/StatusLabel";
 import { STATUS_COLORS, formatDuration, isRunError, relativeTime } from "../types";
 
 export function TicketDetailPage() {
   const { issueKey } = useParams<{ issueKey: string }>();
   const navigate = useNavigate();
-  const { startRunForIssue } = useWebSocket();
+  const { startRunForIssue } = useWebSocketContext();
   const [startingRun, setStartingRun] = useState(false);
 
   const handleStartRun = async () => {

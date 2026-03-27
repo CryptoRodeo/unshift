@@ -7,7 +7,7 @@ import { WebSocketServer, WebSocket } from "ws";
 import yaml from "js-yaml";
 import { UnshiftRunner } from "./unshift";
 import { isRunError } from "../../shared/types";
-import type { RunErrorCode } from "../../shared/types";
+import type { RunErrorCode, WsMessage, TokenData } from "../../shared/types";
 import { DEFAULT_MODELS, AVAILABLE_MODELS, getDefaultConfig, type Provider, type ProviderConfig } from "./engine/providers";
 
 function parseProviderConfig(body: Record<string, unknown> | undefined): ProviderConfig | undefined {
@@ -38,7 +38,7 @@ const ERROR_CODE_TO_STATUS: Record<RunErrorCode, number> = {
 };
 
 // Broadcast helper
-function broadcast(data: object) {
+function broadcast(data: WsMessage) {
   const json = JSON.stringify(data);
   for (const client of wss.clients) {
     if (client.readyState === WebSocket.OPEN) {
@@ -72,7 +72,7 @@ runner.on("run:skipped", (skipped: { issueKey: string; reason: string }[]) =>
 runner.on("run:deleted", (runId: string) =>
   broadcast({ type: "run:deleted", runId })
 );
-runner.on("run:tokens", (runId: string, tokens: object) =>
+runner.on("run:tokens", (runId: string, tokens: TokenData) =>
   broadcast({ type: "run:tokens", runId, tokens })
 );
 
@@ -84,6 +84,15 @@ const JIRA_STATUS_TTL_MS = 60_000; // 1 minute
 const JIRA_DETAIL_TTL_MS = 300_000;
 const jiraIssueCache = new Map<string, { data: unknown; fetchedAt: number }>();
 const jiraCommentsCache = new Map<string, { data: unknown; fetchedAt: number }>();
+
+// Evict expired entries periodically to prevent unbounded cache growth
+const CACHE_EVICT_INTERVAL_MS = 300_000; // 5 minutes
+setInterval(() => {
+  const now = Date.now();
+  for (const [k, v] of jiraStatusCache) if (now - v.fetchedAt > JIRA_STATUS_TTL_MS) jiraStatusCache.delete(k);
+  for (const [k, v] of jiraIssueCache) if (now - v.fetchedAt > JIRA_DETAIL_TTL_MS) jiraIssueCache.delete(k);
+  for (const [k, v] of jiraCommentsCache) if (now - v.fetchedAt > JIRA_DETAIL_TTL_MS) jiraCommentsCache.delete(k);
+}, CACHE_EVICT_INTERVAL_MS).unref();
 
 // REST endpoints
 app.get("/api/runs", (_req, res) => {
@@ -329,7 +338,13 @@ function loadReposYaml(): ReposYamlEntry[] {
   if (!Array.isArray(parsed)) {
     throw new Error(`repos.yaml must contain a YAML array, got ${typeof parsed}`);
   }
-  return parsed as ReposYamlEntry[];
+  return (parsed as unknown[]).filter(
+    (entry): entry is ReposYamlEntry =>
+      typeof entry === "object" &&
+      entry !== null &&
+      typeof (entry as Record<string, unknown>).repo_url === "string" &&
+      typeof (entry as Record<string, unknown>).local_dir === "string"
+  );
 }
 
 function resolveLocalDir(repoPath: string): string | undefined {
@@ -359,7 +374,7 @@ app.get("/api/runs/:id/editor-info", (req, res) => {
       return;
     }
     const gitCommand = run.branchName
-      ? `cd ${localDir} && git fetch origin && git checkout ${run.branchName}`
+      ? `cd '${localDir.replace(/'/g, "'\\''")}' && git fetch origin && git checkout '${run.branchName.replace(/'/g, "'\\''")}'`
       : undefined;
     res.json({ localDir, branchName: run.branchName || null, gitCommand: gitCommand || null });
   } catch (err) {

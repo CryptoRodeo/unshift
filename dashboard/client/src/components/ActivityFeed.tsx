@@ -197,7 +197,7 @@ function ActorAvatar({ actor }: { actor: ActorKind }) {
       <div className="us-activity__avatar us-activity__avatar--coder" aria-label="Coder">
         {/* Gear/bot icon */}
         <svg viewBox="0 0 16 16" fill="currentColor" width="14" height="14">
-          <path d="M8 0a1 1 0 011 1v1.07A5.98 5.98 0 0112.93 5H14a1 1 0 110 2h-1.07A5.98 5.98 0 019 10.93V12a1 1 0 11-2 0v-1.07A5.98 5.98 0 013.07 7H2a1 1 0 010-2h1.07A5.98 5.98 0 017 2.07V1a1 1 0 011-1zM8 4a4 4 0 100 8 4 4 0 000-8zm0 2a2 2 0 110 4 2 2 0 010-4z"/>
+          <path d="M8 0a1 1 0 011 1v1.07A5.98 5.98 0 0112.93 5H14a1 1 0 110 2h-1.07A5.98 5.98 0 019 10.93V12a1 1 0 11-2 0v-1.07A5.98 5.98 0 013.07 7H2a1 1 0 010-2h1.07A5.98 5.98 0 017 2.07V1a1 1 0 011-1zM8 4a4 4 0 100 8 4 4 0 000-8zm0 2a2 2 0 110 4 2 2 0 010-4z" />
         </svg>
       </div>
     );
@@ -206,7 +206,7 @@ function ActorAvatar({ actor }: { actor: ActorKind }) {
     return (
       <div className="us-activity__avatar us-activity__avatar--user" aria-label="User">
         <svg viewBox="0 0 16 16" fill="currentColor" width="14" height="14">
-          <path d="M8 0a4 4 0 110 8A4 4 0 018 0zm0 10c4.42 0 8 1.79 8 4v2H0v-2c0-2.21 3.58-4 8-4z"/>
+          <path d="M8 0a4 4 0 110 8A4 4 0 018 0zm0 10c4.42 0 8 1.79 8 4v2H0v-2c0-2.21 3.58-4 8-4z" />
         </svg>
       </div>
     );
@@ -215,7 +215,7 @@ function ActorAvatar({ actor }: { actor: ActorKind }) {
   return (
     <div className="us-activity__avatar us-activity__avatar--system" aria-label="System">
       <svg viewBox="0 0 16 16" fill="currentColor" width="14" height="14">
-        <path d="M8 1.5a6.5 6.5 0 100 13 6.5 6.5 0 000-13zM0 8a8 8 0 1116 0A8 8 0 010 8zm9-3a1 1 0 11-2 0 1 1 0 012 0zM7 7.5a1 1 0 012 0v4a1 1 0 01-2 0v-4z"/>
+        <path d="M8 1.5a6.5 6.5 0 100 13 6.5 6.5 0 000-13zM0 8a8 8 0 1116 0A8 8 0 010 8zm9-3a1 1 0 11-2 0 1 1 0 012 0zM7 7.5a1 1 0 012 0v4a1 1 0 01-2 0v-4z" />
       </svg>
     </div>
   );
@@ -254,13 +254,13 @@ function LogBlock({ logs, label }: { logs: LogEntry[]; label: string }) {
           width="12"
           height="12"
         >
-          <path d="M6.22 3.22a.75.75 0 011.06 0l4.25 4.25a.75.75 0 010 1.06l-4.25 4.25a.75.75 0 01-1.06-1.06L9.94 8 6.22 4.28a.75.75 0 010-1.06z"/>
+          <path d="M6.22 3.22a.75.75 0 011.06 0l4.25 4.25a.75.75 0 010 1.06l-4.25 4.25a.75.75 0 01-1.06-1.06L9.94 8 6.22 4.28a.75.75 0 010-1.06z" />
         </svg>
         <span className="us-activity__log-label">{label}</span>
       </button>
       {expanded && (
         <pre className="us-activity__log-body">
-          {logs.map((l, i) => l.line).join("\n")}
+          {logs.map((l) => l.line).join("\n")}
         </pre>
       )}
     </div>
@@ -338,7 +338,7 @@ export function ActivityFeed({ run, modelName, comments, onAddComment, progressT
                 {entry.type === "prd_update" && (
                   <div className="us-activity__prd">
                     <svg viewBox="0 0 16 16" fill="currentColor" width="14" height="14" className="us-activity__prd-check">
-                      <path d="M13.78 4.22a.75.75 0 010 1.06l-7.25 7.25a.75.75 0 01-1.06 0L2.22 9.28a.75.75 0 011.06-1.06L6 10.94l6.72-6.72a.75.75 0 011.06 0z"/>
+                      <path d="M13.78 4.22a.75.75 0 010 1.06l-7.25 7.25a.75.75 0 01-1.06 0L2.22 9.28a.75.75 0 011.06-1.06L6 10.94l6.72-6.72a.75.75 0 011.06 0z" />
                     </svg>
                     <span>Completed: {entry.content}</span>
                   </div>
@@ -354,7 +354,7 @@ export function ActivityFeed({ run, modelName, comments, onAddComment, progressT
                 {entry.type === "pr_created" && entry.metadata?.prUrl && (
                   <div className="us-activity__pr">
                     <svg viewBox="0 0 16 16" fill="currentColor" width="14" height="14" className="us-activity__pr-icon">
-                      <path d="M7.177 3.073L9.573.677A.25.25 0 0110 .854v4.792a.25.25 0 01-.427.177L7.177 3.427a.25.25 0 010-.354zM3.75 2.5a.75.75 0 100 1.5.75.75 0 000-1.5zm-2.25.75a2.25 2.25 0 113 2.122v5.256a2.251 2.251 0 11-1.5 0V5.372A2.25 2.25 0 011.5 3.25zM11 2.5h-1V4h1a1 1 0 011 1v5.628a2.251 2.251 0 101.5 0V5A2.5 2.5 0 0011 2.5zm1 10.25a.75.75 0 111.5 0 .75.75 0 01-1.5 0zM3.75 12a.75.75 0 100 1.5.75.75 0 000-1.5z"/>
+                      <path d="M7.177 3.073L9.573.677A.25.25 0 0110 .854v4.792a.25.25 0 01-.427.177L7.177 3.427a.25.25 0 010-.354zM3.75 2.5a.75.75 0 100 1.5.75.75 0 000-1.5zm-2.25.75a2.25 2.25 0 113 2.122v5.256a2.251 2.251 0 11-1.5 0V5.372A2.25 2.25 0 011.5 3.25zM11 2.5h-1V4h1a1 1 0 011 1v5.628a2.251 2.251 0 101.5 0V5A2.5 2.5 0 0011 2.5zm1 10.25a.75.75 0 111.5 0 .75.75 0 01-1.5 0zM3.75 12a.75.75 0 100 1.5.75.75 0 000-1.5z" />
                     </svg>
                     <a href={entry.metadata.prUrl} target="_blank" rel="noreferrer" className="us-activity__pr-link">
                       {entry.metadata.prUrl.replace(/^https?:\/\/[^/]+\//, "")}
@@ -376,7 +376,7 @@ export function ActivityFeed({ run, modelName, comments, onAddComment, progressT
             <div className="us-activity__gutter">
               <div className="us-activity__avatar us-activity__avatar--coder us-activity__avatar--pulse" aria-label="Coder working">
                 <svg viewBox="0 0 16 16" fill="currentColor" width="14" height="14">
-                  <path d="M8 0a1 1 0 011 1v1.07A5.98 5.98 0 0112.93 5H14a1 1 0 110 2h-1.07A5.98 5.98 0 019 10.93V12a1 1 0 11-2 0v-1.07A5.98 5.98 0 013.07 7H2a1 1 0 010-2h1.07A5.98 5.98 0 017 2.07V1a1 1 0 011-1zM8 4a4 4 0 100 8 4 4 0 000-8zm0 2a2 2 0 110 4 2 2 0 010-4z"/>
+                  <path d="M8 0a1 1 0 011 1v1.07A5.98 5.98 0 0112.93 5H14a1 1 0 110 2h-1.07A5.98 5.98 0 019 10.93V12a1 1 0 11-2 0v-1.07A5.98 5.98 0 013.07 7H2a1 1 0 010-2h1.07A5.98 5.98 0 017 2.07V1a1 1 0 011-1zM8 4a4 4 0 100 8 4 4 0 000-8zm0 2a2 2 0 110 4 2 2 0 010-4z" />
                 </svg>
               </div>
               <div className="us-activity__line" />
@@ -446,7 +446,7 @@ function CommentInput({ onSubmit }: { onSubmit: (content: string) => void }) {
         aria-label="Send comment"
       >
         <svg viewBox="0 0 16 16" fill="currentColor" width="14" height="14">
-          <path d="M1.724 1.053a.5.5 0 00-.714.545L2.535 8l-1.525 6.402a.5.5 0 00.714.545l13-6a.5.5 0 000-.894l-13-6zM3.845 7.25L2.672 2.327 13.405 8 2.672 13.673 3.845 8.75H7.5a.75.75 0 000-1.5H3.845z"/>
+          <path d="M1.724 1.053a.5.5 0 00-.714.545L2.535 8l-1.525 6.402a.5.5 0 00.714.545l13-6a.5.5 0 000-.894l-13-6zM3.845 7.25L2.672 2.327 13.405 8 2.672 13.673 3.845 8.75H7.5a.75.75 0 000-1.5H3.845z" />
         </svg>
       </button>
     </div>

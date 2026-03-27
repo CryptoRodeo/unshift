@@ -8,8 +8,8 @@ import {
   Tooltip,
 } from "@patternfly/react-core";
 import { PlusCircleIcon, SearchIcon } from "@patternfly/react-icons";
-import { useWebSocket } from "../hooks/useWebSocket";
-import type { StartRunResponse } from "../hooks/useWebSocket";
+import { useWebSocketContext } from "../hooks/useWebSocket";
+import type { StartRunResponse, RunEventCallback } from "../hooks/useWebSocket";
 import { useNotifications } from "../hooks/useNotifications";
 import { useHeaderContext } from "../hooks/useHeaderContext";
 import { useRunFilters } from "../hooks/useRunFilters";
@@ -64,7 +64,7 @@ const STATUS_LABELS: Record<string, string> = {
 };
 
 export function DashboardPage() {
-  const { runs, loading, connected, startRun, setOnRunEvent } = useWebSocket();
+  const { runs, loading, connected, startRun, setOnRunEvent } = useWebSocketContext();
   const navigate = useNavigate();
   const { permission, requestPermission, notify, toasts, dismissToast } = useNotifications();
   const headerCtx = useHeaderContext();
@@ -99,8 +99,8 @@ export function DashboardPage() {
     }).catch(() => {});
   }, []);
 
-  const handleRunEvent = useCallback(
-    (event: { runId: string; issueKey: string; status: string }) => {
+  const handleRunEvent = useCallback<RunEventCallback>(
+    (event) => {
       const label = STATUS_LABELS[event.status] ?? event.status;
       const isApproval = event.status === "awaiting_approval";
       notify(`${event.issueKey}: ${label}`, {

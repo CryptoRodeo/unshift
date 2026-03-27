@@ -1,5 +1,6 @@
-import { useEffect, useRef, useCallback, useReducer, useState } from "react";
-import type { WsMessage, Run, RunContext, PrdEntry, RunPhase, CompletedStatus, TokenData, Comment } from "../types";
+import { createElement, createContext, useContext, useEffect, useRef, useCallback, useReducer, useState } from "react";
+import type { ReactNode } from "react";
+import type { WsMessage, Run, RunContext, PrdEntry, RunPhase, CompletedStatus, TokenData, Comment, RunError } from "../types";
 import { isTerminal } from "../types";
 
 export interface StartRunResponse {
@@ -316,13 +317,16 @@ export function useWebSocket() {
     return data;
   }, []);
 
-  const startRunForIssue = useCallback(async (issueKey: string, force?: boolean, providerConfig?: { provider?: string; model?: string }) => {
+  const startRunForIssue = useCallback(async (issueKey: string, force?: boolean, providerConfig?: { provider?: string; model?: string }): Promise<Run | RunError> => {
     const res = await fetch("/api/runs", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ issueKey, force, ...providerConfig }),
     });
     const data = await res.json();
+    if (!res.ok && !isRunError(data)) {
+      throw new Error(data.error || "Failed to start run");
+    }
     return data;
   }, []);
 
@@ -358,13 +362,17 @@ export function useWebSocket() {
     }
   }, []);
 
-  const addComment = useCallback(async (runId: string, content: string) => {
+  const addComment = useCallback(async (runId: string, content: string): Promise<Comment> => {
     const res = await fetch(`/api/runs/${runId}/comments`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ content }),
     });
-    return res.json();
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.error || "Failed to add comment");
+    }
+    return data;
   }, []);
 
   const fetchProgress = useCallback(async (runId: string): Promise<string | null> => {
@@ -377,9 +385,13 @@ export function useWebSocket() {
     await fetch(`/api/runs/${runId}/stop`, { method: "POST" });
   }, []);
 
-  const approveRun = useCallback(async (runId: string) => {
+  const approveRun = useCallback(async (runId: string): Promise<Run | RunError> => {
     const res = await fetch(`/api/runs/${runId}/approve`, { method: "POST" });
-    return res.json();
+    const data = await res.json();
+    if (!res.ok && !isRunError(data)) {
+      throw new Error(data.error || "Approval failed");
+    }
+    return data;
   }, []);
 
   const rejectRun = useCallback(async (runId: string) => {
@@ -442,4 +454,19 @@ export function useWebSocket() {
     fetchComments,
     addComment,
   };
+}
+
+export type WebSocketState = ReturnType<typeof useWebSocket>;
+
+const WebSocketContext = createContext<WebSocketState | null>(null);
+
+export function WebSocketProvider({ children }: { children: ReactNode }) {
+  const ws = useWebSocket();
+  return createElement(WebSocketContext.Provider, { value: ws }, children);
+}
+
+export function useWebSocketContext(): WebSocketState {
+  const ctx = useContext(WebSocketContext);
+  if (!ctx) throw new Error("useWebSocketContext must be used within a WebSocketProvider");
+  return ctx;
 }
