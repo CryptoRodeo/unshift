@@ -311,8 +311,7 @@ export class UnshiftEngine extends EventEmitter {
       if (issue.labels.length > 0) context.labels = issue.labels;
       if (issue.status) context.jiraStatus = issue.status;
       if (issue.assignee) context.assignee = issue.assignee;
-      const host = context.host ?? repoEntry.host;
-      if (host) context.jiraUrl = `https://${host}/browse/${issueKey}`;
+      context.jiraUrl = issue.jiraUrl;
     } catch {
       // Non-critical — continue without enriched metadata
     }

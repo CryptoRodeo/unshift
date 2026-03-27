@@ -352,8 +352,8 @@ export function RunDetailPage() {
     setTimeout(() => setCopied(null), 2000);
   };
 
-  const jiraIssueUrl = run.context?.jiraUrl
-    ?? (jiraBaseUrl && run.issueKey ? `${jiraBaseUrl.replace(/\/+$/, "")}/browse/${run.issueKey}` : null);
+  const jiraIssueUrl = (jiraBaseUrl && run.issueKey ? `${jiraBaseUrl.replace(/\/+$/, "")}/browse/${run.issueKey}` : null)
+    ?? run.context?.jiraUrl;
 
   return (
     <div className="us-detail us-fade-in">
