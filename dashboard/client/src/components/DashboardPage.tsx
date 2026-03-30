@@ -10,6 +10,7 @@ import {
 import { PlusCircleIcon, SearchIcon } from "@patternfly/react-icons";
 import { useWebSocketContext } from "../hooks/useWebSocket";
 import type { StartRunResponse, RunEventCallback } from "../hooks/useWebSocket";
+import { isRunError } from "../types";
 import { useNotifications } from "../hooks/useNotifications";
 import { useHeaderContext } from "../hooks/useHeaderContext";
 import { useRunFilters } from "../hooks/useRunFilters";
@@ -64,7 +65,7 @@ const STATUS_LABELS: Record<string, string> = {
 };
 
 export function DashboardPage() {
-  const { runs, loading, connected, startRun, setOnRunEvent } = useWebSocketContext();
+  const { runs, loading, connected, startRun, startRunForIssue, setOnRunEvent } = useWebSocketContext();
   const navigate = useNavigate();
   const { permission, requestPermission, notify, toasts, dismissToast } = useNotifications();
   const headerCtx = useHeaderContext();
@@ -82,7 +83,10 @@ export function DashboardPage() {
     headerCtx.setOnRequestNotifications(requestPermission);
   }, [permission, requestPermission, headerCtx]);
   const [isStarting, setIsStarting] = useState(false);
+  const [isStartingSingle, setIsStartingSingle] = useState(false);
+  const [ticketId, setTicketId] = useState("");
   const [startRunSummary, setStartRunSummary] = useState<StartRunSummary | null>(null);
+  const [singleRunError, setSingleRunError] = useState<string | null>(null);
   // Provider/model selection
   const [providers, setProviders] = useState<{ provider: string; defaultModel: string; models: string[] }[]>([]);
   const [selectedProvider, setSelectedProvider] = useState<string>("");
@@ -128,6 +132,35 @@ export function DashboardPage() {
     const match = providers.find((p) => p.provider === provider);
     if (match) setSelectedModel(match.defaultModel);
   };
+
+  const handleStartSingleRun = async () => {
+    const key = ticketId.trim();
+    if (!key) return;
+    setIsStartingSingle(true);
+    setSingleRunError(null);
+    try {
+      const result = await startRunForIssue(key, true, {
+        provider: selectedProvider || undefined,
+        model: selectedModel || undefined,
+      });
+      if (isRunError(result)) {
+        setSingleRunError(`${key}: ${result.error}`);
+      } else {
+        setTicketId("");
+        navigate(`/runs/${result.id}`);
+      }
+    } catch {
+      setSingleRunError(`Failed to start run for ${key}`);
+    } finally {
+      setIsStartingSingle(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!singleRunError) return;
+    const timer = setTimeout(() => setSingleRunError(null), 8000);
+    return () => clearTimeout(timer);
+  }, [singleRunError]);
 
   const handleStartRun = async () => {
     setIsStarting(true);
@@ -198,13 +231,33 @@ export function DashboardPage() {
                 </Tooltip>
               </>
             )}
+            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <input
+                className="us-input"
+                type="text"
+                placeholder="PROJ-123"
+                value={ticketId}
+                onChange={(e) => setTicketId(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") handleStartSingleRun(); }}
+                aria-label="Jira ticket ID"
+                style={{ width: 120 }}
+              />
+              <Button
+                variant="secondary"
+                onClick={handleStartSingleRun}
+                isLoading={isStartingSingle}
+                isDisabled={isStartingSingle || !ticketId.trim()}
+              >
+                Run Ticket
+              </Button>
+            </div>
             <Button
               variant="primary"
               onClick={handleStartRun}
               isLoading={isStarting}
               isDisabled={isStarting}
             >
-              Start run
+              Run batch
             </Button>
           </div>
         </div>
@@ -233,6 +286,17 @@ export function DashboardPage() {
                 </ul>
               )}
             </Alert>
+          </div>
+        )}
+
+        {singleRunError && (
+          <div className="us-dashboard__section">
+            <Alert
+              variant="danger"
+              title={singleRunError}
+              isInline
+              actionClose={<AlertActionCloseButton onClose={() => setSingleRunError(null)} />}
+            />
           </div>
         )}
 
@@ -284,11 +348,11 @@ export function DashboardPage() {
               </div>
               <h3 className="us-empty-state__title">No runs yet</h3>
               <p className="us-empty-state__body">
-                Click <strong>Start run</strong> to process llm-candidate Jira issues.
+                Click <strong>Run batch</strong> to process llm-candidate Jira issues.
               </p>
               <div className="us-empty-state__action">
                 <Button variant="primary" onClick={handleStartRun} isLoading={isStarting} isDisabled={isStarting}>
-                  Start run
+                  Run batch
                 </Button>
               </div>
             </div>
