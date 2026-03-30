@@ -304,11 +304,28 @@ export function useWebSocket() {
     };
   }, [fetchRuns]);
 
-  const startRun = useCallback(async (options?: { force?: boolean; provider?: string; model?: string }): Promise<StartRunResponse> => {
+  const discoverIssues = useCallback(async (): Promise<string[]> => {
+    const res = await fetch("/api/discover");
+    if (!res.ok) throw new Error("Failed to discover issues");
+    const data = await res.json();
+    return data.issueKeys;
+  }, []);
+
+  const startRun = useCallback(async (options?: {
+    force?: boolean;
+    provider?: string;
+    model?: string;
+    overrides?: Record<string, { provider?: string; model?: string }>;
+  }): Promise<StartRunResponse> => {
     const res = await fetch("/api/runs", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ force: options?.force, provider: options?.provider, model: options?.model }),
+      body: JSON.stringify({
+        force: options?.force,
+        provider: options?.provider,
+        model: options?.model,
+        overrides: options?.overrides,
+      }),
     });
     const data = await res.json();
     if (!res.ok) {
@@ -439,6 +456,7 @@ export function useWebSocket() {
     connected,
     startRun,
     startRunForIssue,
+    discoverIssues,
     stopRun,
     approveRun,
     rejectRun,

@@ -131,7 +131,10 @@ export class UnshiftRunner extends EventEmitter {
   }
 
   /** Discover issues and start a run for each new one */
-  async startRuns(providerConfig?: ProviderConfig): Promise<{ runs: Run[]; errors: string[]; skipped: { issueKey: string; reason: string }[] }> {
+  async startRuns(
+    providerConfig?: ProviderConfig,
+    overrides?: Record<string, ProviderConfig>,
+  ): Promise<{ runs: Run[]; errors: string[]; skipped: { issueKey: string; reason: string }[] }> {
     const keys = await this.discover();
     const successfulKeys = this.repository.getSuccessfulIssueKeys();
     const runs: Run[] = [];
@@ -145,7 +148,8 @@ export class UnshiftRunner extends EventEmitter {
         console.log(`Skipping ${key}: ${reason}`);
         continue;
       }
-      const result = this.startRun(key, false, providerConfig);
+      const issueConfig = overrides?.[key] ?? providerConfig;
+      const result = this.startRun(key, false, issueConfig);
       if (isRunError(result)) {
         errors.push(result.error);
       } else {

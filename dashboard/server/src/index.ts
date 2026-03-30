@@ -232,8 +232,24 @@ app.post("/api/runs", async (req, res) => {
     }
   } else {
     // Discover all issues and start a run for each
+    // Parse per-issue provider/model overrides
+    let overrides: Record<string, ProviderConfig> | undefined;
+    const rawOverrides = req.body?.overrides;
+    if (rawOverrides && typeof rawOverrides === "object" && !Array.isArray(rawOverrides)) {
+      overrides = {};
+      for (const [key, val] of Object.entries(rawOverrides)) {
+        try {
+          const parsed = parseProviderConfig(val as Record<string, unknown>);
+          if (parsed) overrides[key] = parsed;
+        } catch {
+          // skip invalid per-issue overrides
+        }
+      }
+      if (Object.keys(overrides).length === 0) overrides = undefined;
+    }
+
     try {
-      const result = await runner.startRuns(providerConfig);
+      const result = await runner.startRuns(providerConfig, overrides);
       res.json(result);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);

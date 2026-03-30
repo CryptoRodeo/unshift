@@ -1714,6 +1714,112 @@ body {
   background: var(--us-surface-primary);
 }
 
+/* ===== Batch Config Modal ===== */
+.us-batch-modal {
+  max-width: 720px;
+  padding-top: var(--us-space-4);
+  padding-bottom: var(--us-space-4);
+}
+
+.us-batch-modal__loading,
+.us-batch-modal__error,
+.us-batch-modal__empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--us-space-4);
+  padding: var(--us-space-8) 0;
+  color: var(--us-text-secondary);
+  font-size: 14px;
+}
+
+.us-batch-modal__defaults {
+  display: flex;
+  align-items: center;
+  gap: var(--us-space-2);
+  padding: var(--us-space-3) 0;
+  border-bottom: 1px solid var(--us-border-subtle);
+  margin-bottom: var(--us-space-3);
+  flex-wrap: wrap;
+}
+
+.us-batch-modal__defaults-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--us-text-secondary);
+  margin-right: auto;
+}
+
+.us-batch-modal__table-wrap {
+  max-height: 400px;
+  overflow-y: auto;
+  border: 1px solid var(--us-border-subtle);
+  border-radius: var(--us-radius-sm);
+  margin-bottom: var(--us-space-4);
+}
+
+.us-batch-modal__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--us-font-sans);
+  font-size: 13px;
+}
+
+.us-batch-modal__table th {
+  padding: 8px 12px;
+  text-align: left;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--us-text-secondary);
+  border-bottom: 1px solid var(--us-border-subtle);
+  background: var(--us-surface-secondary);
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.us-batch-modal__table td {
+  padding: 6px 12px;
+  border-bottom: 1px solid color-mix(in srgb, var(--us-border-subtle) 50%, transparent);
+  vertical-align: middle;
+}
+
+.us-batch-modal__table tr:last-child td {
+  border-bottom: none;
+}
+
+.us-batch-modal__issue {
+  font-weight: 500;
+  color: var(--pf-t--global--color--status--info--default, #0066cc);
+  white-space: nowrap;
+}
+
+.us-batch-modal__row--custom {
+  background: color-mix(in srgb, var(--pf-t--global--color--status--info--default, #0066cc) 5%, transparent);
+}
+
+.us-batch-modal__reset {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--us-text-secondary);
+  cursor: pointer;
+  font-size: 16px;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.us-batch-modal__reset:hover {
+  background: var(--us-bg-tertiary);
+  color: var(--us-text-primary);
+}
+
 .us-btn--ghost {
   background: transparent;
   color: var(--us-text-secondary);

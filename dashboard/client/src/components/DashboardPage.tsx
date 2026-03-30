@@ -17,6 +17,7 @@ import { useRunFilters } from "../hooks/useRunFilters";
 import { FilterBar } from "./FilterBar";
 import { DashboardStats } from "./DashboardStats";
 import { RunTable } from "./RunTable";
+import { BatchConfigModal } from "./BatchConfigModal";
 
 interface StartRunSummary {
   started: number;
@@ -65,7 +66,7 @@ const STATUS_LABELS: Record<string, string> = {
 };
 
 export function DashboardPage() {
-  const { runs, loading, connected, startRun, startRunForIssue, setOnRunEvent } = useWebSocketContext();
+  const { runs, loading, connected, startRun, startRunForIssue, discoverIssues, setOnRunEvent } = useWebSocketContext();
   const navigate = useNavigate();
   const { permission, requestPermission, notify, toasts, dismissToast } = useNotifications();
   const headerCtx = useHeaderContext();
@@ -82,6 +83,7 @@ export function DashboardPage() {
     headerCtx.setNotificationPermission(permission);
     headerCtx.setOnRequestNotifications(requestPermission);
   }, [permission, requestPermission, headerCtx]);
+  const [showBatchModal, setShowBatchModal] = useState(false);
   const [isStarting, setIsStarting] = useState(false);
   const [isStartingSingle, setIsStartingSingle] = useState(false);
   const [ticketId, setTicketId] = useState("");
@@ -162,10 +164,22 @@ export function DashboardPage() {
     return () => clearTimeout(timer);
   }, [singleRunError]);
 
-  const handleStartRun = async () => {
+  const handleStartRun = () => {
+    setShowBatchModal(true);
+  };
+
+  const handleBatchConfirm = async (
+    defaultConfig: { provider: string; model: string },
+    overrides: Record<string, { provider: string; model: string }>,
+  ) => {
+    setShowBatchModal(false);
     setIsStarting(true);
     try {
-      const data = await startRun({ provider: selectedProvider || undefined, model: selectedModel || undefined });
+      const data = await startRun({
+        provider: defaultConfig.provider || undefined,
+        model: defaultConfig.model || undefined,
+        overrides: Object.keys(overrides).length > 0 ? overrides : undefined,
+      });
       setStartRunSummary(buildSummary(data));
     } catch {
       setStartRunSummary({ started: 0, alreadyActive: 0, skipped: [], errors: ["Failed to start runs"] });
@@ -378,6 +392,17 @@ export function DashboardPage() {
           )}
         </div>
       </div>
+
+      {showBatchModal && (
+        <BatchConfigModal
+          defaultProvider={selectedProvider}
+          defaultModel={selectedModel}
+          providers={providers}
+          onConfirm={handleBatchConfirm}
+          onCancel={() => setShowBatchModal(false)}
+          discoverIssues={discoverIssues}
+        />
+      )}
     </>
   );
 }
