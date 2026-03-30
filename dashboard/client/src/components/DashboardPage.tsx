@@ -10,7 +10,7 @@ import {
 import { PlusCircleIcon, SearchIcon } from "@patternfly/react-icons";
 import { useWebSocketContext } from "../hooks/useWebSocket";
 import type { StartRunResponse, RunEventCallback } from "../hooks/useWebSocket";
-import { isRunError } from "../types";
+import { isRunError, isTerminal } from "../types";
 import { useNotifications } from "../hooks/useNotifications";
 import { useHeaderContext } from "../hooks/useHeaderContext";
 import { useRunFilters } from "../hooks/useRunFilters";
@@ -83,6 +83,18 @@ export function DashboardPage() {
     headerCtx.setNotificationPermission(permission);
     headerCtx.setOnRequestNotifications(requestPermission);
   }, [permission, requestPermission, headerCtx]);
+  // Wrap discoverIssues to filter out issues that already have an active or successful run
+  const discoverNewIssues = useCallback(async (): Promise<string[]> => {
+    const keys = await discoverIssues();
+    const existingIssueKeys = new Set<string>();
+    for (const run of runs.values()) {
+      if (run.status === "success" || !isTerminal(run.status)) {
+        existingIssueKeys.add(run.issueKey);
+      }
+    }
+    return keys.filter((key) => !existingIssueKeys.has(key));
+  }, [discoverIssues, runs]);
+
   const [showBatchModal, setShowBatchModal] = useState(false);
   const [isStarting, setIsStarting] = useState(false);
   const [isStartingSingle, setIsStartingSingle] = useState(false);
@@ -400,7 +412,7 @@ export function DashboardPage() {
           providers={providers}
           onConfirm={handleBatchConfirm}
           onCancel={() => setShowBatchModal(false)}
-          discoverIssues={discoverIssues}
+          discoverIssues={discoverNewIssues}
         />
       )}
     </>
