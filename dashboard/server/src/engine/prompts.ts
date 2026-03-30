@@ -6,7 +6,6 @@ import type { RunContext, PrdEntry } from "../../../shared/types";
  */
 export interface RepoEntry {
   repo_url: string;
-  local_dir: string;
   default_branch: string;
   host: string;
   validation: string[];

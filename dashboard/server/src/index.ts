@@ -336,7 +336,6 @@ app.post("/api/runs/:id/comments", (req, res) => {
 
 interface ReposYamlEntry {
   repo_url: string;
-  local_dir: string;
 }
 
 function loadReposYaml(): ReposYamlEntry[] {
@@ -358,8 +357,7 @@ function loadReposYaml(): ReposYamlEntry[] {
     (entry): entry is ReposYamlEntry =>
       typeof entry === "object" &&
       entry !== null &&
-      typeof (entry as Record<string, unknown>).repo_url === "string" &&
-      typeof (entry as Record<string, unknown>).local_dir === "string"
+      typeof (entry as Record<string, unknown>).repo_url === "string"
   );
 }
 
@@ -369,8 +367,8 @@ function resolveRepoEntry(repoPath: string): ReposYamlEntry | undefined {
   const normalized = repoPath.replace(/\/\.worktrees\/[^/]+\/?$/, "");
   const repoBasename = path.basename(normalized);
   return repos.find((r) => {
-    const localBasename = path.basename(r.local_dir.replace(/\/+$/, ""));
-    return localBasename === repoBasename;
+    const repoName = path.basename(r.repo_url, ".git");
+    return repoName === repoBasename;
   });
 }
 
