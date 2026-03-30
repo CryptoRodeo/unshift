@@ -157,8 +157,8 @@ export class RunRepository {
 
   getRetryCount(issueKey: string): number {
     const s = this.ensureInit();
-    const row = s.retryCount.get(issueKey) as { count: number };
-    return row.count;
+    const row = s.retryCount.get(issueKey) as { count: number } | undefined;
+    return row?.count ?? 0;
   }
 
   getRunLogs(runId: string): LogEntry[] {

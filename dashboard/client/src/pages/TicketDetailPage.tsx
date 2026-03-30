@@ -25,6 +25,8 @@ export function TicketDetailPage() {
         setStartingRun(false);
       } else if (result.id) {
         navigate(`/runs/${result.id}`);
+      } else {
+        setStartingRun(false);
       }
     } catch {
       setStartingRun(false);
