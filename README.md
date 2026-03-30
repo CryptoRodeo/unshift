@@ -13,7 +13,7 @@ An automation tool that picks up Jira issues labeled `llm-candidate`, implements
 Unshift runs four phases per issue:
 
 1. **Discover**  - Queries the Jira REST API for issues labeled `llm-candidate` and determines which issues to process.
-2. **Plan**  - Reads the Jira issue, maps it to a repo via `repos.yaml`, creates a branch, and generates an implementation plan (`prd.json`).
+2. **Plan**  - Reads the Jira issue, maps it to a repo via `projects.yaml`, creates a branch, and generates an implementation plan (`prd.json`).
 3. **Implement**  - Works through the plan one entry at a time. If a validation step fails, it automatically retries once with the error context. This keeps token usage flat and gives every entry the full context window.
 4. **Deliver**  - Commits, pushes, opens a PR, updates Jira, and cleans up. When started from the dashboard, the run pauses here for approval before proceeding.
 
@@ -46,14 +46,14 @@ Edit `.env` and fill in your credentials (see [Credentials Reference](#credentia
 
 You can also select the provider and model from the dashboard UI when starting a run.
 
-### 2. Configure repos.yaml
+### 2. Configure projects.yaml
 
-Create a `repos.yaml` to map your Jira projects to repositories. See `repos.yaml.example` for the schema and a starting template.
+Create a `projects.yaml` to map your Jira projects to repositories. See `projects.yaml.example` for the schema and a starting template.
 
 Inside the container, repos are cloned under `/app/workspace/` (bind-mounted to `./workspace` on the host). Keep `local_dir` set to the path on your host machine (e.g. `~/work/my-repo`) — the dashboard uses it for the "Open Locally" dialog.
 
 <details>
-<summary><strong>Example repos.yaml</strong></summary>
+<summary><strong>Example projects.yaml</strong></summary>
 
 ```yaml
 # Frontend monorepo — two Jira projects share this repo,
@@ -342,7 +342,7 @@ Inside a Claude Code session, run:
 /unshift PROJ-123     # process a specific issue
 ```
 
-The skill reads `repos.yaml` from this repo's root to map Jira projects to repositories. See `repos.yaml.example` for the schema.
+The skill reads `projects.yaml` from this repo's root to map Jira projects to repositories. See `projects.yaml.example` for the schema.
 
 </details>
 
@@ -362,7 +362,7 @@ The skill reads `repos.yaml` from this repo's root to map Jira projects to repos
 | `dashboard/Dockerfile` | Multi-stage Docker build (no Claude Code — the engine calls LLM APIs directly) |
 | `dashboard/entrypoint.sh` | Container entrypoint  - sets git identity and GCP credentials |
 | `.dockerignore` | Files excluded from Docker build context |
-| `repos.yaml` | Project-to-repository mapping (shared by dashboard and CLI) |
+| `projects.yaml` | Project-to-repository mapping (shared by dashboard and CLI) |
 | `prd.json` | Implementation plan, created per issue, cleaned up after (in target repo at runtime) |
 | `progress.txt` | Append-only execution log, cleaned up after (in target repo at runtime) |
 | `runs.db` | SQLite database storing run history, logs, and progress (in `dashboard/server/data/` at runtime) |

@@ -339,11 +339,11 @@ interface ReposYamlEntry {
 }
 
 function loadReposYaml(): ReposYamlEntry[] {
-  // In dev: src/ → ../../repos.yaml; in prod: dist/ → ../../../repos.yaml
+  // In dev: src/ → ../../projects.yaml; in prod: dist/ → ../../../projects.yaml
   const thisDir = path.dirname(fileURLToPath(import.meta.url));
   const candidates = [
-    path.resolve(thisDir, "../../../repos.yaml"),
-    path.resolve(thisDir, "../../repos.yaml"),
+    path.resolve(thisDir, "../../../projects.yaml"),
+    path.resolve(thisDir, "../../projects.yaml"),
   ];
   const reposPath = candidates.find((p) => fs.existsSync(p));
   if (!reposPath) return [];
@@ -351,7 +351,7 @@ function loadReposYaml(): ReposYamlEntry[] {
   const parsed = yaml.load(content);
   if (!parsed) return [];
   if (!Array.isArray(parsed)) {
-    throw new Error(`repos.yaml must contain a YAML array, got ${typeof parsed}`);
+    throw new Error(`projects.yaml must contain a YAML array, got ${typeof parsed}`);
   }
   return (parsed as unknown[]).filter(
     (entry): entry is ReposYamlEntry =>
@@ -394,7 +394,7 @@ app.get("/api/runs/:id/repo-url", (req, res) => {
     }
     const entry = resolveRepoEntry(run.repoPath);
     if (!entry) {
-      res.status(400).json({ error: "Could not resolve repository from repos.yaml", code: "BAD_REQUEST" });
+      res.status(400).json({ error: "Could not resolve repository from projects.yaml", code: "BAD_REQUEST" });
       return;
     }
     const repoUrl = toBrowsableUrl(entry.repo_url);

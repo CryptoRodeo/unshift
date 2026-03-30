@@ -68,8 +68,8 @@ COPY --from=build --chown=unshift:unshift /app/dashboard/client/package.json ./d
 # Copy CLI scripts (used by server to spawn automation workflows)
 COPY --chown=unshift:unshift cli/ ./cli/
 
-# Copy repos.yaml (used by CLI for project-to-repo mapping)
-COPY --chown=unshift:unshift repos.yaml ./repos.yaml
+# Copy projects.yaml (used by CLI for project-to-repo mapping)
+COPY --chown=unshift:unshift projects.yaml ./projects.yaml
 
 # Pre-create data directory so the named volume inherits correct ownership
 RUN mkdir -p /app/dashboard/server/data && chown unshift:unshift /app/dashboard/server/data

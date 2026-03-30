@@ -95,7 +95,7 @@ fi
 # Shared helpers
 # ---------------------------------------------------------------------------
 
-# Convert repos.yaml to JSON using python3+PyYAML or yq.
+# Convert projects.yaml to JSON using python3+PyYAML or yq.
 repos_to_json() {
   local yaml_file="$1"
   if command -v python3 &>/dev/null && python3 -c "import yaml" 2>/dev/null; then
@@ -103,13 +103,13 @@ repos_to_json() {
   elif command -v yq &>/dev/null; then
     yq -o=json '.' "$yaml_file"
   else
-    echo "Error: Need python3 with PyYAML or yq to parse repos.yaml." >&2
+    echo "Error: Need python3 with PyYAML or yq to parse projects.yaml." >&2
     return 1
   fi
 }
 
 # Resolve the repo entry for a given Jira issue key.
-# Parses repos.yaml, fetches issue components/labels from Jira, and applies
+# Parses projects.yaml, fetches issue components/labels from Jira, and applies
 # disambiguation rules: component → label → fallback.
 # Outputs a single JSON object for the matched entry.
 resolve_repo() {
@@ -131,9 +131,9 @@ resolve_repo() {
   issue_components="$(echo "$issue_json" | jq '[.fields.components[].name] // []')"
   issue_labels="$(echo "$issue_json" | jq '[.fields.labels[]] // []')"
 
-  # Parse repos.yaml to JSON
+  # Parse projects.yaml to JSON
   local repos_json
-  repos_json="$(repos_to_json "${SCRIPT_DIR}/../repos.yaml")" || return 1
+  repos_json="$(repos_to_json "${SCRIPT_DIR}/../projects.yaml")" || return 1
 
   # Find entries whose jira_projects contain the issue's project key
   local matching

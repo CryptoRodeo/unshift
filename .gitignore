@@ -10,5 +10,5 @@ workspace/*
 !workspace/README.md
 **/dist/
 .claude/settings.local.json
-repos.yaml
+projects.yaml
 

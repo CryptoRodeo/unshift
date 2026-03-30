@@ -65,12 +65,12 @@ export class UnshiftEngine extends EventEmitter {
     const __dirname = path.dirname(__filename);
     // In dev (src/engine/), 4 levels up; bundled (dist/), 3 levels up
     const candidates = [
-      path.resolve(__dirname, "..", "..", "..", "..", "repos.yaml"),
-      path.resolve(__dirname, "..", "..", "..", "repos.yaml"),
-      path.resolve(__dirname, "..", "..", "repos.yaml"),
+      path.resolve(__dirname, "..", "..", "..", "..", "projects.yaml"),
+      path.resolve(__dirname, "..", "..", "..", "projects.yaml"),
+      path.resolve(__dirname, "..", "..", "projects.yaml"),
     ];
     this.reposYamlPath =
-      process.env.REPOS_YAML_PATH ??
+      process.env.PROJECTS_YAML_PATH ??
       candidates.find((p) => existsSync(p)) ??
       candidates[0];
   }
@@ -101,18 +101,18 @@ export class UnshiftEngine extends EventEmitter {
     return issues.map((i) => i.key);
   }
 
-  /** Resolve a repo entry from repos.yaml for the given issue key */
+  /** Resolve a repo entry from projects.yaml for the given issue key */
   async resolveRepo(issueKey: string): Promise<RepoEntry> {
     const projectKey = issueKey.split("-")[0];
 
     // Fetch issue components and labels from Jira
     const issue = await this.jira.getIssue(issueKey);
 
-    // Parse repos.yaml
+    // Parse projects.yaml
     const yamlContent = await readFile(this.reposYamlPath, "utf-8");
     const parsed = yaml.load(yamlContent);
     if (!Array.isArray(parsed)) {
-      throw new Error(`repos.yaml must contain a YAML array, got ${typeof parsed}`);
+      throw new Error(`projects.yaml must contain a YAML array, got ${typeof parsed}`);
     }
     const entries = parsed as RepoEntry[];
 
