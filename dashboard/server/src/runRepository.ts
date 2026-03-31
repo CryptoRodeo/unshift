@@ -38,6 +38,9 @@ export class RunRepository {
       saveProgressTxt: db.prepare(`INSERT OR REPLACE INTO run_progress (run_id, content) VALUES (?, ?)`),
       getProgressTxt: db.prepare(`SELECT content FROM run_progress WHERE run_id = ?`),
       savePrdJson: db.prepare(`UPDATE runs SET prd_json = ? WHERE id = ?`),
+      saveDiff: db.prepare(`INSERT OR REPLACE INTO run_diffs (run_id, content) VALUES (?, ?)`),
+      getDiff: db.prepare(`SELECT content FROM run_diffs WHERE run_id = ?`),
+      deleteRunDiff: db.prepare(`DELETE FROM run_diffs WHERE run_id = ?`),
       deleteRunLogs: db.prepare(`DELETE FROM run_logs WHERE run_id = ?`),
       deleteRunProgress: db.prepare(`DELETE FROM run_progress WHERE run_id = ?`),
       deleteRun: db.prepare(`DELETE FROM runs WHERE id = ?`),
@@ -149,6 +152,17 @@ export class RunRepository {
     return row?.content;
   }
 
+  saveDiff(runId: string, content: string): void {
+    const s = this.ensureInit();
+    s.saveDiff.run(runId, content);
+  }
+
+  getDiff(runId: string): string | undefined {
+    const s = this.ensureInit();
+    const row = s.getDiff.get(runId) as { content: string } | undefined;
+    return row?.content;
+  }
+
   getSuccessfulIssueKeys(): Set<string> {
     const s = this.ensureInit();
     const rows = s.successfulKeys.all() as { issue_key: string }[];
@@ -249,6 +263,7 @@ export class RunRepository {
       s.deleteRunLogs.run(id);
       s.deleteRunProgress.run(id);
       s.deleteRunComments.run(id);
+      s.deleteRunDiff.run(id);
       return s.deleteRun.run(id);
     });
     const result = deleteAll();

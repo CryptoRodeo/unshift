@@ -21,6 +21,7 @@ import { getRepoName } from "../hooks/useRunFilters";
 import { PhaseProgress } from "../components/PhaseProgress";
 import { StatusLabel } from "../components/StatusLabel";
 import { ActivityFeed } from "../components/ActivityFeed";
+import { DiffViewer } from "../components/DiffViewer";
 
 function ConfirmModal({ title, message, confirmLabel, confirmVariant, onConfirm, onCancel }: {
   title: string;
@@ -482,6 +483,13 @@ export function RunDetailPage() {
                   </span>
                 </div>
               </div>
+            </section>
+          )}
+
+          {/* Diff viewer — available once repoPath exists (phase1+) */}
+          {run.repoPath && (
+            <section className="us-detail-section">
+              <DiffViewer runId={run.id} />
             </section>
           )}
 

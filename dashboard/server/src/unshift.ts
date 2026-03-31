@@ -1,5 +1,7 @@
 import { EventEmitter } from "node:events";
 import { randomUUID } from "node:crypto";
+import fs from "node:fs";
+import path from "node:path";
 
 import type { RunContext, Run, RunError, PrdEntry, LogEntry, RunPhase, TokenData, Comment } from "../../shared/types";
 import { isTerminal, isCompleted, isRunError } from "../../shared/types";
@@ -82,6 +84,81 @@ export class UnshiftRunner extends EventEmitter {
   /** Fetch Jira issue comments */
   async getJiraIssueComments(issueKey: string, maxResults?: number) {
     return this.engine.getJiraIssueComments(issueKey, maxResults);
+  }
+
+  /** Files excluded from diffs (generated artifacts, not part of the deliverable) */
+  private static readonly DIFF_EXCLUDE_PATHS = [":!prd.json", ":!progress.txt", ":!ralph.sh"];
+
+  /** Persist the current worktree diff to DB so it survives worktree cleanup / container restarts */
+  private async persistDiff(runId: string): Promise<void> {
+    const run = this.repository.getRun(runId);
+    if (!run?.repoPath || !run.context?.defaultBranch || !fs.existsSync(run.repoPath)) return;
+
+    try {
+      const { execCommand } = await import("./engine/tools.js");
+      const result = await execCommand(
+        "git",
+        ["diff", `origin/${run.context.defaultBranch}...HEAD`, "--", ".", ...UnshiftRunner.DIFF_EXCLUDE_PATHS],
+        { cwd: run.repoPath, timeout: 30_000 }
+      );
+      if (result.exitCode === 0 && result.stdout) {
+        this.capAndCacheDiff(runId, result.stdout);
+      }
+    } catch (e) {
+      console.warn(`Failed to persist diff for run ${runId}:`, e);
+    }
+  }
+
+  /** Get the git diff for a run — live from worktree, main clone, or DB cache */
+  async getRunDiff(id: string): Promise<{ diff: string | null }> {
+    const run = this.repository.getRun(id);
+    if (!run) return { diff: null };
+
+    const { execCommand } = await import("./engine/tools.js");
+    const defaultBranch = run.context?.defaultBranch;
+
+    // Try live diff from worktree (committed changes only, excludes generated files)
+    if (run.repoPath && defaultBranch && fs.existsSync(run.repoPath)) {
+      const result = await execCommand(
+        "git",
+        ["diff", `origin/${defaultBranch}...HEAD`, "--", ".", ...UnshiftRunner.DIFF_EXCLUDE_PATHS],
+        { cwd: run.repoPath, timeout: 30_000 }
+      );
+      if (result.exitCode === 0 && result.stdout) {
+        return { diff: this.capAndCacheDiff(id, result.stdout) };
+      }
+      console.warn(`Diff tier 1 (worktree) failed for run ${id}: exit=${result.exitCode}, stdout=${result.stdout?.length ?? 0}B, stderr=${result.stderr || "(none)"}`);
+    }
+
+    // Worktree is gone — try diffing the branch from the main clone
+    if (run.branchName && defaultBranch && run.repoPath) {
+      const mainClone = path.resolve(run.repoPath, "..", "..");
+      if (fs.existsSync(mainClone)) {
+        const result = await execCommand(
+          "git",
+          ["diff", `origin/${defaultBranch}...${run.branchName}`, "--", ".", ...UnshiftRunner.DIFF_EXCLUDE_PATHS],
+          { cwd: mainClone, timeout: 30_000 }
+        );
+        if (result.exitCode === 0 && result.stdout) {
+          return { diff: this.capAndCacheDiff(id, result.stdout) };
+        }
+        console.warn(`Diff tier 2 (main clone) failed for run ${id}: exit=${result.exitCode}, stdout=${result.stdout?.length ?? 0}B, stderr=${result.stderr || "(none)"}`);
+      }
+    }
+
+    // Fall back to persisted diff
+    const cached = this.repository.getDiff(id);
+    return { diff: cached ?? null };
+  }
+
+  private capAndCacheDiff(runId: string, raw: string): string {
+    const MAX_DIFF_SIZE = 512_000; // 500KB
+    let diff = raw;
+    if (diff.length > MAX_DIFF_SIZE) {
+      diff = diff.slice(0, MAX_DIFF_SIZE) + "\n\n… diff truncated (exceeded 500KB)";
+    }
+    this.repository.saveDiff(runId, diff);
+    return diff;
   }
 
   /** Discover llm-candidate issues via Jira JQL */
@@ -325,7 +402,9 @@ export class UnshiftRunner extends EventEmitter {
 
     const cleanup = this.wireEngineEvents(runId);
 
-    work(opts).then(() => {
+    work(opts).then(async () => {
+      // Persist diff before worktree cleanup so it survives container restarts
+      await this.persistDiff(runId);
       const completedAt = new Date().toISOString();
       this.repository.updateRunStatus(runId, "success", completedAt);
       this.emit("run:complete", runId, "success");
@@ -362,6 +441,13 @@ export class UnshiftRunner extends EventEmitter {
       this.repository.updateRunStatus(id, phase);
       this.repository.updatePhaseTimestamp(id, phase, ts);
       this.emit("run:phase", id, phase, ts);
+
+      // Persist the diff when entering approval so it survives container restarts
+      if (phase === "awaiting_approval") {
+        this.persistDiff(id).catch((e) =>
+          console.warn(`Failed to persist diff on approval for run ${id}:`, e)
+        );
+      }
     };
 
     const onLog = (id: string, line: string, phase: RunPhase) => {

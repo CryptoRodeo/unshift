@@ -118,6 +118,16 @@ app.get("/api/runs/:id/logs", (req, res) => {
   }
 });
 
+app.get("/api/runs/:id/diff", async (req, res) => {
+  try {
+    const result = await runner.getRunDiff(req.params.id);
+    res.json(result);
+  } catch (err) {
+    console.error("Failed to get diff:", err);
+    res.status(500).json({ diff: null });
+  }
+});
+
 app.get("/api/runs/:id/progress", (req, res) => {
   const content = runner.getRunProgress(req.params.id);
   if (content === undefined) {

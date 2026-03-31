@@ -3864,3 +3864,173 @@ button:active:not(:disabled),
     max-height: 250px;
   }
 }
+
+/* ------------------------------------------------------------------ */
+/*  Diff Viewer                                                        */
+/* ------------------------------------------------------------------ */
+
+.us-diff {
+  border-radius: var(--us-radius-sm);
+  border: 1px solid var(--us-border-subtle);
+  overflow: hidden;
+  background: var(--us-surface-tertiary);
+}
+
+.us-diff__toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--us-space-2);
+  width: 100%;
+  padding: 10px 14px;
+  border: none;
+  background: transparent;
+  color: var(--us-text-primary);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.15s ease;
+}
+
+.us-diff__toggle:hover {
+  background: var(--us-surface-hover);
+}
+
+.us-diff__icon {
+  color: var(--us-text-secondary);
+}
+
+.us-diff__title {
+  flex: 1;
+}
+
+.us-diff__file-count {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--us-text-secondary);
+  background: var(--us-surface-hover);
+  padding: 2px 8px;
+  border-radius: var(--us-radius-full);
+}
+
+.us-diff__chevron {
+  transition: transform 0.15s ease;
+  color: var(--us-text-secondary);
+  flex-shrink: 0;
+}
+
+.us-diff__chevron--open {
+  transform: rotate(90deg);
+}
+
+.us-diff__content {
+  border-top: 1px solid var(--us-border-subtle);
+}
+
+.us-diff__status {
+  padding: 16px 14px;
+  color: var(--us-text-secondary);
+  font-size: 13px;
+}
+
+.us-diff__status--error {
+  color: #f85149;
+}
+
+/* File section */
+.us-diff__file {
+  border-top: 1px solid var(--us-border-subtle);
+}
+
+.us-diff__file:first-child {
+  border-top: none;
+}
+
+.us-diff__file-header {
+  display: flex;
+  align-items: center;
+  gap: var(--us-space-2);
+  width: 100%;
+  padding: 8px 14px;
+  border: none;
+  background: transparent;
+  color: var(--us-text-primary);
+  font-size: 13px;
+  font-family: var(--us-font-mono);
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.15s ease;
+}
+
+.us-diff__file-header:hover {
+  background: var(--us-surface-hover);
+}
+
+.us-diff__filename {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.us-diff__stats {
+  display: flex;
+  gap: var(--us-space-2);
+  font-size: 12px;
+  font-family: var(--us-font-mono);
+  flex-shrink: 0;
+}
+
+.us-diff__stat-add {
+  color: var(--us-diff-add-text);
+}
+
+.us-diff__stat-del {
+  color: var(--us-diff-del-text);
+}
+
+/* Code block */
+.us-diff__code {
+  margin: 0;
+  padding: 0;
+  font-family: var(--us-font-mono);
+  font-size: 12px;
+  line-height: 1.6;
+  overflow-x: auto;
+  border-top: 1px solid var(--us-border-subtle);
+}
+
+.us-diff__line {
+  padding: 0 14px;
+  white-space: pre;
+  min-height: 1.6em;
+}
+
+.us-diff__line--add {
+  background: var(--us-diff-add-bg);
+  color: var(--us-diff-add-text);
+}
+
+.us-diff__line--del {
+  background: var(--us-diff-del-bg);
+  color: var(--us-diff-del-text);
+}
+
+.us-diff__line--context {
+  color: var(--us-text-primary);
+}
+
+.us-diff__line--hunk-header {
+  background: var(--us-diff-hunk-bg);
+  color: var(--us-diff-hunk-text);
+  font-style: italic;
+}
+
+/* Light mode overrides */
+:root:not(.pf-v6-theme-dark) .us-diff {
+  background: #f7f7f8;
+}
+
+:root:not(.pf-v6-theme-dark) .us-diff__file-header:hover {
+  background: rgba(0, 0, 0, 0.04);
+}
