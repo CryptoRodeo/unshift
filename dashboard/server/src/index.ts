@@ -344,39 +344,39 @@ app.post("/api/runs/:id/comments", (req, res) => {
   }
 });
 
-interface ReposYamlEntry {
+interface ProjectEntry {
   repo_url: string;
 }
 
-function loadReposYaml(): ReposYamlEntry[] {
+function loadProjects(): ProjectEntry[] {
   // In dev: src/ → ../../projects.yaml; in prod: dist/ → ../../../projects.yaml
   const thisDir = path.dirname(fileURLToPath(import.meta.url));
   const candidates = [
     path.resolve(thisDir, "../../../projects.yaml"),
     path.resolve(thisDir, "../../projects.yaml"),
   ];
-  const reposPath = candidates.find((p) => fs.existsSync(p));
-  if (!reposPath) return [];
-  const content = fs.readFileSync(reposPath, "utf-8");
+  const projectsPath = candidates.find((p) => fs.existsSync(p));
+  if (!projectsPath) return [];
+  const content = fs.readFileSync(projectsPath, "utf-8");
   const parsed = yaml.load(content);
   if (!parsed) return [];
   if (!Array.isArray(parsed)) {
     throw new Error(`projects.yaml must contain a YAML array, got ${typeof parsed}`);
   }
   return (parsed as unknown[]).filter(
-    (entry): entry is ReposYamlEntry =>
+    (entry): entry is ProjectEntry =>
       typeof entry === "object" &&
       entry !== null &&
       typeof (entry as Record<string, unknown>).repo_url === "string"
   );
 }
 
-function resolveRepoEntry(repoPath: string): ReposYamlEntry | undefined {
-  const repos = loadReposYaml();
+function resolveRepoEntry(repoPath: string): ProjectEntry | undefined {
+  const projects = loadProjects();
   // Strip .worktrees/<id> suffix so worktree paths resolve to the parent repo
   const normalized = repoPath.replace(/\/\.worktrees\/[^/]+\/?$/, "");
   const repoBasename = path.basename(normalized);
-  return repos.find((r) => {
+  return projects.find((r) => {
     const repoName = path.basename(r.repo_url, ".git");
     return repoName === repoBasename;
   });
