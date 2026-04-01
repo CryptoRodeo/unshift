@@ -538,7 +538,7 @@ export function RunDetailPage() {
 
           {/* Tabbed content: Activity / Changes */}
           <section className="us-detail-section us-detail-section--fill">
-            <Tabs activeKey={activeTab} onSelect={(_e, key) => setActiveTab(key)} className="us-detail-content-tabs">
+            <Tabs activeKey={activeTab} onSelect={(_e, key) => setActiveTab(key)}>
               <Tab eventKey={0} title={<TabTitleText>Activity</TabTitleText>}>
                 <ActivityFeed
                   run={run}

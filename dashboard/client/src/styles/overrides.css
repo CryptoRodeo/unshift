@@ -3882,19 +3882,7 @@ button:active:not(:disabled),
 /*  Detail Content Tabs                                                */
 /* ------------------------------------------------------------------ */
 
-.us-detail-content-tabs {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-}
-
-.us-detail-content-tabs > .pf-v6-c-tabs__content {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-}
-
-.us-detail-content-tabs .pf-v6-c-tab-content {
+.us-detail-section--fill > .pf-v6-c-tab-content:not([hidden]) {
   flex: 1;
   display: flex;
   flex-direction: column;

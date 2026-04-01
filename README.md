@@ -6,7 +6,35 @@ An automation tool that picks up Jira issues with a configurable label (default:
 
 ## Dashboard preview
 
-<a href="unshift-ui.png"><img src="unshift-ui.png" alt="Unshift dashboard UI" width="600"></a>
+### Run list page
+
+<a href="unshift-ui.png"><img src="unshift-ui.png" alt="Unshift dashboard — run list" width="600"></a>
+
+### Run detail activity section
+
+<a href="activity-section.png"><img src="activity-section.png" alt="Unshift dashboard — activity timeline" width="600"></a>
+
+### Diff viewer
+
+<a href="diff-viewer.png"><img src="diff-viewer.png" alt="Unshift dashboard — diff viewer" width="600"></a>
+
+### Project list view
+
+<a href="project-view.png"><img src="project-view.png" alt="Unshift dashboard — projects view" width="600"></a>
+
+### Batch run - configure models for specific issues
+
+<a href="batch-run-configure-models.png"><img src="batch-run-configure-models.png" alt="Unshift dashboard — batch run configuration" width="600"></a>
+
+### Dashboard features
+
+- **Sidebar navigation** — persistent left sidebar with quick links, live run counts, recent runs, dark/light mode toggle, and connection status
+- **Projects view** — browse Jira tickets that have been processed, view full issue details (description, status, priority, assignee, labels, comments), and see run history per ticket
+- **Activity timeline** — chronological feed of phase transitions, collapsible log output, PRD completions, and terminal events for each run
+- **Diff viewer** — review AI-generated code changes file-by-file with add/delete stats and syntax-highlighted diffs, available in a dedicated "Changes" tab on the run detail page
+- **Batch configuration** — select a default AI provider and model for all discovered issues, with per-issue overrides, before launching a batch run
+- **Single-ticket runs** — start a run for a specific Jira issue directly from the toolbar with inline provider and model selection
+- **Keyboard shortcuts** — press <kbd>A</kbd> to approve or <kbd>R</kbd> to reject when reviewing a run at the approval gate
 
 ## How it works
 
