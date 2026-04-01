@@ -20,12 +20,14 @@ import {
 import { useWebSocketContext } from "../hooks/useWebSocket";
 import { useHeaderContext } from "../hooks/useHeaderContext";
 import { isTerminal, isCompleted, isRunError, formatDuration, PHASE_LABELS, relativeTime } from "../types";
-import type { Run, RunPhase, WorktreeInfo } from "../types";
+import type { Run, WorktreeInfo } from "../types";
 import { getRepoName } from "../hooks/useRunFilters";
 import { PhaseProgress } from "../components/PhaseProgress";
 import { StatusLabel } from "../components/StatusLabel";
 import { ActivityFeed } from "../components/ActivityFeed";
 import { DiffViewer } from "../components/DiffViewer";
+import { PlanViewer } from "../components/PlanViewer";
+import { ProgressViewer } from "../components/ProgressViewer";
 
 function ConfirmModal({ title, message, confirmLabel, confirmVariant, onConfirm, onCancel }: {
   title: string;
@@ -548,8 +550,16 @@ export function RunDetailPage() {
                   progressText={progressMap.get(run.id)}
                 />
               </Tab>
+              {run.prd && run.prd.length > 0 ? (
+                <Tab eventKey={1} title={<TabTitleText>Plan ({run.prd.filter(e => e.completed).length}/{run.prd.length})</TabTitleText>}>
+                  <PlanViewer prd={run.prd} runIsActive={isActive} />
+                </Tab>
+              ) : null}
+              <Tab eventKey={2} title={<TabTitleText>Progress</TabTitleText>}>
+                <ProgressViewer progressText={progressMap.get(run.id)} runIsActive={isActive} />
+              </Tab>
               {run.repoPath ? (
-                <Tab eventKey={1} title={<TabTitleText>Changes</TabTitleText>}>
+                <Tab eventKey={3} title={<TabTitleText>Changes</TabTitleText>}>
                   <DiffViewer runId={run.id} />
                 </Tab>
               ) : null}
