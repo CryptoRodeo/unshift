@@ -2,11 +2,11 @@
 # unshift.sh - Outer orchestrator for the Jira-to-PR automation workflow (uses Jira REST API via curl)
 # Usage: ./unshift.sh [--discover] [--issue KEY] [--retry]
 #
-# --discover   Print all llm-candidate Jira issue keys to stdout and exit.
+# --discover   Print all candidate Jira issue keys (label from JIRA_LABEL) to stdout and exit.
 # --issue KEY  Process a single Jira issue instead of discovering all.
 # --retry      Skip Phase 0/1, resume from prd.json, re-copy ralph.sh, re-run Phase 2.
 #              Requires --issue KEY and UNSHIFT_CONTEXT_FILE env var.
-# (no flags)   Discover and process ALL llm-candidate issues sequentially.
+# (no flags)   Discover and process ALL candidate issues sequentially.
 
 set -euo pipefail
 
@@ -17,11 +17,11 @@ usage() {
   echo "Usage: $0 [--discover] [--issue KEY]" >&2
   echo "" >&2
   echo "Options:" >&2
-  echo "  --discover   Print llm-candidate issue keys to stdout and exit" >&2
+  echo "  --discover   Print candidate issue keys (JIRA_LABEL=${JIRA_LABEL:-llm-candidate}) to stdout and exit" >&2
   echo "  --issue KEY  Process a single Jira issue" >&2
   echo "  --retry      Skip Phase 0/1, resume from prd.json, re-copy ralph.sh, re-run Phase 2" >&2
   echo "               Requires --issue KEY and UNSHIFT_CONTEXT_FILE env var" >&2
-  echo "  (no flags)   Discover and process all llm-candidate issues" >&2
+  echo "  (no flags)   Discover and process all candidate issues" >&2
   echo "" >&2
   echo "Phases per issue:" >&2
   echo "  Phase 1: Repo setup, branch creation, prd.json generation" >&2
@@ -271,6 +271,7 @@ fi
 
 # Determine Jira REST API endpoint based on version
 JIRA_API_VERSION="${JIRA_API_VERSION:-3}"
+JIRA_LABEL="${JIRA_LABEL:-llm-candidate}"
 
 # ---------------------------------------------------------------------------
 # Retry mode: skip Phase 0/1, reuse context, reset prd.json, re-run Phase 2
@@ -384,12 +385,13 @@ if [[ -n "$SINGLE_ISSUE" ]]; then
   ISSUE_KEYS=("$SINGLE_ISSUE")
   echo "Processing single issue: $SINGLE_ISSUE" >&2
 else
-  # Query Jira for all llm-candidate issues via REST API
+  # Query Jira for all issues with the configured label via REST API
   ISSUE_KEYS=()
+  ENCODED_LABEL=$(python3 -c "import urllib.parse; print(urllib.parse.quote('labels = ${JIRA_LABEL}'))")
   if [[ "$JIRA_API_VERSION" == "2" ]]; then
-    JIRA_SEARCH_URL="${JIRA_BASE_URL}/rest/api/2/search?jql=labels%3Dllm-candidate&fields=key,summary,issuetype,status"
+    JIRA_SEARCH_URL="${JIRA_BASE_URL}/rest/api/2/search?jql=${ENCODED_LABEL}&fields=key,summary,issuetype,status"
   else
-    JIRA_SEARCH_URL="${JIRA_BASE_URL}/rest/api/3/search/jql?jql=labels%3Dllm-candidate&fields=key,summary,issuetype,status"
+    JIRA_SEARCH_URL="${JIRA_BASE_URL}/rest/api/3/search/jql?jql=${ENCODED_LABEL}&fields=key,summary,issuetype,status"
   fi
   while IFS= read -r key; do
     [[ -n "$key" ]] && ISSUE_KEYS+=("$key")
@@ -398,7 +400,7 @@ else
     | jq -r '.issues[].key' || true)
 
   if [[ ${#ISSUE_KEYS[@]} -eq 0 ]]; then
-    echo "No llm-candidate issues found." >&2
+    echo "No issues with label '${JIRA_LABEL}' found." >&2
     exit 0
   fi
 

@@ -229,7 +229,7 @@ export class UnshiftRunner extends EventEmitter {
     return diff;
   }
 
-  /** Discover llm-candidate issues via Jira JQL */
+  /** Discover candidate issues via Jira JQL (label from JIRA_LABEL env var) */
   async discover(): Promise<string[]> {
     return this.engine.discover();
   }

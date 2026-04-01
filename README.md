@@ -1,6 +1,6 @@
 # Unshift
 
-An automation tool that picks up Jira issues labeled `llm-candidate`, implements them using an LLM, and opens a pull request.
+An automation tool that picks up Jira issues with a configurable label (default: `llm-candidate`), implements them using an LLM, and opens a pull request.
 
 > The dashboard engine uses the [Vercel AI SDK](https://sdk.vercel.ai/) and supports multiple LLM providers (Anthropic, OpenAI, Google). The CLI scripts in `cli/` are an alternative entry point that uses [Claude Code](https://docs.anthropic.com/en/docs/claude-code) directly.
 
@@ -12,7 +12,7 @@ An automation tool that picks up Jira issues labeled `llm-candidate`, implements
 
 Unshift runs four phases per issue:
 
-1. **Discover**  - Queries the Jira REST API for issues labeled `llm-candidate` and determines which issues to process.
+1. **Discover**  - Queries the Jira REST API for issues with the configured label (`JIRA_LABEL`, default: `llm-candidate`) and determines which issues to process.
 2. **Plan**  - Reads the Jira issue, maps it to a repo via `projects.yaml`, creates a branch, and generates an implementation plan (`prd.json`).
 3. **Implement**  - Works through the plan one entry at a time. If a validation step fails, it automatically retries once with the error context. This keeps token usage flat and gives every entry the full context window.
 4. **Deliver**  - Commits, pushes, opens a PR, updates Jira, and cleans up. When started from the dashboard, the run pauses here for approval before proceeding.
@@ -41,6 +41,7 @@ Edit `.env` and fill in your credentials (see [Credentials Reference](#credentia
 - `UNSHIFT_PROVIDER`  - which provider to use: `anthropic` (default), `openai`, `google`, or `vertex`
 - `UNSHIFT_MODEL`  - model ID to use (defaults: `claude-sonnet-4-6`, `gpt-4o`, `gemini-2.0-flash`)
 - `JIRA_BASE_URL`, `JIRA_USER_EMAIL`, `JIRA_API_TOKEN`  - required for Jira integration
+- `JIRA_LABEL`  - Jira label used to discover candidate issues (default: `llm-candidate`)
 - `GH_TOKEN` or `GITLAB_TOKEN`  - required for PR/MR creation
 - `GIT_USER_NAME`, `GIT_USER_EMAIL`  - used for git commits inside the container
 
@@ -124,6 +125,46 @@ The dashboard will be available at `http://localhost:3000`.
 | Database lost after `docker compose down` | Data is stored in a named volume (`dashboard-data`). Use `docker compose down` (without `-v`) to preserve it. Adding `-v` removes volumes. |
 | Vertex AI: auth errors | Ensure `gcloud auth application-default login` was run on the host and the ADC file exists before starting the container. |
 | Stale worktrees in `workspace/` | If a run was interrupted, orphaned worktrees may remain. Clean up with `git -C workspace/<repo> worktree prune`. |
+
+## Opening worktrees in VSCode
+
+When a run reaches the **awaiting_approval** or **success** state, its git worktree is kept on disk so you can open it in VSCode, edit the AI's changes, and review the updated diff before approving.
+
+### Prerequisites
+
+- [VSCode](https://code.visualstudio.com/) installed on the host
+- [Dev Containers extension](https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-containers) installed in VSCode
+
+### Setup
+
+Set `WORKSPACE_HOST_PATH` to the **absolute host path** of your workspace directory. This tells the dashboard how to translate container-internal paths to paths your host VSCode can open.
+
+In `.env`:
+
+```bash
+# Must be an absolute path — the host-side equivalent of ./workspace in compose.yml
+WORKSPACE_HOST_PATH=/home/user/unshift/workspace
+```
+
+Or in `compose.yml` under `environment`:
+
+```yaml
+- WORKSPACE_HOST_PATH=/home/user/unshift/workspace
+```
+
+### How it works
+
+1. Click **Open in Editor** on a run's detail page (visible when status is `awaiting_approval` or `success`)
+2. The dashboard builds a `vscode://` URI pointing to the worktree on your host
+3. If the target repository includes a `.devcontainer/devcontainer.json`, VSCode opens the worktree in a Dev Container — giving you the same environment the AI used
+4. If no `.devcontainer/devcontainer.json` exists, the dashboard shows a modal explaining that one must be added to the repository for this feature to work. See [containers.dev](https://containers.dev/) for how to create one
+5. After editing files in VSCode, click **Refresh** on the Changed Files section to see your edits reflected in the diff viewer
+6. Once satisfied, click **Approve** — the dashboard re-persists the updated diff before proceeding with Phase 3
+
+### Notes
+
+- `WORKSPACE_HOST_PATH` is optional. If not set, the Open in Editor button will show an error explaining the configuration is missing
+- Worktrees are automatically cleaned up after `WORKTREE_TTL_HOURS` (default: 24 hours) once the run reaches a terminal state. You can also trigger cleanup manually via the API (`POST /api/runs/:id/cleanup`)
 
 ## Local Development
 
@@ -261,7 +302,7 @@ You can also target a single issue or just list what's available:
 
 ```bash
 ./cli/unshift.sh --issue PROJ-123   # process one issue
-./cli/unshift.sh --discover         # list llm-candidate issues and exit
+./cli/unshift.sh --discover         # list candidate issues and exit
 ./cli/unshift.sh --retry --issue PROJ-123  # retry from prd.json (skips planning)
 ```
 
@@ -338,7 +379,7 @@ See [Credentials Reference](#credentials-reference) for how to get the token.
 Inside a Claude Code session, run:
 
 ```
-/unshift              # discover and process all llm-candidate issues
+/unshift              # discover and process all candidate issues
 /unshift PROJ-123     # process a specific issue
 ```
 

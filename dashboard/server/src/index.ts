@@ -173,7 +173,7 @@ app.get("/api/providers", (_req, res) => {
 
 app.get("/api/config", (_req, res) => {
   const config = getDefaultConfig();
-  res.json({ ...config, jiraBaseUrl: process.env.JIRA_BASE_URL ?? null });
+  res.json({ ...config, jiraBaseUrl: process.env.JIRA_BASE_URL ?? null, jiraLabel: process.env.JIRA_LABEL ?? "llm-candidate" });
 });
 
 app.get("/api/jira/issue/:key/status", async (req, res) => {

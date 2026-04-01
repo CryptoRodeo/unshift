@@ -374,7 +374,7 @@ export function DashboardPage() {
               </div>
               <h3 className="us-empty-state__title">No runs yet</h3>
               <p className="us-empty-state__body">
-                Click <strong>Run batch</strong> to process llm-candidate Jira issues.
+                Click <strong>Run batch</strong> to discover and process candidate Jira issues.
               </p>
               <div className="us-empty-state__action">
                 <Button variant="primary" onClick={handleStartRun} isLoading={isStarting} isDisabled={isStarting}>

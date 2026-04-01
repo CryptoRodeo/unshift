@@ -95,9 +95,10 @@ export class UnshiftEngine extends EventEmitter {
     return this.jira.getIssueComments(issueKey, maxResults);
   }
 
-  /** Discover issues labelled llm-candidate via Jira JQL */
+  /** Discover issues with the configured Jira label via JQL */
   async discover(): Promise<string[]> {
-    const issues = await this.jira.searchIssues("labels = llm-candidate");
+    const label = process.env.JIRA_LABEL ?? "llm-candidate";
+    const issues = await this.jira.searchIssues(`labels = ${label}`);
     return issues.map((i) => i.key);
   }
 
