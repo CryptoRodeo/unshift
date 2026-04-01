@@ -3,6 +3,9 @@ import { useParams, useNavigate } from "react-router-dom";
 import {
   Alert,
   Tooltip,
+  Tabs,
+  Tab,
+  TabTitleText,
 } from "@patternfly/react-core";
 import {
   ArrowLeftIcon,
@@ -113,6 +116,7 @@ export function RunDetailPage() {
     return () => { if (headerCtx) headerCtx.setBreadcrumbLabel(null); };
   }, [issueKey, headerCtx]);
 
+  const [activeTab, setActiveTab] = useState<string | number>(0);
   const [approveError, setApproveError] = useState<string | null>(null);
   const [retryError, setRetryError] = useState<string | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
@@ -532,22 +536,24 @@ export function RunDetailPage() {
             </section>
           )}
 
-          {/* Diff viewer — available once repoPath exists (phase1+) */}
-          {run.repoPath && (
-            <section className="us-detail-section">
-              <DiffViewer runId={run.id} />
-            </section>
-          )}
-
-          {/* Activity Feed — unified timeline replacing separate logs, PRD, and progress sections */}
+          {/* Tabbed content: Activity / Changes */}
           <section className="us-detail-section us-detail-section--fill">
-            <ActivityFeed
-              run={run}
-              modelName={run.tokens?.model}
-              comments={commentsMap.get(run.id)}
-              onAddComment={(content) => addComment(run.id, content)}
-              progressText={progressMap.get(run.id)}
-            />
+            <Tabs activeKey={activeTab} onSelect={(_e, key) => setActiveTab(key)} className="us-detail-content-tabs">
+              <Tab eventKey={0} title={<TabTitleText>Activity</TabTitleText>}>
+                <ActivityFeed
+                  run={run}
+                  modelName={run.tokens?.model}
+                  comments={commentsMap.get(run.id)}
+                  onAddComment={(content) => addComment(run.id, content)}
+                  progressText={progressMap.get(run.id)}
+                />
+              </Tab>
+              {run.repoPath ? (
+                <Tab eventKey={1} title={<TabTitleText>Changes</TabTitleText>}>
+                  <DiffViewer runId={run.id} />
+                </Tab>
+              ) : null}
+            </Tabs>
           </section>
         </div>
 

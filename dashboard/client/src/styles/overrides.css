@@ -3879,6 +3879,29 @@ button:active:not(:disabled),
 }
 
 /* ------------------------------------------------------------------ */
+/*  Detail Content Tabs                                                */
+/* ------------------------------------------------------------------ */
+
+.us-detail-content-tabs {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.us-detail-content-tabs > .pf-v6-c-tabs__content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.us-detail-content-tabs .pf-v6-c-tab-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  padding-top: var(--us-space-4);
+}
+
+/* ------------------------------------------------------------------ */
 /*  Diff Viewer                                                        */
 /* ------------------------------------------------------------------ */
 
@@ -3892,26 +3915,17 @@ button:active:not(:disabled),
 .us-diff__header {
   display: flex;
   align-items: center;
+  padding: 10px 14px;
 }
 
-.us-diff__toggle {
+.us-diff__summary {
   display: flex;
   align-items: center;
   gap: var(--us-space-2);
   flex: 1;
-  padding: 10px 14px;
-  border: none;
-  background: transparent;
   color: var(--us-text-primary);
   font-size: 14px;
   font-weight: 500;
-  cursor: pointer;
-  text-align: left;
-  transition: background 0.15s ease;
-}
-
-.us-diff__toggle:hover {
-  background: var(--us-surface-hover);
 }
 
 .us-diff__refresh {
