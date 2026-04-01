@@ -11,7 +11,7 @@ services:
       # Absolute host path to the workspace directory — required for Open in VSCode functionality.
       # Must match the host-side path of the ./workspace volume mount below.
       # Example: /home/user/unshift/workspace
-      - WORKSPACE_HOST_PATH=${WORKSPACE_HOST_PATH:-}
+      #- WORKSPACE_HOST_PATH=${WORKSPACE_HOST_PATH:-}
     ports:
       - "3000:3000"
     volumes:
@@ -21,9 +21,9 @@ services:
       - ./workspace:/app/workspace
       # Uncomment to mount a custom CA certificate bundle for self-hosted git instances
       # example below (Fedora/RHEL specific)
-      - /etc/pki/tls/certs/ca-bundle.crt:/app/custom-ca.crt:ro
+      #- /etc/pki/tls/certs/ca-bundle.crt:/app/custom-ca.crt:ro
       # Uncomment for Vertex AI: mounts Google Application Default Credentials into the container
-      - ${GOOGLE_APPLICATION_CREDENTIALS:-~/.config/gcloud/application_default_credentials.json}:/home/unshift/.config/gcloud/application_default_credentials.json:ro
+      #- ${GOOGLE_APPLICATION_CREDENTIALS:-~/.config/gcloud/application_default_credentials.json}:/home/unshift/.config/gcloud/application_default_credentials.json:ro
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:3000/api/runs"]
       interval: 30s

@@ -154,46 +154,6 @@ The dashboard will be available at `http://localhost:3000`.
 | Vertex AI: auth errors | Ensure `gcloud auth application-default login` was run on the host and the ADC file exists before starting the container. |
 | Stale worktrees in `workspace/` | If a run was interrupted, orphaned worktrees may remain. Clean up with `git -C workspace/<repo> worktree prune`. |
 
-## Opening worktrees in VSCode
-
-When a run reaches the **awaiting_approval** or **success** state, its git worktree is kept on disk so you can open it in VSCode, edit the AI's changes, and review the updated diff before approving.
-
-### Prerequisites
-
-- [VSCode](https://code.visualstudio.com/) installed on the host
-- [Dev Containers extension](https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-containers) installed in VSCode
-
-### Setup
-
-Set `WORKSPACE_HOST_PATH` to the **absolute host path** of your workspace directory. This tells the dashboard how to translate container-internal paths to paths your host VSCode can open.
-
-In `.env`:
-
-```bash
-# Must be an absolute path — the host-side equivalent of ./workspace in compose.yml
-WORKSPACE_HOST_PATH=/home/user/unshift/workspace
-```
-
-Or in `compose.yml` under `environment`:
-
-```yaml
-- WORKSPACE_HOST_PATH=/home/user/unshift/workspace
-```
-
-### How it works
-
-1. Click **Open in Editor** on a run's detail page (visible when status is `awaiting_approval` or `success`)
-2. The dashboard builds a `vscode://` URI pointing to the worktree on your host
-3. If the target repository includes a `.devcontainer/devcontainer.json`, VSCode opens the worktree in a Dev Container — giving you the same environment the AI used
-4. If no `.devcontainer/devcontainer.json` exists, the dashboard shows a modal explaining that one must be added to the repository for this feature to work. See [containers.dev](https://containers.dev/) for how to create one
-5. After editing files in VSCode, click **Refresh** on the Changed Files section to see your edits reflected in the diff viewer
-6. Once satisfied, click **Approve** — the dashboard re-persists the updated diff before proceeding with Phase 3
-
-### Notes
-
-- `WORKSPACE_HOST_PATH` is optional. If not set, the Open in Editor button will show an error explaining the configuration is missing
-- Worktrees are automatically cleaned up after `WORKTREE_TTL_HOURS` (default: 24 hours) once the run reaches a terminal state. You can also trigger cleanup manually via the API (`POST /api/runs/:id/cleanup`)
-
 ## Local Development
 
 Use this setup if you want to develop unshift itself (modify the dashboard, CLI scripts, etc.).
