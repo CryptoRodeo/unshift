@@ -1,18 +1,21 @@
 import { BrowserRouter, Routes, Route, useLocation } from "react-router-dom";
-import { Page } from "@patternfly/react-core";
-import { AppHeader } from "./components/AppHeader";
+import { Sidebar } from "./components/Sidebar";
 import { DashboardPage } from "./components/DashboardPage";
 import { RunDetailPage } from "./pages/RunDetailPage";
+import { ProjectsPage } from "./pages/ProjectsPage";
+import { TicketDetailPage } from "./pages/TicketDetailPage";
 import { HeaderProvider, useHeaderContext } from "./hooks/useHeaderContext";
+import { WebSocketProvider, useWebSocketContext } from "./hooks/useWebSocket";
 
-function ConnectedAppHeader() {
+function ConnectedSidebar() {
   const ctx = useHeaderContext();
+  const { runs } = useWebSocketContext();
   return (
-    <AppHeader
+    <Sidebar
       connected={ctx?.connected}
       notificationPermission={ctx?.notificationPermission}
       onRequestNotifications={ctx?.onRequestNotifications ?? undefined}
-      breadcrumbLabel={ctx?.breadcrumbLabel}
+      runs={runs}
     />
   );
 }
@@ -26,6 +29,8 @@ function AnimatedRoutes() {
       <Routes>
         <Route path="/" element={<DashboardPage />} />
         <Route path="/runs/:runId" element={<RunDetailPage />} />
+        <Route path="/projects" element={<ProjectsPage />} />
+        <Route path="/projects/:issueKey" element={<TicketDetailPage />} />
       </Routes>
     </div>
   );
@@ -35,9 +40,14 @@ export function App() {
   return (
     <BrowserRouter>
       <HeaderProvider>
-        <Page masthead={<ConnectedAppHeader />}>
-          <AnimatedRoutes />
-        </Page>
+        <WebSocketProvider>
+          <div className="us-app-layout">
+            <ConnectedSidebar />
+            <main className="us-app-layout__main">
+              <AnimatedRoutes />
+            </main>
+          </div>
+        </WebSocketProvider>
       </HeaderProvider>
     </BrowserRouter>
   );

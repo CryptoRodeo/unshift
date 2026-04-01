@@ -1,12 +1,11 @@
 import type { RunContext, PrdEntry } from "../../../shared/types";
 
 /**
- * Repo entry shape matching repos.yaml structure.
+ * Repo entry shape matching projects.yaml structure.
  * Used by the orchestrator to pass resolved repo info to prompt builders.
  */
 export interface RepoEntry {
   repo_url: string;
-  local_dir: string;
   default_branch: string;
   host: string;
   validation: string[];

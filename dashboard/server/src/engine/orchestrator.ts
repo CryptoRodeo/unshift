@@ -65,12 +65,12 @@ export class UnshiftEngine extends EventEmitter {
     const __dirname = path.dirname(__filename);
     // In dev (src/engine/), 4 levels up; bundled (dist/), 3 levels up
     const candidates = [
-      path.resolve(__dirname, "..", "..", "..", "..", "repos.yaml"),
-      path.resolve(__dirname, "..", "..", "..", "repos.yaml"),
-      path.resolve(__dirname, "..", "..", "repos.yaml"),
+      path.resolve(__dirname, "..", "..", "..", "..", "projects.yaml"),
+      path.resolve(__dirname, "..", "..", "..", "projects.yaml"),
+      path.resolve(__dirname, "..", "..", "projects.yaml"),
     ];
     this.reposYamlPath =
-      process.env.REPOS_YAML_PATH ??
+      process.env.PROJECTS_YAML_PATH ??
       candidates.find((p) => existsSync(p)) ??
       candidates[0];
   }
@@ -80,24 +80,40 @@ export class UnshiftEngine extends EventEmitter {
     return this._jira;
   }
 
-  /** Discover issues labelled llm-candidate via Jira JQL */
+  /** Fetch a single Jira issue (used by the status endpoint) */
+  async getJiraIssue(issueKey: string) {
+    return this.jira.getIssue(issueKey);
+  }
+
+  /** Fetch full Jira issue details including created/updated dates */
+  async getFullJiraIssue(issueKey: string) {
+    return this.jira.getFullIssue(issueKey);
+  }
+
+  /** Fetch Jira issue comments */
+  async getJiraIssueComments(issueKey: string, maxResults?: number) {
+    return this.jira.getIssueComments(issueKey, maxResults);
+  }
+
+  /** Discover issues with the configured Jira label via JQL */
   async discover(): Promise<string[]> {
-    const issues = await this.jira.searchIssues("labels = llm-candidate");
+    const label = process.env.JIRA_LABEL ?? "llm-candidate";
+    const issues = await this.jira.searchIssues(`labels = ${label}`);
     return issues.map((i) => i.key);
   }
 
-  /** Resolve a repo entry from repos.yaml for the given issue key */
+  /** Resolve a repo entry from projects.yaml for the given issue key */
   async resolveRepo(issueKey: string): Promise<RepoEntry> {
     const projectKey = issueKey.split("-")[0];
 
     // Fetch issue components and labels from Jira
     const issue = await this.jira.getIssue(issueKey);
 
-    // Parse repos.yaml
+    // Parse projects.yaml
     const yamlContent = await readFile(this.reposYamlPath, "utf-8");
     const parsed = yaml.load(yamlContent);
     if (!Array.isArray(parsed)) {
-      throw new Error(`repos.yaml must contain a YAML array, got ${typeof parsed}`);
+      throw new Error(`projects.yaml must contain a YAML array, got ${typeof parsed}`);
     }
     const entries = parsed as RepoEntry[];
 
@@ -247,6 +263,11 @@ export class UnshiftEngine extends EventEmitter {
     }
   }
 
+  /** Returns the worktree path for a run, or undefined if not tracked in memory */
+  getWorktreePath(runId: string): string | undefined {
+    return this.activeWorktrees.get(runId)?.worktree;
+  }
+
   /**
    * Clean up the worktree for the given runId.
    * Idempotent — safe to call multiple times for the same runId.
@@ -288,6 +309,20 @@ export class UnshiftEngine extends EventEmitter {
 
     // Parse context from the model's final output (JSON block)
     const context = this.parseContextFromText(result.text, issueKey, repoEntry, workDir);
+
+    // Enrich context with additional Jira metadata
+    try {
+      const issue = await this.jira.getIssue(issueKey);
+      if (issue.priority) context.priority = issue.priority;
+      if (issue.labels.length > 0) context.labels = issue.labels;
+      if (issue.status) context.jiraStatus = issue.status;
+      if (issue.assignee) context.assignee = issue.assignee;
+      const jiraBase = process.env.JIRA_BASE_URL?.replace(/\/+$/, "");
+      if (jiraBase) context.jiraUrl = `${jiraBase}/browse/${encodeURIComponent(issueKey)}`;
+    } catch {
+      // Non-critical — continue without enriched metadata
+    }
+
     this.emit("run:context", runId, context);
 
     // Read prd.json from the repo

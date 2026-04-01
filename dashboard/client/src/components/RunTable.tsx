@@ -15,11 +15,11 @@ type SortDir = "asc" | "desc";
 
 const COLUMNS: { title: string; field: SortableField; sortable: boolean }[] = [
   { title: "Issue", field: "issueKey", sortable: true },
+  { title: "Summary", field: "issueKey", sortable: false },
   { title: "Status", field: "status", sortable: true },
-  { title: "Phase", field: "status", sortable: false },
   { title: "Repo", field: "issueKey", sortable: false },
   { title: "Duration", field: "duration", sortable: true },
-  { title: "Started", field: "startedAt", sortable: true },
+  { title: "Phase", field: "status", sortable: false },
 ];
 
 const PHASE_ORDER: RunPhase[] = ["phase0", "phase1", "phase2", "awaiting_approval", "phase3"];
@@ -136,6 +136,7 @@ export function RunTable({ runs }: RunTableProps) {
 }
 
 function RunRow({ run, onClick, statusColor }: { run: Run; onClick: () => void; statusColor: string }) {
+  const navigate = useNavigate();
   const elapsed = useElapsedTime(run.startedAt, run.completedAt);
   const repo = getRepoName(run);
 
@@ -148,17 +149,33 @@ function RunRow({ run, onClick, statusColor }: { run: Run; onClick: () => void; 
       onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onClick(); } }}
     >
       <td className="us-table__td us-table__td--issue">
-        {run.issueKey || run.id.slice(0, 8)}
+        {run.issueKey ? (
+          <a
+            className="us-table__issue-link"
+            href={`/projects/${encodeURIComponent(run.issueKey)}`}
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              navigate(`/projects/${encodeURIComponent(run.issueKey)}`);
+            }}
+          >
+            {run.issueKey}
+          </a>
+        ) : (
+          run.id.slice(0, 8)
+        )}
+      </td>
+      <td className="us-table__td us-table__td--summary">
+        {run.context?.summary || "—"}
       </td>
       <td className="us-table__td">
         <StatusDot status={run.status} />
       </td>
+      <td className="us-table__td us-table__td--muted">{repo ?? "—"}</td>
+      <td className="us-table__td us-table__td--muted">{elapsed}</td>
       <td className="us-table__td">
         <MiniProgressBar status={run.status} />
       </td>
-      <td className="us-table__td us-table__td--muted">{repo ?? "—"}</td>
-      <td className="us-table__td us-table__td--muted">{elapsed}</td>
-      <td className="us-table__td us-table__td--muted">{new Date(run.startedAt).toLocaleString()}</td>
     </tr>
   );
 }

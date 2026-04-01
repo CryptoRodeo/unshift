@@ -1,6 +1,11 @@
 import type Database from "better-sqlite3";
 import { getDb } from "./db";
-import type { Run, RunPhase, PrdEntry, LogEntry, TokenData } from "../../shared/types";
+import type { Run, RunPhase, PrdEntry, LogEntry, TokenData, Comment, ProjectSummary } from "../../shared/types";
+
+function safeParse<T>(json: string | null, fallback: T): T {
+  if (!json) return fallback;
+  try { return JSON.parse(json); } catch { return fallback; }
+}
 
 export class RunRepository {
   private db: Database.Database | null = null;
@@ -33,6 +38,9 @@ export class RunRepository {
       saveProgressTxt: db.prepare(`INSERT OR REPLACE INTO run_progress (run_id, content) VALUES (?, ?)`),
       getProgressTxt: db.prepare(`SELECT content FROM run_progress WHERE run_id = ?`),
       savePrdJson: db.prepare(`UPDATE runs SET prd_json = ? WHERE id = ?`),
+      saveDiff: db.prepare(`INSERT OR REPLACE INTO run_diffs (run_id, content) VALUES (?, ?)`),
+      getDiff: db.prepare(`SELECT content FROM run_diffs WHERE run_id = ?`),
+      deleteRunDiff: db.prepare(`DELETE FROM run_diffs WHERE run_id = ?`),
       deleteRunLogs: db.prepare(`DELETE FROM run_logs WHERE run_id = ?`),
       deleteRunProgress: db.prepare(`DELETE FROM run_progress WHERE run_id = ?`),
       deleteRun: db.prepare(`DELETE FROM runs WHERE id = ?`),
@@ -40,6 +48,21 @@ export class RunRepository {
       updatePhaseTimestamps: db.prepare(`UPDATE runs SET phase_timestamps_json = ? WHERE id = ?`),
       getTokens: db.prepare(`SELECT input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens, model FROM runs WHERE id = ?`),
       updateTokens: db.prepare(`UPDATE runs SET input_tokens = ?, output_tokens = ?, cache_read_tokens = ?, cache_creation_tokens = ?, model = ? WHERE id = ?`),
+      insertComment: db.prepare(`INSERT INTO run_comments (run_id, author, content) VALUES (?, ?, ?)`),
+      getComments: db.prepare(`SELECT id, run_id, author, content, created_at FROM run_comments WHERE run_id = ? ORDER BY created_at ASC`),
+      getComment: db.prepare(`SELECT id, run_id, author, content, created_at FROM run_comments WHERE id = ?`),
+      deleteRunComments: db.prepare(`DELETE FROM run_comments WHERE run_id = ?`),
+      projectSummaries: db.prepare(`
+        SELECT
+          issue_key,
+          context_json,
+          COUNT(*) as run_count,
+          MAX(started_at) as last_run_at,
+          (SELECT r2.status FROM runs r2 WHERE r2.issue_key = runs.issue_key ORDER BY r2.started_at DESC LIMIT 1) as latest_status
+        FROM runs
+        GROUP BY issue_key
+        ORDER BY last_run_at DESC
+      `),
     };
   }
 
@@ -129,6 +152,17 @@ export class RunRepository {
     return row?.content;
   }
 
+  saveDiff(runId: string, content: string): void {
+    const s = this.ensureInit();
+    s.saveDiff.run(runId, content);
+  }
+
+  getDiff(runId: string): string | undefined {
+    const s = this.ensureInit();
+    const row = s.getDiff.get(runId) as { content: string } | undefined;
+    return row?.content;
+  }
+
   getSuccessfulIssueKeys(): Set<string> {
     const s = this.ensureInit();
     const rows = s.successfulKeys.all() as { issue_key: string }[];
@@ -137,8 +171,8 @@ export class RunRepository {
 
   getRetryCount(issueKey: string): number {
     const s = this.ensureInit();
-    const row = s.retryCount.get(issueKey) as { count: number };
-    return row.count;
+    const row = s.retryCount.get(issueKey) as { count: number } | undefined;
+    return row?.count ?? 0;
   }
 
   getRunLogs(runId: string): LogEntry[] {
@@ -190,9 +224,37 @@ export class RunRepository {
   updatePhaseTimestamp(id: string, phase: string, timestamp: string): void {
     const s = this.ensureInit();
     const row = s.getPhaseTimestamps.get(id) as { phase_timestamps_json: string | null } | undefined;
-    const existing: Record<string, string> = row?.phase_timestamps_json ? JSON.parse(row.phase_timestamps_json) : {};
+    const existing = safeParse<Record<string, string>>(row?.phase_timestamps_json ?? null, {});
     existing[phase] = timestamp;
     s.updatePhaseTimestamps.run(JSON.stringify(existing), id);
+  }
+
+  addComment(runId: string, author: string, content: string): Comment {
+    const s = this.ensureInit();
+    const result = s.insertComment.run(runId, author, content);
+    const row = s.getComment.get(result.lastInsertRowid) as { id: number; run_id: string; author: string; content: string; created_at: string };
+    return { id: row.id, author: row.author, content: row.content, createdAt: row.created_at + "Z" };
+  }
+
+  getComments(runId: string): Comment[] {
+    const s = this.ensureInit();
+    const rows = s.getComments.all(runId) as { id: number; run_id: string; author: string; content: string; created_at: string }[];
+    return rows.map((r) => ({ id: r.id, author: r.author, content: r.content, createdAt: r.created_at + "Z" }));
+  }
+
+  getProjectSummaries(): ProjectSummary[] {
+    const s = this.ensureInit();
+    const rows = s.projectSummaries.all() as { issue_key: string; context_json: string | null; run_count: number; last_run_at: string; latest_status: string }[];
+    return rows.map((row) => {
+      const summary = safeParse<{ summary?: string } | null>(row.context_json, null)?.summary ?? "";
+      return {
+        issueKey: row.issue_key,
+        summary,
+        runCount: row.run_count,
+        lastRunAt: row.last_run_at,
+        latestStatus: row.latest_status as RunPhase,
+      };
+    });
   }
 
   deleteRun(id: string): boolean {
@@ -200,6 +262,8 @@ export class RunRepository {
     const deleteAll = this.db!.transaction(() => {
       s.deleteRunLogs.run(id);
       s.deleteRunProgress.run(id);
+      s.deleteRunComments.run(id);
+      s.deleteRunDiff.run(id);
       return s.deleteRun.run(id);
     });
     const result = deleteAll();
@@ -216,13 +280,13 @@ export class RunRepository {
       repoPath: row.repo_path ?? undefined,
       branchName: row.branch_name ?? undefined,
       prUrl: row.pr_url ?? undefined,
-      context: row.context_json ? JSON.parse(row.context_json) : undefined,
-      prd: row.prd_json ? JSON.parse(row.prd_json) : [],
+      context: safeParse(row.context_json, undefined),
+      prd: safeParse(row.prd_json, []),
       logs: logs.map((l) => ({ phase: l.phase as RunPhase, line: l.line })),
       retryCount: row.retry_count ?? undefined,
       sourceRunId: row.source_run_id ?? undefined,
-      phaseTimestamps: row.phase_timestamps_json ? JSON.parse(row.phase_timestamps_json) : undefined,
-      tokens: (row.input_tokens || row.output_tokens || row.cache_read_tokens || row.cache_creation_tokens)
+      phaseTimestamps: safeParse(row.phase_timestamps_json, undefined),
+      tokens: (row.input_tokens || row.output_tokens || row.cache_read_tokens || row.cache_creation_tokens || row.model)
         ? {
             inputTokens: row.input_tokens ?? 0,
             outputTokens: row.output_tokens ?? 0,

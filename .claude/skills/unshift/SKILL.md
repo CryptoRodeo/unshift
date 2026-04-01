@@ -1,19 +1,19 @@
 ---
 name: unshift
-description: Pick up Jira issues labeled llm-candidate, implement them using Claude, and open a pull request. Use when the user wants to run the Jira-to-PR automation workflow.
+description: Pick up Jira issues with the configured label (JIRA_LABEL, default llm-candidate), implement them using Claude, and open a pull request. Use when the user wants to run the Jira-to-PR automation workflow.
 disable-model-invocation: true
 argument-hint: "[optional-issue-key]"
 ---
 
 # Unshift  - Jira-to-PR Automation
 
-You are running the unshift workflow: find Jira issues labeled `llm-candidate`, implement them, and open pull requests.
+You are running the unshift workflow: find Jira issues with the configured label, implement them, and open pull requests. The label is controlled by the `JIRA_LABEL` environment variable (defaults to `llm-candidate`).
 
-If `$ARGUMENTS` contains a Jira issue key (e.g. `PROJ-123`), process only that issue. Otherwise, discover all `llm-candidate` issues.
+If `$ARGUMENTS` contains a Jira issue key (e.g. `PROJ-123`), process only that issue. Otherwise, discover all candidate issues.
 
 ## Configuration
 
-The project-to-repository mapping is in `repos.yaml` at the repo root (`${CLAUDE_SKILL_DIR}/../../../repos.yaml`). Read it before starting. Each entry has:
+The project-to-repository mapping is in `projects.yaml` at the repo root (`${CLAUDE_SKILL_DIR}/../../../projects.yaml`). Read it before starting. Each entry has:
 
 - `jira_projects`  - array of Jira project keys
 - `component`  - nullable, for disambiguation
@@ -31,12 +31,14 @@ The project-to-repository mapping is in `repos.yaml` at the repo root (`${CLAUDE
 Use the Jira MCP tools to find candidate issues:
 
 ```
-mcp__jira__searchJiraIssuesUsingJql with JQL: "labels = llm-candidate"
+mcp__jira__searchJiraIssuesUsingJql with JQL: "labels = <JIRA_LABEL>"
 ```
+
+where `<JIRA_LABEL>` is the value of the `JIRA_LABEL` environment variable (default: `llm-candidate`).
 
 If a specific issue key was provided via `$ARGUMENTS`, skip discovery and use that key directly.
 
-If no issues are found, stop with: "No llm-candidate issues found."
+If no issues are found, stop with: "No issues with label '<JIRA_LABEL>' found."
 
 Collect all issue keys. Process each one through Phases 1-3 sequentially. If a phase fails for an issue, log the error and continue to the next issue.
 
@@ -52,7 +54,7 @@ Use `mcp__jira__getJiraIssue` to read the issue. Extract:
 
 ### 1.2 Match to repository
 
-Use the mapping from `repos.yaml` to find the correct repo entry. If no match, fail with: "Could not determine repository for issue `<KEY>`."
+Use the mapping from `projects.yaml` to find the correct repo entry. If no match, fail with: "Could not determine repository for issue `<KEY>`."
 
 ### 1.3 Prepare the repository
 

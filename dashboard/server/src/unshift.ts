@@ -1,7 +1,9 @@
 import { EventEmitter } from "node:events";
 import { randomUUID } from "node:crypto";
+import fs from "node:fs";
+import path from "node:path";
 
-import type { RunContext, Run, RunError, PrdEntry, LogEntry, RunPhase, TokenData } from "../../shared/types";
+import type { RunContext, Run, RunError, PrdEntry, LogEntry, RunPhase, TokenData, Comment } from "../../shared/types";
 import { isTerminal, isCompleted, isRunError } from "../../shared/types";
 import { RunRepository } from "./runRepository";
 import { UnshiftEngine, type EngineRunOptions } from "./engine/orchestrator";
@@ -11,12 +13,16 @@ import { getModel, getDefaultConfig, type ProviderConfig } from "./engine/provid
  * Manages Jira-issue runs using the UnshiftEngine (Vercel AI SDK agentic loop)
  * instead of spawning shell processes.
  */
+const WORKSPACE_DIR = process.env.WORKSPACE_DIR || "/app/workspace";
+const WORKTREE_TTL_HOURS = parseInt(process.env.WORKTREE_TTL_HOURS || "24", 10);
+
 export class UnshiftRunner extends EventEmitter {
   private abortControllers = new Map<string, AbortController>();
   /** Maps issueKey → owning runId to prevent duplicate runs */
   private activeIssueKeys = new Map<string, string>();
   private repository = new RunRepository();
   private engine = new UnshiftEngine();
+  private cleanupInterval: ReturnType<typeof setInterval> | undefined;
 
   constructor() {
     super();
@@ -26,6 +32,60 @@ export class UnshiftRunner extends EventEmitter {
       if (!isCompleted(run.status)) {
         this.activeIssueKeys.set(run.issueKey, run.id);
       }
+    }
+
+    // Run initial worktree TTL cleanup and schedule hourly scans
+    this.runWorktreeTtlCleanup();
+    this.cleanupInterval = setInterval(() => this.runWorktreeTtlCleanup(), 60 * 60 * 1000);
+    this.cleanupInterval.unref();
+  }
+
+  /** Stop the periodic worktree cleanup timer */
+  stopCleanupTimer(): void {
+    if (this.cleanupInterval) {
+      clearInterval(this.cleanupInterval);
+      this.cleanupInterval = undefined;
+    }
+  }
+
+  /** Scan filesystem for worktrees whose runs exceeded the TTL and remove them */
+  private runWorktreeTtlCleanup(): void {
+    try {
+      if (!fs.existsSync(WORKSPACE_DIR)) return;
+
+      const ttlMs = WORKTREE_TTL_HOURS * 60 * 60 * 1000;
+      const now = Date.now();
+
+      // Scan workspace/<repo>/.worktrees/<runId> directories
+      for (const repoDir of fs.readdirSync(WORKSPACE_DIR, { withFileTypes: true })) {
+        if (!repoDir.isDirectory()) continue;
+        const worktreesDir = path.join(WORKSPACE_DIR, repoDir.name, ".worktrees");
+        if (!fs.existsSync(worktreesDir)) continue;
+
+        for (const wtDir of fs.readdirSync(worktreesDir, { withFileTypes: true })) {
+          if (!wtDir.isDirectory()) continue;
+          const runId = wtDir.name;
+          const worktreePath = path.join(worktreesDir, runId);
+
+          const run = this.repository.getRun(runId);
+          if (!run) {
+            // Orphaned worktree with no DB entry — remove it
+            console.log(`Removing orphaned worktree: ${worktreePath}`);
+            fs.rmSync(worktreePath, { recursive: true, force: true });
+            continue;
+          }
+
+          if (!isCompleted(run.status)) continue;
+
+          const completedAt = run.completedAt ? new Date(run.completedAt).getTime() : 0;
+          if (completedAt > 0 && now - completedAt > ttlMs) {
+            console.log(`TTL expired for run ${runId}, removing worktree: ${worktreePath}`);
+            fs.rmSync(worktreePath, { recursive: true, force: true });
+          }
+        }
+      }
+    } catch (e) {
+      console.warn("Worktree TTL cleanup scan failed:", e);
     }
   }
 
@@ -53,7 +113,123 @@ export class UnshiftRunner extends EventEmitter {
     return this.repository.getRunLogsSince(id, sinceId);
   }
 
-  /** Discover llm-candidate issues via Jira JQL */
+  addComment(runId: string, content: string): Comment | RunError {
+    const run = this.repository.getRun(runId);
+    if (!run) return { error: "Run not found", code: "NOT_FOUND" };
+    return this.repository.addComment(runId, "user", content);
+  }
+
+  getComments(runId: string): Comment[] {
+    return this.repository.getComments(runId);
+  }
+
+  /** Returns the worktree path for a run from the engine's in-memory map */
+  getWorktreePath(runId: string): string | undefined {
+    return this.engine.getWorktreePath(runId);
+  }
+
+  /** Explicitly clean up a run's worktree (for the cleanup API endpoint) */
+  async cleanupRunWorktree(runId: string): Promise<void> {
+    await this.engine.cleanupRun(runId);
+  }
+
+  /** Get project summaries (unique issue keys with aggregated metadata) */
+  getProjectSummaries() {
+    return this.repository.getProjectSummaries();
+  }
+
+  /** Fetch a Jira issue's live status */
+  async getJiraIssueStatus(issueKey: string): Promise<{ status: string }> {
+    const issue = await this.engine.getJiraIssue(issueKey);
+    return { status: issue.status };
+  }
+
+  /** Fetch full Jira issue details */
+  async getFullJiraIssue(issueKey: string) {
+    return this.engine.getFullJiraIssue(issueKey);
+  }
+
+  /** Fetch Jira issue comments */
+  async getJiraIssueComments(issueKey: string, maxResults?: number) {
+    return this.engine.getJiraIssueComments(issueKey, maxResults);
+  }
+
+  /** Files excluded from diffs (generated artifacts, not part of the deliverable) */
+  private static readonly DIFF_EXCLUDE_PATHS = [":!prd.json", ":!progress.txt", ":!ralph.sh"];
+
+  /** Persist the current worktree diff to DB so it survives worktree cleanup / container restarts */
+  private async persistDiff(runId: string): Promise<void> {
+    const run = this.repository.getRun(runId);
+    if (!run?.repoPath || !run.context?.defaultBranch || !fs.existsSync(run.repoPath)) return;
+
+    try {
+      const { execCommand } = await import("./engine/tools.js");
+      const result = await execCommand(
+        "git",
+        ["diff", `origin/${run.context.defaultBranch}`, "--", ".", ...UnshiftRunner.DIFF_EXCLUDE_PATHS],
+        { cwd: run.repoPath, timeout: 30_000 }
+      );
+      if (result.exitCode === 0 && result.stdout) {
+        this.capAndCacheDiff(runId, result.stdout);
+      }
+    } catch (e) {
+      console.warn(`Failed to persist diff for run ${runId}:`, e);
+    }
+  }
+
+  /** Get the git diff for a run — live from worktree, main clone, or DB cache */
+  async getRunDiff(id: string): Promise<{ diff: string | null }> {
+    const run = this.repository.getRun(id);
+    if (!run) return { diff: null };
+
+    const { execCommand } = await import("./engine/tools.js");
+    const defaultBranch = run.context?.defaultBranch;
+
+    // Try live diff from worktree (committed changes only, excludes generated files)
+    if (run.repoPath && defaultBranch && fs.existsSync(run.repoPath)) {
+      const result = await execCommand(
+        "git",
+        ["diff", `origin/${defaultBranch}`, "--", ".", ...UnshiftRunner.DIFF_EXCLUDE_PATHS],
+        { cwd: run.repoPath, timeout: 30_000 }
+      );
+      if (result.exitCode === 0 && result.stdout) {
+        return { diff: this.capAndCacheDiff(id, result.stdout) };
+      }
+      console.warn(`Diff tier 1 (worktree) failed for run ${id}: exit=${result.exitCode}, stdout=${result.stdout?.length ?? 0}B, stderr=${result.stderr || "(none)"}`);
+    }
+
+    // Worktree is gone — try diffing the branch from the main clone
+    if (run.branchName && defaultBranch && run.repoPath) {
+      const mainClone = path.resolve(run.repoPath, "..", "..");
+      if (fs.existsSync(mainClone)) {
+        const result = await execCommand(
+          "git",
+          ["diff", `origin/${defaultBranch}...${run.branchName}`, "--", ".", ...UnshiftRunner.DIFF_EXCLUDE_PATHS],
+          { cwd: mainClone, timeout: 30_000 }
+        );
+        if (result.exitCode === 0 && result.stdout) {
+          return { diff: this.capAndCacheDiff(id, result.stdout) };
+        }
+        console.warn(`Diff tier 2 (main clone) failed for run ${id}: exit=${result.exitCode}, stdout=${result.stdout?.length ?? 0}B, stderr=${result.stderr || "(none)"}`);
+      }
+    }
+
+    // Fall back to persisted diff
+    const cached = this.repository.getDiff(id);
+    return { diff: cached ?? null };
+  }
+
+  private capAndCacheDiff(runId: string, raw: string): string {
+    const MAX_DIFF_SIZE = 512_000; // 500KB
+    let diff = raw;
+    if (diff.length > MAX_DIFF_SIZE) {
+      diff = diff.slice(0, MAX_DIFF_SIZE) + "\n\n… diff truncated (exceeded 500KB)";
+    }
+    this.repository.saveDiff(runId, diff);
+    return diff;
+  }
+
+  /** Discover candidate issues via Jira JQL (label from JIRA_LABEL env var) */
   async discover(): Promise<string[]> {
     return this.engine.discover();
   }
@@ -100,7 +276,10 @@ export class UnshiftRunner extends EventEmitter {
   }
 
   /** Discover issues and start a run for each new one */
-  async startRuns(providerConfig?: ProviderConfig): Promise<{ runs: Run[]; errors: string[]; skipped: { issueKey: string; reason: string }[] }> {
+  async startRuns(
+    providerConfig?: ProviderConfig,
+    overrides?: Record<string, ProviderConfig>,
+  ): Promise<{ runs: Run[]; errors: string[]; skipped: { issueKey: string; reason: string }[] }> {
     const keys = await this.discover();
     const successfulKeys = this.repository.getSuccessfulIssueKeys();
     const runs: Run[] = [];
@@ -114,7 +293,8 @@ export class UnshiftRunner extends EventEmitter {
         console.log(`Skipping ${key}: ${reason}`);
         continue;
       }
-      const result = this.startRun(key, false, providerConfig);
+      const issueConfig = overrides?.[key] ?? providerConfig;
+      const result = this.startRun(key, false, issueConfig);
       if (isRunError(result)) {
         errors.push(result.error);
       } else {
@@ -190,16 +370,21 @@ export class UnshiftRunner extends EventEmitter {
     }
   }
 
-  approveRun(id: string): { ok: true } | RunError {
+  async approveRun(id: string, providerConfig?: ProviderConfig): Promise<{ ok: true } | RunError> {
     const run = this.repository.getRun(id);
     if (!run) return { error: "Run not found", code: "NOT_FOUND" };
     if (run.status !== "awaiting_approval") return { error: `Run is not awaiting approval (status: ${run.status})`, code: "INVALID_STATE" };
 
-    const approved = this.engine.approve(id);
-    if (!approved) return { error: "No approval gate found for this run", code: "INVALID_STATE" };
+    // Re-persist diff to capture any manual edits made in VSCode
+    await this.persistDiff(id);
 
-    // Status transition to phase3 is handled by the engine emitting run:phase,
-    // which wireEngineEvents picks up and persists to the repository.
+    const approved = this.engine.approve(id);
+    if (!approved) {
+      // Gate lost (e.g. container restart) — resume phase 3 from persisted state
+      if (!run.context) return { error: "No context available to resume phase 3", code: "INVALID_STATE" };
+      this.launchPhase3(id, run.context, providerConfig);
+    }
+
     return { ok: true };
   }
 
@@ -258,6 +443,13 @@ export class UnshiftRunner extends EventEmitter {
     });
   }
 
+  /** Launch phase 3 directly (used to resume after container restart loses the approval gate) */
+  private launchPhase3(runId: string, context: RunContext, providerConfig?: ProviderConfig): void {
+    this.launchWithErrorHandling(runId, context.issueKey, providerConfig, async (opts) => {
+      await this.engine.runPhase3(context, opts);
+    });
+  }
+
   /**
    * Shared wrapper for launching async engine work with consistent
    * abort handling, error finalization, and cleanup.
@@ -275,9 +467,15 @@ export class UnshiftRunner extends EventEmitter {
     const model = getModel(config);
     const opts: EngineRunOptions = { model, signal: controller.signal, runId };
 
+    // Persist the model name immediately so the UI can show it before tokens arrive
+    this.repository.updateTokens(runId, { model: config.model });
+    this.emit("run:tokens", runId, { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0, model: config.model });
+
     const cleanup = this.wireEngineEvents(runId);
 
-    work(opts).then(() => {
+    work(opts).then(async () => {
+      // Persist diff before worktree cleanup so it survives container restarts
+      await this.persistDiff(runId);
       const completedAt = new Date().toISOString();
       this.repository.updateRunStatus(runId, "success", completedAt);
       this.emit("run:complete", runId, "success");
@@ -298,12 +496,24 @@ export class UnshiftRunner extends EventEmitter {
         this.repository.appendLog(runId, "failed", msg);
       }
     }).finally(() => {
-      this.engine.cleanupRun(runId).catch((e) => {
-        console.warn(`Failed to clean up worktree for run ${runId}:`, e);
-      }).finally(() => {
+      const finalRun = this.repository.getRun(runId);
+      const finalStatus = finalRun?.status;
+
+      // Keep worktree on disk for awaiting_approval and success so users can open in VSCode
+      const shouldKeepWorktree = finalStatus === "awaiting_approval" || finalStatus === "success";
+
+      const afterCleanup = () => {
         cleanup();
         this.cleanupRun(runId, issueKey);
-      });
+      };
+
+      if (shouldKeepWorktree) {
+        afterCleanup();
+      } else {
+        this.engine.cleanupRun(runId).catch((e) => {
+          console.warn(`Failed to clean up worktree for run ${runId}:`, e);
+        }).finally(afterCleanup);
+      }
     });
   }
 
@@ -314,6 +524,13 @@ export class UnshiftRunner extends EventEmitter {
       this.repository.updateRunStatus(id, phase);
       this.repository.updatePhaseTimestamp(id, phase, ts);
       this.emit("run:phase", id, phase, ts);
+
+      // Persist the diff when entering approval so it survives container restarts
+      if (phase === "awaiting_approval") {
+        this.persistDiff(id).catch((e) =>
+          console.warn(`Failed to persist diff on approval for run ${id}:`, e)
+        );
+      }
     };
 
     const onLog = (id: string, line: string, phase: RunPhase) => {

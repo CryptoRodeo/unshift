@@ -1,6 +1,7 @@
-import { useEffect, useRef, useCallback, useReducer, useState } from "react";
-import type { WsMessage, Run, RunContext, PrdEntry, RunPhase, CompletedStatus, TokenData } from "../types";
-import { isTerminal } from "../types";
+import { createElement, createContext, useContext, useEffect, useRef, useCallback, useReducer, useState } from "react";
+import type { ReactNode } from "react";
+import type { WsMessage, Run, RunContext, PrdEntry, RunPhase, CompletedStatus, TokenData, Comment, RunError } from "../types";
+import { isTerminal, isRunError } from "../types";
 
 export interface StartRunResponse {
   runs: Run[];
@@ -133,6 +134,7 @@ export function useWebSocket() {
   const [connected, setConnected] = useState(false);
   const [loading, setLoading] = useState(true);
   const [progressMap, setProgressMap] = useState<Map<string, string>>(new Map());
+  const [commentsMap, setCommentsMap] = useState<Map<string, Comment[]>>(new Map());
   const onRunEventRef = useRef<RunEventCallback | null>(null);
   const runsRef = useRef(runs);
   runsRef.current = runs;
@@ -266,9 +268,23 @@ export function useWebSocket() {
           case "run:tokens":
             dispatch({ type: "TokensUpdated", runId: msg.runId, tokens: msg.tokens });
             break;
+          case "run:comment":
+            setCommentsMap((prev) => {
+              const next = new Map(prev);
+              const existing = prev.get(msg.runId) ?? [];
+              next.set(msg.runId, [...existing, msg.comment]);
+              return next;
+            });
+            break;
           case "run:deleted":
             dispatch({ type: "RunDeleted", runId: msg.runId });
             setProgressMap((prev) => {
+              if (!prev.has(msg.runId)) return prev;
+              const next = new Map(prev);
+              next.delete(msg.runId);
+              return next;
+            });
+            setCommentsMap((prev) => {
               if (!prev.has(msg.runId)) return prev;
               const next = new Map(prev);
               next.delete(msg.runId);
@@ -288,11 +304,28 @@ export function useWebSocket() {
     };
   }, [fetchRuns]);
 
-  const startRun = useCallback(async (options?: { force?: boolean; provider?: string; model?: string }): Promise<StartRunResponse> => {
+  const discoverIssues = useCallback(async (): Promise<string[]> => {
+    const res = await fetch("/api/discover");
+    if (!res.ok) throw new Error("Failed to discover issues");
+    const data = await res.json();
+    return data.issueKeys;
+  }, []);
+
+  const startRun = useCallback(async (options?: {
+    force?: boolean;
+    provider?: string;
+    model?: string;
+    overrides?: Record<string, { provider?: string; model?: string }>;
+  }): Promise<StartRunResponse> => {
     const res = await fetch("/api/runs", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ force: options?.force, provider: options?.provider, model: options?.model }),
+      body: JSON.stringify({
+        force: options?.force,
+        provider: options?.provider,
+        model: options?.model,
+        overrides: options?.overrides,
+      }),
     });
     const data = await res.json();
     if (!res.ok) {
@@ -301,13 +334,16 @@ export function useWebSocket() {
     return data;
   }, []);
 
-  const startRunForIssue = useCallback(async (issueKey: string, force?: boolean, providerConfig?: { provider?: string; model?: string }) => {
+  const startRunForIssue = useCallback(async (issueKey: string, force?: boolean, providerConfig?: { provider?: string; model?: string }): Promise<Run | RunError> => {
     const res = await fetch("/api/runs", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ issueKey, force, ...providerConfig }),
     });
     const data = await res.json();
+    if (!res.ok && !isRunError(data)) {
+      throw new Error(data.error || "Failed to start run");
+    }
     return data;
   }, []);
 
@@ -328,6 +364,34 @@ export function useWebSocket() {
     }
   }, []);
 
+  const fetchComments = useCallback(async (runId: string) => {
+    try {
+      const res = await fetch(`/api/runs/${runId}/comments`);
+      if (!res.ok) return;
+      const comments: Comment[] = await res.json();
+      setCommentsMap((prev) => {
+        const next = new Map(prev);
+        next.set(runId, comments);
+        return next;
+      });
+    } catch {
+      // ignore fetch errors
+    }
+  }, []);
+
+  const addComment = useCallback(async (runId: string, content: string): Promise<Comment> => {
+    const res = await fetch(`/api/runs/${runId}/comments`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ content }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.error || "Failed to add comment");
+    }
+    return data;
+  }, []);
+
   const fetchProgress = useCallback(async (runId: string): Promise<string | null> => {
     const res = await fetch(`/api/runs/${runId}/progress`);
     if (!res.ok) return null;
@@ -338,9 +402,13 @@ export function useWebSocket() {
     await fetch(`/api/runs/${runId}/stop`, { method: "POST" });
   }, []);
 
-  const approveRun = useCallback(async (runId: string) => {
+  const approveRun = useCallback(async (runId: string): Promise<Run | RunError> => {
     const res = await fetch(`/api/runs/${runId}/approve`, { method: "POST" });
-    return res.json();
+    const data = await res.json();
+    if (!res.ok && !isRunError(data)) {
+      throw new Error(data.error || "Approval failed");
+    }
+    return data;
   }, []);
 
   const rejectRun = useCallback(async (runId: string) => {
@@ -360,13 +428,13 @@ export function useWebSocket() {
     return data;
   }, []);
 
-  const fetchEditorInfo = useCallback(async (runId: string) => {
-    const res = await fetch(`/api/runs/${runId}/editor-info`);
+  const fetchRepoUrl = useCallback(async (runId: string) => {
+    const res = await fetch(`/api/runs/${runId}/repo-url`);
     const data = await res.json();
     if (!res.ok) {
-      throw new Error(data.error || "Failed to get editor info");
+      throw new Error(data.error || "Failed to get repo URL");
     }
-    return data as { localDir: string; branchName: string | null; gitCommand: string | null };
+    return data as { repoUrl: string };
   }, []);
 
   const setOnRunEvent = useCallback((cb: RunEventCallback | null) => {
@@ -388,16 +456,35 @@ export function useWebSocket() {
     connected,
     startRun,
     startRunForIssue,
+    discoverIssues,
     stopRun,
     approveRun,
     rejectRun,
     retryRun,
     deleteRun,
-    fetchEditorInfo,
+    fetchRepoUrl,
     setOnRunEvent,
     fetchRunHistory,
     fetchRunLogs,
     fetchProgress,
     progressMap,
+    commentsMap,
+    fetchComments,
+    addComment,
   };
+}
+
+export type WebSocketState = ReturnType<typeof useWebSocket>;
+
+const WebSocketContext = createContext<WebSocketState | null>(null);
+
+export function WebSocketProvider({ children }: { children: ReactNode }) {
+  const ws = useWebSocket();
+  return createElement(WebSocketContext.Provider, { value: ws }, children);
+}
+
+export function useWebSocketContext(): WebSocketState {
+  const ctx = useContext(WebSocketContext);
+  if (!ctx) throw new Error("useWebSocketContext must be used within a WebSocketProvider");
+  return ctx;
 }

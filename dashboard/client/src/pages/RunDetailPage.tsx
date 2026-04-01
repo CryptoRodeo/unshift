@@ -3,28 +3,29 @@ import { useParams, useNavigate } from "react-router-dom";
 import {
   Alert,
   Tooltip,
+  Tabs,
+  Tab,
+  TabTitleText,
 } from "@patternfly/react-core";
 import {
   ArrowLeftIcon,
   RedoIcon,
   TrashIcon,
   ExternalLinkAltIcon,
-  InfoCircleIcon,
   HistoryIcon,
   TimesIcon,
   ExclamationTriangleIcon,
-  CopyIcon,
-  CheckIcon,
+  CodeIcon,
 } from "@patternfly/react-icons";
-import { useWebSocket } from "../hooks/useWebSocket";
+import { useWebSocketContext } from "../hooks/useWebSocket";
 import { useHeaderContext } from "../hooks/useHeaderContext";
-import { isTerminal, isCompleted, isRunError } from "../types";
-import type { Run } from "../types";
+import { isTerminal, isCompleted, isRunError, formatDuration, PHASE_LABELS, relativeTime } from "../types";
+import type { Run, RunPhase, WorktreeInfo } from "../types";
+import { getRepoName } from "../hooks/useRunFilters";
 import { PhaseProgress } from "../components/PhaseProgress";
 import { StatusLabel } from "../components/StatusLabel";
-import { RunContextCard } from "../components/RunContextCard";
-import { PrdStatusCard } from "../components/PrdStatusCard";
-import { RunLogsCard } from "../components/RunLogsCard";
+import { ActivityFeed } from "../components/ActivityFeed";
+import { DiffViewer } from "../components/DiffViewer";
 
 function ConfirmModal({ title, message, confirmLabel, confirmVariant, onConfirm, onCancel }: {
   title: string;
@@ -68,10 +69,39 @@ function inferProvider(
   return undefined;
 }
 
+function PhaseTimingBreakdown({ phaseTimestamps }: { phaseTimestamps: Record<string, string> }) {
+  const entries = Object.entries(phaseTimestamps).sort(
+    (a, b) => new Date(a[1]).getTime() - new Date(b[1]).getTime()
+  );
+  if (entries.length < 2) return null;
+
+  const durations: { label: string; ms: number }[] = [];
+  for (let i = 0; i < entries.length - 1; i++) {
+    const [phase] = entries[i];
+    const start = new Date(entries[i][1]).getTime();
+    const end = new Date(entries[i + 1][1]).getTime();
+    const ms = end - start;
+    if (ms > 0) {
+      durations.push({ label: PHASE_LABELS[phase] || phase, ms });
+    }
+  }
+
+  return (
+    <>
+      {durations.map((d) => (
+        <div key={d.label} className="us-detail-sidebar__section">
+          <span className="us-detail-sidebar__label">{d.label}</span>
+          <span className="us-detail-sidebar__value us-detail-sidebar__mono">{formatDuration(d.ms)}</span>
+        </div>
+      ))}
+    </>
+  );
+}
+
 export function RunDetailPage() {
   const { runId } = useParams<{ runId: string }>();
   const navigate = useNavigate();
-  const { runs, loading, connected, stopRun, approveRun, rejectRun, retryRun, deleteRun, fetchEditorInfo, fetchRunLogs, fetchProgress, fetchRunHistory, progressMap, startRunForIssue } = useWebSocket();
+  const { runs, loading, connected, stopRun, approveRun, rejectRun, retryRun, deleteRun, fetchRepoUrl, fetchRunLogs, fetchRunHistory, startRunForIssue, commentsMap, fetchComments, addComment, progressMap } = useWebSocketContext();
   const headerCtx = useHeaderContext();
 
   useEffect(() => {
@@ -86,28 +116,47 @@ export function RunDetailPage() {
     return () => { if (headerCtx) headerCtx.setBreadcrumbLabel(null); };
   }, [issueKey, headerCtx]);
 
+  const [activeTab, setActiveTab] = useState<string | number>(0);
   const [approveError, setApproveError] = useState<string | null>(null);
   const [retryError, setRetryError] = useState<string | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
-  const [editorError, setEditorError] = useState<string | null>(null);
-  const [editorInfo, setEditorInfo] = useState<{ localDir: string; branchName: string | null; gitCommand: string | null } | null>(null);
-  const [copied, setCopied] = useState<string | null>(null);
-  const [progress, setProgress] = useState<string | null>(null);
+  const [repoUrl, setRepoUrl] = useState<string | null>(null);
   const [runHistory, setRunHistory] = useState<Run[]>([]);
-  const [showMetadata, setShowMetadata] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   const [confirmAction, setConfirmAction] = useState<"approve" | "reject" | null>(null);
   const [rerunModal, setRerunModal] = useState<"retry" | "rerun" | null>(null);
   const [providers, setProviders] = useState<{ provider: string; defaultModel: string; models: string[] }[]>([]);
   const [modalProvider, setModalProvider] = useState("");
   const [modalModel, setModalModel] = useState("");
+  const [jiraBaseUrl, setJiraBaseUrl] = useState<string | null>(null);
+  const [liveJiraStatus, setLiveJiraStatus] = useState<string | null>(null);
+  const [editorLoading, setEditorLoading] = useState(false);
+  const [editorError, setEditorError] = useState<string | null>(null);
 
   useEffect(() => {
-    fetch("/api/providers")
-      .then((r) => r.json() as Promise<{ providers: { provider: string; defaultModel: string; models: string[] }[] }>)
-      .then((data) => setProviders(data.providers))
-      .catch(() => {});
+    Promise.all([
+      fetch("/api/providers").then((r) => r.json() as Promise<{ providers: { provider: string; defaultModel: string; models: string[] }[] }>),
+      fetch("/api/config").then((r) => r.json() as Promise<{ jiraBaseUrl?: string | null }>),
+    ]).then(([providersData, configData]) => {
+      setProviders(providersData.providers);
+      if (configData.jiraBaseUrl) setJiraBaseUrl(configData.jiraBaseUrl);
+    }).catch(() => {});
   }, []);
+
+  // Fetch live Jira ticket status
+  useEffect(() => {
+    if (!run?.issueKey) return;
+    let cancelled = false;
+    const fetchStatus = () => {
+      fetch(`/api/jira/issue/${encodeURIComponent(run.issueKey)}/status`)
+        .then((r) => r.ok ? r.json() as Promise<{ status: string }> : null)
+        .then((data) => { if (!cancelled && data) setLiveJiraStatus(data.status); })
+        .catch(() => {});
+    };
+    fetchStatus();
+    const interval = setInterval(fetchStatus, 60_000);
+    return () => { cancelled = true; clearInterval(interval); };
+  }, [run?.issueKey]);
 
   const doApprove = useCallback(async () => {
     if (!run) return;
@@ -129,21 +178,9 @@ export function RunDetailPage() {
   useEffect(() => {
     if (runId && runLoaded) {
       fetchRunLogs(runId);
+      fetchComments(runId);
     }
-  }, [runId, runLoaded, fetchRunLogs]);
-
-  useEffect(() => {
-    if (runId) {
-      fetchProgress(runId).then((content) => setProgress(content));
-    }
-  }, [runId, fetchProgress]);
-
-  useEffect(() => {
-    if (runId) {
-      const wsProgress = progressMap.get(runId);
-      if (wsProgress) setProgress(wsProgress);
-    }
-  }, [runId, progressMap]);
+  }, [runId, runLoaded, fetchRunLogs, fetchComments]);
 
   useEffect(() => {
     if (run?.issueKey) {
@@ -170,6 +207,11 @@ export function RunDetailPage() {
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
   }, [run?.status, confirmAction]);
+
+  useEffect(() => {
+    if (!run?.repoPath) return;
+    fetchRepoUrl(run.id).then((data) => setRepoUrl(data.repoUrl)).catch(() => {});
+  }, [run?.id, run?.repoPath, fetchRepoUrl]);
 
   if (!run && loading) {
     return (
@@ -231,7 +273,7 @@ export function RunDetailPage() {
     const detectedProvider = inferProvider(runModel, providers);
     if (detectedProvider) {
       setModalProvider(detectedProvider);
-      setModalModel(runModel!);
+      setModalModel(runModel ?? "");
     } else if (providers.length > 0) {
       setModalProvider(providers[0].provider);
       setModalModel(providers[0].defaultModel);
@@ -282,21 +324,37 @@ export function RunDetailPage() {
     if (match) setModalModel(match.defaultModel);
   };
 
-  const handleOpenEditor = async () => {
+  const handleOpenInEditor = async () => {
+    setEditorLoading(true);
     setEditorError(null);
     try {
-      const info = await fetchEditorInfo(run.id);
-      setEditorInfo(info);
-    } catch (err) {
-      setEditorError(err instanceof Error ? err.message : "Failed to get editor info");
+      const res = await fetch(`/api/runs/${run.id}/worktree`);
+      if (!res.ok) {
+        setEditorError("Failed to fetch worktree info");
+        return;
+      }
+      const info: WorktreeInfo = await res.json();
+      if (!info.available) {
+        setEditorError(info.error || "Worktree is not available");
+        return;
+      }
+      // Use a hidden <a> element to open custom protocol URIs (window.open is blocked by browsers)
+      const a = document.createElement("a");
+      if (info.hasDevContainer) {
+        a.href = info.devContainerUri;
+      } else {
+        a.href = info.vsCodeUri;
+      }
+      a.click();
+    } catch {
+      setEditorError("Failed to open editor");
+    } finally {
+      setEditorLoading(false);
     }
   };
 
-  const handleCopy = (text: string, label: string) => {
-    navigator.clipboard.writeText(text);
-    setCopied(label);
-    setTimeout(() => setCopied(null), 2000);
-  };
+  const jiraIssueUrl = (jiraBaseUrl && run.issueKey ? `${jiraBaseUrl.replace(/\/+$/, "")}/browse/${run.issueKey}` : null)
+    ?? run.context?.jiraUrl;
 
   return (
     <div className="us-detail us-fade-in">
@@ -306,7 +364,23 @@ export function RunDetailPage() {
           <button className="us-detail-subheader__back" onClick={() => navigate("/")} aria-label="Back to dashboard">
             <ArrowLeftIcon />
           </button>
-          <h1 className="us-detail-subheader__title">{run.issueKey || run.id.slice(0, 8)}</h1>
+          <h1 className="us-detail-subheader__title">
+            {run.issueKey ? (
+              <>
+                <a
+                  href={`/projects/${encodeURIComponent(run.issueKey)}`}
+                  className="us-detail-subheader__title-link"
+                  onClick={(e) => { e.preventDefault(); navigate(`/projects/${encodeURIComponent(run.issueKey)}`); }}
+                >
+                  {run.issueKey}
+                </a>
+                <span className="us-detail-subheader__breadcrumb-sep">&gt;</span>
+                <span className="us-detail-subheader__breadcrumb-run">Run #{run.id.slice(0, 8)}</span>
+              </>
+            ) : (
+              run.id.slice(0, 8)
+            )}
+          </h1>
           <StatusLabel status={run.status} />
         </div>
         <div className="us-detail-subheader__actions">
@@ -323,11 +397,32 @@ export function RunDetailPage() {
 
           {/* Secondary icon buttons */}
           <div className="us-detail-subheader__secondary">
-            {run.repoPath && (
-              <Tooltip content="Open Locally">
-                <button className="us-detail-subheader__icon-btn" onClick={handleOpenEditor} aria-label="Open Locally">
-                  <ExternalLinkAltIcon />
+            {(run.status === "awaiting_approval" || run.status === "success") && (
+              <Tooltip content={editorLoading ? "Loading…" : "Open worktree in VSCode"}>
+                <button
+                  className={`us-detail-subheader__icon-btn us-btn--editor${editorLoading ? " us-btn--editor-loading" : ""}`}
+                  onClick={handleOpenInEditor}
+                  disabled={editorLoading}
+                  aria-label="Open in Editor"
+                >
+                  <CodeIcon />
                 </button>
+              </Tooltip>
+            )}
+
+            {run.repoPath && (
+              <Tooltip content={repoUrl ? "Open Repository" : "Repository URL not available"}>
+                <a
+                  className={`us-detail-subheader__icon-btn${repoUrl ? "" : " us-detail-subheader__icon-btn--disabled"}`}
+                  href={repoUrl ?? undefined}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  aria-label="Open Repository"
+                  aria-disabled={!repoUrl}
+                  onClick={repoUrl ? undefined : (e) => e.preventDefault()}
+                >
+                  <ExternalLinkAltIcon />
+                </a>
               </Tooltip>
             )}
 
@@ -346,16 +441,6 @@ export function RunDetailPage() {
                 </button>
               </Tooltip>
             )}
-
-            <Tooltip content={showMetadata ? "Hide details" : "Show details"}>
-              <button
-                className={`us-detail-subheader__icon-btn ${showMetadata ? "us-detail-subheader__icon-btn--active" : ""}`}
-                onClick={() => setShowMetadata((v) => !v)}
-                aria-label="Toggle details"
-              >
-                <InfoCircleIcon />
-              </button>
-            </Tooltip>
 
             {runHistory.length > 1 && (
               <Tooltip content="Run history">
@@ -383,151 +468,258 @@ export function RunDetailPage() {
           )}
         </div>
 
-        {/* Collapsible metadata row */}
-        {showMetadata && (
-          <div className="us-detail-metadata">
-            <div className="us-detail-metadata__item">
-              <span className="us-detail-metadata__label">Run ID</span>
-              <code className="us-detail-metadata__value">{run.issueKey || run.id}</code>
-            </div>
-            <div className="us-detail-metadata__item">
-              <span className="us-detail-metadata__label">Started</span>
-              <span className="us-detail-metadata__value">{new Date(run.startedAt).toLocaleString()}</span>
-            </div>
-            {run.repoPath && (
-              <div className="us-detail-metadata__item">
-                <span className="us-detail-metadata__label">Repository</span>
-                <code className="us-detail-metadata__value">{run.repoPath}</code>
-              </div>
-            )}
-            {run.branchName && (
-              <div className="us-detail-metadata__item">
-                <span className="us-detail-metadata__label">Branch</span>
-                <code className="us-detail-metadata__value">{run.branchName}</code>
-              </div>
-            )}
-            {run.prUrl && (
-              <div className="us-detail-metadata__item">
-                <span className="us-detail-metadata__label">Pull Request</span>
-                <a href={run.prUrl} target="_blank" rel="noreferrer" className="us-detail-metadata__value us-detail-metadata__link">{run.prUrl}</a>
-              </div>
-            )}
-            {run.tokens?.model && (
-              <div className="us-detail-metadata__item">
-                <span className="us-detail-metadata__label">Model</span>
-                <code className="us-detail-metadata__value">{run.tokens.model}</code>
-              </div>
-            )}
-            {run.retryCount != null && run.retryCount > 0 && (
-              <div className="us-detail-metadata__item">
-                <span className="us-detail-metadata__label">Retry</span>
-                <span className="us-detail-metadata__value">
-                  #{run.retryCount}
-                  {run.sourceRunId && (
-                    <>
-                      {" from "}
-                      {runs.has(run.sourceRunId) ? (
-                        <a href={`/runs/${run.sourceRunId}`} onClick={(e) => { e.preventDefault(); navigate(`/runs/${run.sourceRunId}`); }}>
-                          {run.sourceRunId.slice(0, 8)}
-                        </a>
-                      ) : (
-                        <span>{run.sourceRunId.slice(0, 8)} (deleted)</span>
-                      )}
-                    </>
-                  )}
-                </span>
-              </div>
-            )}
-          </div>
-        )}
       </div>
 
       {/* Error alerts */}
-      {(retryError || editorError || deleteError || approveError) && (
+      {(retryError || deleteError || approveError || editorError) && (
         <div className="us-detail-alerts">
           {approveError && <Alert variant="danger" title="Approval failed" isInline>{approveError}</Alert>}
           {retryError && <Alert variant="danger" title="Retry failed" isInline>{retryError}</Alert>}
-          {editorError && <Alert variant="danger" title="Failed to get editor info" isInline>{editorError}</Alert>}
           {deleteError && <Alert variant="danger" title="Delete failed" isInline>{deleteError}</Alert>}
+          {editorError && <Alert variant="warning" title="Open in Editor" isInline>{editorError}</Alert>}
         </div>
       )}
 
-      {/* Single-column stacked layout */}
-      <div className="us-detail-content">
-        {/* Phase Progress — full width */}
-        <section className="us-detail-section">
-          <PhaseProgress status={run.status} phaseTimestamps={run.phaseTimestamps} completedAt={run.completedAt} />
-        </section>
+      {/* Two-panel layout */}
+      <div className="us-detail-panels">
+        {/* Center content area */}
+        <div className="us-detail-main">
+          {/* Issue summary & description */}
+          {run.context && (
+            <section className="us-detail-section us-detail-description">
+              <div className="us-detail-description__header">
+                <h2 className="us-detail-description__summary">
+                  {jiraIssueUrl ? (
+                    <a href={jiraIssueUrl} target="_blank" rel="noreferrer" className="us-detail-subheader__title-link">
+                      {run.context.summary}
+                    </a>
+                  ) : (
+                    run.context.summary
+                  )}
+                </h2>
+                <span className="us-detail-description__started">Started {relativeTime(run.startedAt)}</span>
+              </div>
+              {run.context.description && (
+                <p className="us-detail-description__body">{run.context.description}</p>
+              )}
+            </section>
+          )}
 
-        {/* Approval banner */}
-        {run.status === "awaiting_approval" && (
-          <section className="us-detail-section us-approval-banner us-approval-banner--pulse">
-            <div className="us-approval-banner__content">
-              <div className="us-approval-banner__header">
-                <ExclamationTriangleIcon className="us-approval-banner__icon" />
-                <div className="us-approval-banner__text">
-                  <strong>Approval Required</strong>
-                  <p>Implementation is complete. Review the changes before proceeding to create a PR.</p>
+          {/* Phase Progress */}
+          <section className="us-detail-section">
+            <PhaseProgress status={run.status} phaseTimestamps={run.phaseTimestamps} completedAt={run.completedAt} />
+          </section>
+
+          {/* Approval banner */}
+          {run.status === "awaiting_approval" && (
+            <section className="us-detail-section us-approval-banner us-approval-banner--pulse">
+              <div className="us-approval-banner__content">
+                <div className="us-approval-banner__header">
+                  <ExclamationTriangleIcon className="us-approval-banner__icon" />
+                  <div className="us-approval-banner__text">
+                    <strong>Approval Required</strong>
+                    <p>Implementation is complete. Review the changes before proceeding to create a PR.</p>
+                  </div>
+                </div>
+                <div className="us-approval-banner__actions">
+                  <button className="us-btn us-btn--primary" onClick={() => setConfirmAction("approve")}>
+                    Approve &amp; Create PR
+                  </button>
+                  <button className="us-btn us-btn--danger" onClick={() => setConfirmAction("reject")}>
+                    Reject
+                  </button>
+                  <span className="us-approval-banner__shortcuts">
+                    Press <kbd>A</kbd> to approve · <kbd>R</kbd> to reject
+                  </span>
                 </div>
               </div>
-              <div className="us-approval-banner__actions">
-                <button className="us-btn us-btn--primary" onClick={() => setConfirmAction("approve")}>
-                  Approve &amp; Create PR
-                </button>
-                <button className="us-btn us-btn--danger" onClick={() => setConfirmAction("reject")}>
-                  Reject
-                </button>
-                <span className="us-approval-banner__shortcuts">
-                  Press <kbd>A</kbd> to approve · <kbd>R</kbd> to reject
-                </span>
-              </div>
-              {run.logs.length > 0 && (
-                <details className="us-approval-banner__details">
-                  <summary>View recent output</summary>
-                  <pre className="us-approval-banner__logs">
-                    {run.logs
-                      .filter((l) => l.phase === "phase2")
-                      .slice(-20)
-                      .map((l) => l.line)
-                      .join("\n")}
-                  </pre>
-                </details>
+            </section>
+          )}
+
+          {/* Tabbed content: Activity / Changes */}
+          <section className="us-detail-section us-detail-section--fill">
+            <Tabs activeKey={activeTab} onSelect={(_e, key) => setActiveTab(key)}>
+              <Tab eventKey={0} title={<TabTitleText>Activity</TabTitleText>}>
+                <ActivityFeed
+                  run={run}
+                  modelName={run.tokens?.model}
+                  comments={commentsMap.get(run.id)}
+                  onAddComment={(content) => addComment(run.id, content)}
+                  progressText={progressMap.get(run.id)}
+                />
+              </Tab>
+              {run.repoPath ? (
+                <Tab eventKey={1} title={<TabTitleText>Changes</TabTitleText>}>
+                  <DiffViewer runId={run.id} />
+                </Tab>
+              ) : null}
+            </Tabs>
+          </section>
+        </div>
+
+        {/* Right metadata sidebar */}
+        <aside className="us-detail-sidebar">
+          {/* RUN INFO */}
+          {(run.tokens?.model || (run.retryCount != null && run.retryCount > 0)) && (
+            <div className="us-detail-sidebar__group">
+              <h3 className="us-detail-sidebar__group-header">Run Info</h3>
+              {run.tokens?.model && (
+                <div className="us-detail-sidebar__section us-detail-sidebar__section--vertical">
+                  <span className="us-detail-sidebar__label">Model</span>
+                  <code className="us-detail-sidebar__value us-detail-sidebar__code">{run.tokens.model}</code>
+                </div>
+              )}
+              {run.retryCount != null && run.retryCount > 0 && (
+                <div className="us-detail-sidebar__section">
+                  <span className="us-detail-sidebar__label">Retry</span>
+                  <span className="us-detail-sidebar__value">
+                    #{run.retryCount}
+                    {run.sourceRunId && (
+                      <>
+                        {" from "}
+                        {runs.has(run.sourceRunId) ? (
+                          <a href={`/runs/${run.sourceRunId}`} className="us-detail-sidebar__link" onClick={(e) => { e.preventDefault(); navigate(`/runs/${run.sourceRunId}`); }}>
+                            {run.sourceRunId.slice(0, 8)}
+                          </a>
+                        ) : (
+                          <span>{run.sourceRunId.slice(0, 8)} (deleted)</span>
+                        )}
+                      </>
+                    )}
+                  </span>
+                </div>
               )}
             </div>
-          </section>
-        )}
+          )}
 
-        {/* Context Card — full width */}
-        {run.context && (
-          <section className="us-detail-section">
-            <RunContextCard context={run.context} />
-          </section>
-        )}
-
-        {/* PRD Card — full width, collapsible */}
-        {run.prd.length > 0 && (
-          <section className="us-detail-section">
-            <PrdStatusCard entries={run.prd} />
-          </section>
-        )}
-
-        {/* Progress */}
-        {progress && (
-          <section className="us-detail-section">
-            <div className="us-detail-card">
-              <h3 className="us-detail-card__title">Progress</h3>
-              <pre className="us-detail-card__pre">{progress}</pre>
+          {/* TICKET */}
+          {run.context && (
+            <div className="us-detail-sidebar__group">
+              <h3 className="us-detail-sidebar__group-header">Ticket</h3>
+              {run.context.issueType && (
+                <div className="us-detail-sidebar__section">
+                  <span className="us-detail-sidebar__label">Type</span>
+                  <span className="us-detail-sidebar__value us-detail-sidebar__issue-type">{run.context.issueType}</span>
+                </div>
+              )}
+              {(liveJiraStatus || run.context.jiraStatus) && (
+                <div className="us-detail-sidebar__section">
+                  <span className="us-detail-sidebar__label">Status</span>
+                  <span className="us-detail-sidebar__value">{liveJiraStatus || run.context.jiraStatus}</span>
+                </div>
+              )}
+              {run.context.priority && (
+                <div className="us-detail-sidebar__section">
+                  <span className="us-detail-sidebar__label">Priority</span>
+                  <span className={`us-detail-sidebar__value us-detail-sidebar__priority us-detail-sidebar__priority--${run.context.priority.toLowerCase()}`}>{run.context.priority}</span>
+                </div>
+              )}
+              {run.context.assignee && (
+                <div className="us-detail-sidebar__section">
+                  <span className="us-detail-sidebar__label">Assignee</span>
+                  <span className="us-detail-sidebar__value">{run.context.assignee}</span>
+                </div>
+              )}
+              {run.context.labels && run.context.labels.length > 0 && (
+                <div className="us-detail-sidebar__section us-detail-sidebar__section--vertical">
+                  <span className="us-detail-sidebar__label">Labels</span>
+                  <span className="us-detail-sidebar__value us-detail-sidebar__labels">
+                    {run.context.labels.map((label) => (
+                      <span key={label} className="us-detail-sidebar__label-tag">{label}</span>
+                    ))}
+                  </span>
+                </div>
+              )}
             </div>
-          </section>
-        )}
+          )}
 
-        {/* Logs */}
-        <section className="us-detail-section us-detail-section--fill">
-          <RunLogsCard
-            logs={run.logs}
-            status={run.status}
-          />
-        </section>
+          {/* GIT */}
+          {(run.repoPath || run.branchName || run.prUrl) && (
+            <div className="us-detail-sidebar__group">
+              <h3 className="us-detail-sidebar__group-header">Git</h3>
+              {run.repoPath && (
+                <>
+                  <div className="us-detail-sidebar__section us-detail-sidebar__section--vertical">
+                    <span className="us-detail-sidebar__label">Repository</span>
+                    <code className="us-detail-sidebar__value us-detail-sidebar__code">{getRepoName(run) ?? run.repoPath}</code>
+                  </div>
+                  {run.repoPath.includes(".worktrees") && (
+                    <div className="us-detail-sidebar__section us-detail-sidebar__section--vertical">
+                      <span className="us-detail-sidebar__label">Work Tree</span>
+                      <code className="us-detail-sidebar__value us-detail-sidebar__code">{run.repoPath}</code>
+                    </div>
+                  )}
+                </>
+              )}
+              {run.branchName && (
+                <div className="us-detail-sidebar__section us-detail-sidebar__section--vertical">
+                  <span className="us-detail-sidebar__label">Branch</span>
+                  <code className="us-detail-sidebar__value us-detail-sidebar__code">{run.branchName}</code>
+                </div>
+              )}
+              {run.prUrl && (
+                <div className="us-detail-sidebar__section us-detail-sidebar__section--vertical">
+                  <span className="us-detail-sidebar__label">Pull Request</span>
+                  <a href={run.prUrl} target="_blank" rel="noreferrer" className="us-detail-sidebar__value us-detail-sidebar__link">
+                    {run.prUrl.replace(/^https?:\/\/[^/]+\//, "")}
+                  </a>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* USAGE */}
+          {run.tokens && (
+            <div className="us-detail-sidebar__group">
+              <h3 className="us-detail-sidebar__group-header">Usage</h3>
+              <div className="us-detail-sidebar__section">
+                <span className="us-detail-sidebar__label">Input Tokens</span>
+                <span className="us-detail-sidebar__value us-detail-sidebar__mono">{run.tokens.inputTokens.toLocaleString()}</span>
+              </div>
+              <div className="us-detail-sidebar__section">
+                <span className="us-detail-sidebar__label">Output Tokens</span>
+                <span className="us-detail-sidebar__value us-detail-sidebar__mono">{run.tokens.outputTokens.toLocaleString()}</span>
+              </div>
+              {run.tokens.cacheReadTokens > 0 && (
+                <div className="us-detail-sidebar__section">
+                  <span className="us-detail-sidebar__label">Cache Read</span>
+                  <span className="us-detail-sidebar__value us-detail-sidebar__mono">{run.tokens.cacheReadTokens.toLocaleString()}</span>
+                </div>
+              )}
+              {run.tokens.cacheCreationTokens > 0 && (
+                <div className="us-detail-sidebar__section">
+                  <span className="us-detail-sidebar__label">Cache Creation</span>
+                  <span className="us-detail-sidebar__value us-detail-sidebar__mono">{run.tokens.cacheCreationTokens.toLocaleString()}</span>
+                </div>
+              )}
+              <div className="us-detail-sidebar__section us-detail-sidebar__total">
+                <span className="us-detail-sidebar__label">Total</span>
+                <span className="us-detail-sidebar__value us-detail-sidebar__mono">
+                  {(run.tokens.inputTokens + run.tokens.outputTokens + run.tokens.cacheReadTokens + run.tokens.cacheCreationTokens).toLocaleString()}
+                </span>
+              </div>
+            </div>
+          )}
+
+          {/* TIMING */}
+          <div className="us-detail-sidebar__group">
+            <h3 className="us-detail-sidebar__group-header">Timing</h3>
+            <div className="us-detail-sidebar__section">
+              <span className="us-detail-sidebar__label">Started</span>
+              <span className="us-detail-sidebar__value">{new Date(run.startedAt).toLocaleString()}</span>
+            </div>
+            <div className="us-detail-sidebar__section">
+              <span className="us-detail-sidebar__label">Duration</span>
+              <span className="us-detail-sidebar__value us-detail-sidebar__mono">
+                {formatDuration(
+                  (run.completedAt ? new Date(run.completedAt).getTime() : Date.now()) -
+                  new Date(run.startedAt).getTime()
+                )}
+              </span>
+            </div>
+            {run.phaseTimestamps && <PhaseTimingBreakdown phaseTimestamps={run.phaseTimestamps} />}
+          </div>
+        </aside>
       </div>
 
       {/* History Drawer — slides in from right */}
@@ -535,7 +727,7 @@ export function RunDetailPage() {
       {confirmAction === "approve" && (
         <ConfirmModal
           title="Approve & Create PR"
-          message={`This will create a pull request for ${run.issueKey}${run.repoPath ? ` in ${run.repoPath.split("/").pop()}` : ""}.`}
+          message={`This will create a pull request for ${run.issueKey}${run.repoPath ? ` in ${getRepoName(run) ?? run.repoPath}` : ""}.`}
           confirmLabel="Approve"
           confirmVariant="primary"
           onConfirm={doApprove}
@@ -602,46 +794,6 @@ export function RunDetailPage() {
         </div>
       )}
 
-      {editorInfo && (
-        <div className="us-modal-overlay" onClick={() => setEditorInfo(null)}>
-          <div className="us-modal" onClick={(e) => e.stopPropagation()}>
-            <div className="us-modal__header">
-              <h3 className="us-modal__title">Open Locally</h3>
-              <button className="us-modal__close" onClick={() => setEditorInfo(null)} aria-label="Close">
-                <TimesIcon />
-              </button>
-            </div>
-            <div className="us-modal__body">
-              <label className="us-modal__label">Local path</label>
-              <div className="us-modal__copyable">
-                <code className="us-modal__code">{editorInfo.localDir}</code>
-                <button
-                  className="us-modal__copy-btn"
-                  onClick={() => handleCopy(editorInfo.localDir, "path")}
-                  aria-label="Copy path"
-                >
-                  {copied === "path" ? <CheckIcon /> : <CopyIcon />}
-                </button>
-              </div>
-              {editorInfo.gitCommand && (
-                <>
-                  <label className="us-modal__label">Checkout branch</label>
-                  <div className="us-modal__copyable">
-                    <code className="us-modal__code">{editorInfo.gitCommand}</code>
-                    <button
-                      className="us-modal__copy-btn"
-                      onClick={() => handleCopy(editorInfo.gitCommand!, "git")}
-                      aria-label="Copy git command"
-                    >
-                      {copied === "git" ? <CheckIcon /> : <CopyIcon />}
-                    </button>
-                  </div>
-                </>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
 
       {showHistory && runHistory.length > 1 && (
         <div className="us-drawer-overlay" onClick={() => setShowHistory(false)}>

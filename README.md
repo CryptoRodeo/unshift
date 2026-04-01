@@ -1,19 +1,47 @@
 # Unshift
 
-An automation tool that picks up Jira issues labeled `llm-candidate`, implements them using an LLM, and opens a pull request.
+An automation tool that picks up Jira issues with a configurable label (default: `llm-candidate`), implements them using an LLM, and opens a pull request.
 
 > The dashboard engine uses the [Vercel AI SDK](https://sdk.vercel.ai/) and supports multiple LLM providers (Anthropic, OpenAI, Google). The CLI scripts in `cli/` are an alternative entry point that uses [Claude Code](https://docs.anthropic.com/en/docs/claude-code) directly.
 
 ## Dashboard preview
 
-<a href="unshift-ui.png"><img src="unshift-ui.png" alt="Unshift dashboard UI" width="600"></a>
+### Run list page
+
+<a href="unshift-ui.png"><img src="unshift-ui.png" alt="Unshift dashboard — run list" width="600"></a>
+
+### Run detail activity section
+
+<a href="activity-section.png"><img src="activity-section.png" alt="Unshift dashboard — activity timeline" width="600"></a>
+
+### Diff viewer
+
+<a href="diff-viewer.png"><img src="diff-viewer.png" alt="Unshift dashboard — diff viewer" width="600"></a>
+
+### Project list view
+
+<a href="project-view.png"><img src="project-view.png" alt="Unshift dashboard — projects view" width="600"></a>
+
+### Batch run - configure models for specific issues
+
+<a href="batch-run-configure-models.png"><img src="batch-run-configure-models.png" alt="Unshift dashboard — batch run configuration" width="600"></a>
+
+### Dashboard features
+
+- **Sidebar navigation** — persistent left sidebar with quick links, live run counts, recent runs, dark/light mode toggle, and connection status
+- **Projects view** — browse Jira tickets that have been processed, view full issue details (description, status, priority, assignee, labels, comments), and see run history per ticket
+- **Activity timeline** — chronological feed of phase transitions, collapsible log output, PRD completions, and terminal events for each run
+- **Diff viewer** — review AI-generated code changes file-by-file with add/delete stats and syntax-highlighted diffs, available in a dedicated "Changes" tab on the run detail page
+- **Batch configuration** — select a default AI provider and model for all discovered issues, with per-issue overrides, before launching a batch run
+- **Single-ticket runs** — start a run for a specific Jira issue directly from the toolbar with inline provider and model selection
+- **Keyboard shortcuts** — press <kbd>A</kbd> to approve or <kbd>R</kbd> to reject when reviewing a run at the approval gate
 
 ## How it works
 
 Unshift runs four phases per issue:
 
-1. **Discover**  - Queries the Jira REST API for issues labeled `llm-candidate` and determines which issues to process.
-2. **Plan**  - Reads the Jira issue, maps it to a repo via `repos.yaml`, creates a branch, and generates an implementation plan (`prd.json`).
+1. **Discover**  - Queries the Jira REST API for issues with the configured label (`JIRA_LABEL`, default: `llm-candidate`) and determines which issues to process.
+2. **Plan**  - Reads the Jira issue, maps it to a repo via `projects.yaml`, creates a branch, and generates an implementation plan (`prd.json`).
 3. **Implement**  - Works through the plan one entry at a time. If a validation step fails, it automatically retries once with the error context. This keeps token usage flat and gives every entry the full context window.
 4. **Deliver**  - Commits, pushes, opens a PR, updates Jira, and cleans up. When started from the dashboard, the run pauses here for approval before proceeding.
 
@@ -41,19 +69,20 @@ Edit `.env` and fill in your credentials (see [Credentials Reference](#credentia
 - `UNSHIFT_PROVIDER`  - which provider to use: `anthropic` (default), `openai`, `google`, or `vertex`
 - `UNSHIFT_MODEL`  - model ID to use (defaults: `claude-sonnet-4-6`, `gpt-4o`, `gemini-2.0-flash`)
 - `JIRA_BASE_URL`, `JIRA_USER_EMAIL`, `JIRA_API_TOKEN`  - required for Jira integration
+- `JIRA_LABEL`  - Jira label used to discover candidate issues (default: `llm-candidate`)
 - `GH_TOKEN` or `GITLAB_TOKEN`  - required for PR/MR creation
 - `GIT_USER_NAME`, `GIT_USER_EMAIL`  - used for git commits inside the container
 
 You can also select the provider and model from the dashboard UI when starting a run.
 
-### 2. Configure repos.yaml
+### 2. Configure projects.yaml
 
-Create a `repos.yaml` to map your Jira projects to repositories. See `repos.yaml.example` for the schema and a starting template.
+Create a `projects.yaml` to map your Jira projects to repositories. See `projects.yaml.example` for the schema and a starting template.
 
 Inside the container, repos are cloned under `/app/workspace/` (bind-mounted to `./workspace` on the host). Keep `local_dir` set to the path on your host machine (e.g. `~/work/my-repo`) — the dashboard uses it for the "Open Locally" dialog.
 
 <details>
-<summary><strong>Example repos.yaml</strong></summary>
+<summary><strong>Example projects.yaml</strong></summary>
 
 ```yaml
 # Frontend monorepo — two Jira projects share this repo,
@@ -261,7 +290,7 @@ You can also target a single issue or just list what's available:
 
 ```bash
 ./cli/unshift.sh --issue PROJ-123   # process one issue
-./cli/unshift.sh --discover         # list llm-candidate issues and exit
+./cli/unshift.sh --discover         # list candidate issues and exit
 ./cli/unshift.sh --retry --issue PROJ-123  # retry from prd.json (skips planning)
 ```
 
@@ -338,11 +367,11 @@ See [Credentials Reference](#credentials-reference) for how to get the token.
 Inside a Claude Code session, run:
 
 ```
-/unshift              # discover and process all llm-candidate issues
+/unshift              # discover and process all candidate issues
 /unshift PROJ-123     # process a specific issue
 ```
 
-The skill reads `repos.yaml` from this repo's root to map Jira projects to repositories. See `repos.yaml.example` for the schema.
+The skill reads `projects.yaml` from this repo's root to map Jira projects to repositories. See `projects.yaml.example` for the schema.
 
 </details>
 
@@ -362,7 +391,7 @@ The skill reads `repos.yaml` from this repo's root to map Jira projects to repos
 | `dashboard/Dockerfile` | Multi-stage Docker build (no Claude Code — the engine calls LLM APIs directly) |
 | `dashboard/entrypoint.sh` | Container entrypoint  - sets git identity and GCP credentials |
 | `.dockerignore` | Files excluded from Docker build context |
-| `repos.yaml` | Project-to-repository mapping (shared by dashboard and CLI) |
+| `projects.yaml` | Project-to-repository mapping (shared by dashboard and CLI) |
 | `prd.json` | Implementation plan, created per issue, cleaned up after (in target repo at runtime) |
 | `progress.txt` | Append-only execution log, cleaned up after (in target repo at runtime) |
 | `runs.db` | SQLite database storing run history, logs, and progress (in `dashboard/server/data/` at runtime) |

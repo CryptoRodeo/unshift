@@ -74,7 +74,7 @@ Extract the following from the issue:
 
 #### Project-to-Repository Mapping
 
-The mapping is defined in `repos.yaml` at the repo root. Each entry contains: `jira_projects`, `component`, `labels`, `repo_url`, `local_dir`, `default_branch`, `host`, and `validation`. The orchestrator injects this file into the Phase 1 prompt at runtime.
+The mapping is defined in `projects.yaml` at the repo root. Each entry contains: `jira_projects`, `component`, `labels`, `repo_url`, `local_dir`, `default_branch`, `host`, and `validation`. The orchestrator injects this file into the Phase 1 prompt at runtime.
 
 ### Step 4: Navigate to the repository and create a branch
 

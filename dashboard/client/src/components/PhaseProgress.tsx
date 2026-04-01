@@ -82,6 +82,9 @@ interface PhaseProgressProps {
 export function PhaseProgress({ status, phaseTimestamps, completedAt, compact = false }: PhaseProgressProps) {
   const [now, setNow] = useState(Date.now());
   const isActive = !isCompleted(status) && !isTerminal(status);
+  const isDone = isCompleted(status) || isTerminal(status);
+  const [expanded, setExpanded] = useState(false);
+  const collapsed = isDone && !expanded && !compact;
 
   useEffect(() => {
     if (!isActive || !phaseTimestamps) return;
@@ -89,8 +92,18 @@ export function PhaseProgress({ status, phaseTimestamps, completedAt, compact = 
     return () => clearInterval(id);
   }, [isActive, phaseTimestamps]);
 
+  const classNames = [
+    "us-phase-progress",
+    compact ? "us-phase-progress--compact" : "",
+    collapsed ? "us-phase-progress--collapsed" : "",
+  ].filter(Boolean).join(" ");
+
   return (
-    <div className={`us-phase-progress${compact ? " us-phase-progress--compact" : ""}`}>
+    <div
+      className={classNames}
+      onClick={collapsed ? () => setExpanded(true) : undefined}
+      title={collapsed ? "Click to expand phase details" : undefined}
+    >
       {PHASE_CONFIG.map((p, idx) => {
         const state = getPhaseState(p.key, status);
         const duration = getPhaseDuration(p.key, status, phaseTimestamps, completedAt, now);

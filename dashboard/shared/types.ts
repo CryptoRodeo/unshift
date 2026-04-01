@@ -63,6 +63,11 @@ export interface RunContext {
   defaultBranch?: string;
   host?: string;
   commitPrefix?: string;
+  priority?: string;
+  labels?: string[];
+  jiraStatus?: string;
+  assignee?: string;
+  jiraUrl?: string;
 }
 
 export interface TokenData {
@@ -71,6 +76,55 @@ export interface TokenData {
   cacheReadTokens: number;
   cacheCreationTokens: number;
   model?: string;
+}
+
+export interface Comment {
+  id: number;
+  author: string;
+  content: string;
+  createdAt: string;
+}
+
+export interface JiraIssueDetail {
+  key: string;
+  summary: string;
+  description?: string;
+  status: string;
+  priority?: string;
+  assignee?: string;
+  labels: string[];
+  issueType?: string;
+  created: string;
+  updated: string;
+  jiraUrl: string;
+}
+
+export interface JiraComment {
+  id: string;
+  author: string;
+  avatarUrl?: string;
+  body: string;
+  created: string;
+  updated: string;
+}
+
+export interface WorktreeInfo {
+  containerPath: string;
+  hostPath: string;
+  vsCodeUri: string;
+  devContainerUri: string;
+  available: boolean;
+  hasDevContainer: boolean;
+  error?: string;
+}
+
+export interface ProjectSummary {
+  issueKey: string;
+  summary: string;
+  runCount: number;
+  lastRunAt: string;
+  latestStatus: RunPhase;
+  jiraStatus?: string;
 }
 
 export interface Run {
@@ -102,7 +156,9 @@ export type WsMessage =
   | { type: "run:progress"; runId: string; content: string }
   | { type: "run:skipped"; skipped: { issueKey: string; reason: string }[] }
   | { type: "run:deleted"; runId: string }
-  | { type: "run:tokens"; runId: string; tokens: TokenData };
+  | { type: "run:tokens"; runId: string; tokens: TokenData }
+  | { type: "run:comment"; runId: string; comment: Comment }
+  | { type: "run:worktree-changed"; runId: string };
 
 export function formatDuration(ms: number): string {
   const seconds = Math.floor(ms / 1000);
