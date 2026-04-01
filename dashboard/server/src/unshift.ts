@@ -166,7 +166,7 @@ export class UnshiftRunner extends EventEmitter {
       const { execCommand } = await import("./engine/tools.js");
       const result = await execCommand(
         "git",
-        ["diff", `origin/${run.context.defaultBranch}`, "--", ".", ...UnshiftRunner.DIFF_EXCLUDE_PATHS],
+        ["diff", "-M", `origin/${run.context.defaultBranch}`, "--", ".", ...UnshiftRunner.DIFF_EXCLUDE_PATHS],
         { cwd: run.repoPath, timeout: 30_000 }
       );
       if (result.exitCode === 0 && result.stdout) {
@@ -189,7 +189,7 @@ export class UnshiftRunner extends EventEmitter {
     if (run.repoPath && defaultBranch && fs.existsSync(run.repoPath)) {
       const result = await execCommand(
         "git",
-        ["diff", `origin/${defaultBranch}`, "--", ".", ...UnshiftRunner.DIFF_EXCLUDE_PATHS],
+        ["diff", "-M", `origin/${defaultBranch}`, "--", ".", ...UnshiftRunner.DIFF_EXCLUDE_PATHS],
         { cwd: run.repoPath, timeout: 30_000 }
       );
       if (result.exitCode === 0 && result.stdout) {
@@ -204,7 +204,7 @@ export class UnshiftRunner extends EventEmitter {
       if (fs.existsSync(mainClone)) {
         const result = await execCommand(
           "git",
-          ["diff", `origin/${defaultBranch}...${run.branchName}`, "--", ".", ...UnshiftRunner.DIFF_EXCLUDE_PATHS],
+          ["diff", "-M", `origin/${defaultBranch}...${run.branchName}`, "--", ".", ...UnshiftRunner.DIFF_EXCLUDE_PATHS],
           { cwd: mainClone, timeout: 30_000 }
         );
         if (result.exitCode === 0 && result.stdout) {

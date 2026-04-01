@@ -3979,6 +3979,25 @@ button:active:not(:disabled),
   border-radius: var(--us-radius-full);
 }
 
+.us-diff__additions {
+  font-size: 12px;
+  font-weight: 600;
+  font-family: var(--us-font-mono);
+  color: var(--us-diff-add-text);
+}
+
+.us-diff__deletions {
+  font-size: 12px;
+  font-weight: 600;
+  font-family: var(--us-font-mono);
+  color: var(--us-diff-del-text);
+}
+
+.us-diff__breakdown {
+  font-size: 11px;
+  color: var(--us-text-tertiary);
+}
+
 .us-diff__chevron {
   transition: transform 0.15s ease;
   color: var(--us-text-secondary);
@@ -4090,6 +4109,41 @@ button:active:not(:disabled),
   background: var(--us-diff-hunk-bg);
   color: var(--us-diff-hunk-text);
   font-style: italic;
+}
+
+/* Status badges */
+.us-diff__badge {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+  padding: 2px 6px;
+  border-radius: var(--us-radius-full);
+  flex-shrink: 0;
+}
+
+.us-diff__badge--added {
+  background: var(--us-diff-add-bg);
+  color: var(--us-diff-add-text);
+}
+
+.us-diff__badge--deleted {
+  background: var(--us-diff-del-bg);
+  color: var(--us-diff-del-text);
+}
+
+.us-diff__badge--renamed {
+  background: var(--us-diff-rename-bg);
+  color: var(--us-diff-rename-text);
+}
+
+.us-diff__old-filename {
+  color: var(--us-text-tertiary);
+}
+
+.us-diff__empty-placeholder {
+  font-style: italic;
+  color: var(--us-text-tertiary);
 }
 
 /* Light mode overrides */

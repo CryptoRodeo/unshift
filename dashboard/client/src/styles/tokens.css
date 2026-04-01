@@ -33,6 +33,8 @@
   --us-diff-del-text: #cf222e;
   --us-diff-hunk-bg: rgba(54, 77, 202, 0.08);
   --us-diff-hunk-text: #656d76;
+  --us-diff-rename-bg: rgba(54, 77, 202, 0.10);
+  --us-diff-rename-text: #0550ae;
 
   /* Light mode colors */
   --us-bg-primary: #ffffff;
@@ -75,4 +77,6 @@
   --us-diff-del-text: #f85149;
   --us-diff-hunk-bg: rgba(110, 118, 129, 0.12);
   --us-diff-hunk-text: #8b949e;
+  --us-diff-rename-bg: rgba(56, 139, 253, 0.15);
+  --us-diff-rename-text: #58a6ff;
 }
