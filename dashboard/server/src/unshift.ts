@@ -13,12 +13,16 @@ import { getModel, getDefaultConfig, type ProviderConfig } from "./engine/provid
  * Manages Jira-issue runs using the UnshiftEngine (Vercel AI SDK agentic loop)
  * instead of spawning shell processes.
  */
+const WORKSPACE_DIR = process.env.WORKSPACE_DIR || "/app/workspace";
+const WORKTREE_TTL_HOURS = parseInt(process.env.WORKTREE_TTL_HOURS || "24", 10);
+
 export class UnshiftRunner extends EventEmitter {
   private abortControllers = new Map<string, AbortController>();
   /** Maps issueKey → owning runId to prevent duplicate runs */
   private activeIssueKeys = new Map<string, string>();
   private repository = new RunRepository();
   private engine = new UnshiftEngine();
+  private cleanupInterval: ReturnType<typeof setInterval> | undefined;
 
   constructor() {
     super();
@@ -28,6 +32,60 @@ export class UnshiftRunner extends EventEmitter {
       if (!isCompleted(run.status)) {
         this.activeIssueKeys.set(run.issueKey, run.id);
       }
+    }
+
+    // Run initial worktree TTL cleanup and schedule hourly scans
+    this.runWorktreeTtlCleanup();
+    this.cleanupInterval = setInterval(() => this.runWorktreeTtlCleanup(), 60 * 60 * 1000);
+    this.cleanupInterval.unref();
+  }
+
+  /** Stop the periodic worktree cleanup timer */
+  stopCleanupTimer(): void {
+    if (this.cleanupInterval) {
+      clearInterval(this.cleanupInterval);
+      this.cleanupInterval = undefined;
+    }
+  }
+
+  /** Scan filesystem for worktrees whose runs exceeded the TTL and remove them */
+  private runWorktreeTtlCleanup(): void {
+    try {
+      if (!fs.existsSync(WORKSPACE_DIR)) return;
+
+      const ttlMs = WORKTREE_TTL_HOURS * 60 * 60 * 1000;
+      const now = Date.now();
+
+      // Scan workspace/<repo>/.worktrees/<runId> directories
+      for (const repoDir of fs.readdirSync(WORKSPACE_DIR, { withFileTypes: true })) {
+        if (!repoDir.isDirectory()) continue;
+        const worktreesDir = path.join(WORKSPACE_DIR, repoDir.name, ".worktrees");
+        if (!fs.existsSync(worktreesDir)) continue;
+
+        for (const wtDir of fs.readdirSync(worktreesDir, { withFileTypes: true })) {
+          if (!wtDir.isDirectory()) continue;
+          const runId = wtDir.name;
+          const worktreePath = path.join(worktreesDir, runId);
+
+          const run = this.repository.getRun(runId);
+          if (!run) {
+            // Orphaned worktree with no DB entry — remove it
+            console.log(`Removing orphaned worktree: ${worktreePath}`);
+            fs.rmSync(worktreePath, { recursive: true, force: true });
+            continue;
+          }
+
+          if (!isTerminal(run.status) && run.status !== "success") continue;
+
+          const completedAt = run.completedAt ? new Date(run.completedAt).getTime() : 0;
+          if (completedAt > 0 && now - completedAt > ttlMs) {
+            console.log(`TTL expired for run ${runId}, removing worktree: ${worktreePath}`);
+            fs.rmSync(worktreePath, { recursive: true, force: true });
+          }
+        }
+      }
+    } catch (e) {
+      console.warn("Worktree TTL cleanup scan failed:", e);
     }
   }
 
@@ -65,6 +123,16 @@ export class UnshiftRunner extends EventEmitter {
     return this.repository.getComments(runId);
   }
 
+  /** Returns the worktree path for a run from the engine's in-memory map */
+  getWorktreePath(runId: string): string | undefined {
+    return this.engine.getWorktreePath(runId);
+  }
+
+  /** Explicitly clean up a run's worktree (for the cleanup API endpoint) */
+  async cleanupRunWorktree(runId: string): Promise<void> {
+    await this.engine.cleanupRun(runId);
+  }
+
   /** Get project summaries (unique issue keys with aggregated metadata) */
   getProjectSummaries() {
     return this.repository.getProjectSummaries();
@@ -98,7 +166,7 @@ export class UnshiftRunner extends EventEmitter {
       const { execCommand } = await import("./engine/tools.js");
       const result = await execCommand(
         "git",
-        ["diff", `origin/${run.context.defaultBranch}...HEAD`, "--", ".", ...UnshiftRunner.DIFF_EXCLUDE_PATHS],
+        ["diff", `origin/${run.context.defaultBranch}`, "--", ".", ...UnshiftRunner.DIFF_EXCLUDE_PATHS],
         { cwd: run.repoPath, timeout: 30_000 }
       );
       if (result.exitCode === 0 && result.stdout) {
@@ -121,7 +189,7 @@ export class UnshiftRunner extends EventEmitter {
     if (run.repoPath && defaultBranch && fs.existsSync(run.repoPath)) {
       const result = await execCommand(
         "git",
-        ["diff", `origin/${defaultBranch}...HEAD`, "--", ".", ...UnshiftRunner.DIFF_EXCLUDE_PATHS],
+        ["diff", `origin/${defaultBranch}`, "--", ".", ...UnshiftRunner.DIFF_EXCLUDE_PATHS],
         { cwd: run.repoPath, timeout: 30_000 }
       );
       if (result.exitCode === 0 && result.stdout) {
@@ -302,10 +370,13 @@ export class UnshiftRunner extends EventEmitter {
     }
   }
 
-  approveRun(id: string, providerConfig?: ProviderConfig): { ok: true } | RunError {
+  async approveRun(id: string, providerConfig?: ProviderConfig): Promise<{ ok: true } | RunError> {
     const run = this.repository.getRun(id);
     if (!run) return { error: "Run not found", code: "NOT_FOUND" };
     if (run.status !== "awaiting_approval") return { error: `Run is not awaiting approval (status: ${run.status})`, code: "INVALID_STATE" };
+
+    // Re-persist diff to capture any manual edits made in VSCode
+    await this.persistDiff(id);
 
     const approved = this.engine.approve(id);
     if (!approved) {
@@ -425,12 +496,24 @@ export class UnshiftRunner extends EventEmitter {
         this.repository.appendLog(runId, "failed", msg);
       }
     }).finally(() => {
-      this.engine.cleanupRun(runId).catch((e) => {
-        console.warn(`Failed to clean up worktree for run ${runId}:`, e);
-      }).finally(() => {
+      const finalRun = this.repository.getRun(runId);
+      const finalStatus = finalRun?.status;
+
+      // Keep worktree on disk for awaiting_approval and success so users can open in VSCode
+      const shouldKeepWorktree = finalStatus === "awaiting_approval" || finalStatus === "success";
+
+      const afterCleanup = () => {
         cleanup();
         this.cleanupRun(runId, issueKey);
-      });
+      };
+
+      if (shouldKeepWorktree) {
+        afterCleanup();
+      } else {
+        this.engine.cleanupRun(runId).catch((e) => {
+          console.warn(`Failed to clean up worktree for run ${runId}:`, e);
+        }).finally(afterCleanup);
+      }
     });
   }
 

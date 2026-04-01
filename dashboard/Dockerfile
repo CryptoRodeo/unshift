@@ -49,10 +49,14 @@ RUN GLAB_VERSION=$(curl -sL "https://gitlab.com/api/v4/projects/34675721/release
     && dpkg -i /tmp/glab.deb \
     && rm /tmp/glab.deb
 
-# Re-use the existing node user (UID/GID 1000) as the non-root runtime user.
-# This matches the typical host user's UID, avoiding permission issues with
-# mounted volumes (e.g. Google ADC credentials).
-RUN usermod -l unshift -d /home/unshift -m node && groupmod -n unshift node
+# Re-use the existing node user as the non-root runtime user, with a
+# configurable UID/GID so files written to bind-mounted volumes keep the
+# same ownership as the host user.
+ARG HOST_UID=1000
+ARG HOST_GID=1000
+RUN groupmod -g "$HOST_GID" node \
+    && usermod -u "$HOST_UID" -g "$HOST_GID" -l unshift -d /home/unshift -m node \
+    && groupmod -n unshift node
 
 WORKDIR /app
 

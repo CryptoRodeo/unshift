@@ -12,6 +12,7 @@ export type {
   RunError,
   TokenData,
   Comment,
+  WorktreeInfo,
 } from "../../shared/types";
 
 export {

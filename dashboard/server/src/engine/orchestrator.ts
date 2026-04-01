@@ -262,6 +262,11 @@ export class UnshiftEngine extends EventEmitter {
     }
   }
 
+  /** Returns the worktree path for a run, or undefined if not tracked in memory */
+  getWorktreePath(runId: string): string | undefined {
+    return this.activeWorktrees.get(runId)?.worktree;
+  }
+
   /**
    * Clean up the worktree for the given runId.
    * Idempotent — safe to call multiple times for the same runId.

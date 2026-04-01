@@ -12,11 +12,12 @@ import {
   HistoryIcon,
   TimesIcon,
   ExclamationTriangleIcon,
+  CodeIcon,
 } from "@patternfly/react-icons";
 import { useWebSocketContext } from "../hooks/useWebSocket";
 import { useHeaderContext } from "../hooks/useHeaderContext";
 import { isTerminal, isCompleted, isRunError, formatDuration, PHASE_LABELS, relativeTime } from "../types";
-import type { Run, RunPhase } from "../types";
+import type { Run, RunPhase, WorktreeInfo } from "../types";
 import { getRepoName } from "../hooks/useRunFilters";
 import { PhaseProgress } from "../components/PhaseProgress";
 import { StatusLabel } from "../components/StatusLabel";
@@ -125,6 +126,8 @@ export function RunDetailPage() {
   const [modalModel, setModalModel] = useState("");
   const [jiraBaseUrl, setJiraBaseUrl] = useState<string | null>(null);
   const [liveJiraStatus, setLiveJiraStatus] = useState<string | null>(null);
+  const [editorLoading, setEditorLoading] = useState(false);
+  const [editorError, setEditorError] = useState<string | null>(null);
 
   useEffect(() => {
     Promise.all([
@@ -317,6 +320,35 @@ export function RunDetailPage() {
     if (match) setModalModel(match.defaultModel);
   };
 
+  const handleOpenInEditor = async () => {
+    setEditorLoading(true);
+    setEditorError(null);
+    try {
+      const res = await fetch(`/api/runs/${run.id}/worktree`);
+      if (!res.ok) {
+        setEditorError("Failed to fetch worktree info");
+        return;
+      }
+      const info: WorktreeInfo = await res.json();
+      if (!info.available) {
+        setEditorError(info.error || "Worktree is not available");
+        return;
+      }
+      // Use a hidden <a> element to open custom protocol URIs (window.open is blocked by browsers)
+      const a = document.createElement("a");
+      if (info.hasDevContainer) {
+        a.href = info.devContainerUri;
+      } else {
+        a.href = info.vsCodeUri;
+      }
+      a.click();
+    } catch {
+      setEditorError("Failed to open editor");
+    } finally {
+      setEditorLoading(false);
+    }
+  };
+
   const jiraIssueUrl = (jiraBaseUrl && run.issueKey ? `${jiraBaseUrl.replace(/\/+$/, "")}/browse/${run.issueKey}` : null)
     ?? run.context?.jiraUrl;
 
@@ -361,6 +393,19 @@ export function RunDetailPage() {
 
           {/* Secondary icon buttons */}
           <div className="us-detail-subheader__secondary">
+            {(run.status === "awaiting_approval" || run.status === "success") && (
+              <Tooltip content={editorLoading ? "Loading…" : "Open worktree in VSCode"}>
+                <button
+                  className={`us-detail-subheader__icon-btn us-btn--editor${editorLoading ? " us-btn--editor-loading" : ""}`}
+                  onClick={handleOpenInEditor}
+                  disabled={editorLoading}
+                  aria-label="Open in Editor"
+                >
+                  <CodeIcon />
+                </button>
+              </Tooltip>
+            )}
+
             {run.repoPath && (
               <Tooltip content={repoUrl ? "Open Repository" : "Repository URL not available"}>
                 <a
@@ -422,11 +467,12 @@ export function RunDetailPage() {
       </div>
 
       {/* Error alerts */}
-      {(retryError || deleteError || approveError) && (
+      {(retryError || deleteError || approveError || editorError) && (
         <div className="us-detail-alerts">
           {approveError && <Alert variant="danger" title="Approval failed" isInline>{approveError}</Alert>}
           {retryError && <Alert variant="danger" title="Retry failed" isInline>{retryError}</Alert>}
           {deleteError && <Alert variant="danger" title="Delete failed" isInline>{deleteError}</Alert>}
+          {editorError && <Alert variant="warning" title="Open in Editor" isInline>{editorError}</Alert>}
         </div>
       )}
 

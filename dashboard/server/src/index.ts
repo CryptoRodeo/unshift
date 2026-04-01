@@ -7,7 +7,7 @@ import { WebSocketServer, WebSocket } from "ws";
 import yaml from "js-yaml";
 import { UnshiftRunner } from "./unshift";
 import { isRunError } from "../../shared/types";
-import type { RunErrorCode, WsMessage, TokenData } from "../../shared/types";
+import type { RunErrorCode, WsMessage, TokenData, WorktreeInfo } from "../../shared/types";
 import { DEFAULT_MODELS, AVAILABLE_MODELS, getDefaultConfig, type Provider, type ProviderConfig } from "./engine/providers";
 
 function parseProviderConfig(body: Record<string, unknown> | undefined): ProviderConfig | undefined {
@@ -29,6 +29,17 @@ const server = http.createServer(app);
 const wss = new WebSocketServer({ server, path: "/ws" });
 
 const runner = new UnshiftRunner();
+
+// Workspace path configuration for the Open in VSCode feature
+const WORKSPACE_DIR = process.env.WORKSPACE_DIR || "/app/workspace";
+const WORKSPACE_HOST_PATH = process.env.WORKSPACE_HOST_PATH;
+if (WORKSPACE_HOST_PATH) {
+  if (!path.isAbsolute(WORKSPACE_HOST_PATH)) {
+    console.warn(`WORKSPACE_HOST_PATH must be an absolute path, got: ${WORKSPACE_HOST_PATH}. Open in VSCode feature will be unavailable.`);
+  }
+} else {
+  console.warn("WORKSPACE_HOST_PATH is not set. Open in VSCode feature will be unavailable.");
+}
 
 const ERROR_CODE_TO_STATUS: Record<RunErrorCode, number> = {
   NOT_FOUND: 404,
@@ -287,8 +298,8 @@ app.post("/api/runs/:id/stop", async (req, res) => {
   }
 });
 
-app.post("/api/runs/:id/approve", (req, res) => {
-  const result = runner.approveRun(req.params.id);
+app.post("/api/runs/:id/approve", async (req, res) => {
+  const result = await runner.approveRun(req.params.id);
   if (isRunError(result)) {
     res.status(ERROR_CODE_TO_STATUS[result.code]).json(result);
   } else {
@@ -308,6 +319,82 @@ app.post("/api/runs/:id/reject", async (req, res) => {
     console.error("Failed to reject run:", err);
     res.status(500).json({ error: "Failed to reject run" });
   }
+});
+
+app.post("/api/runs/:id/cleanup", async (req, res) => {
+  const run = runner.getRun(req.params.id);
+  if (!run) {
+    res.status(404).json({ error: "Run not found", code: "NOT_FOUND" });
+    return;
+  }
+  try {
+    await runner.cleanupRunWorktree(req.params.id);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error("Failed to cleanup worktree:", err);
+    res.status(500).json({ error: "Failed to cleanup worktree" });
+  }
+});
+
+app.get("/api/runs/:id/worktree", (req, res) => {
+  const run = runner.getRun(req.params.id);
+  if (!run) {
+    res.status(404).json({ error: "Run not found", code: "NOT_FOUND" });
+    return;
+  }
+
+  // Check if WORKSPACE_HOST_PATH is configured and valid
+  if (!WORKSPACE_HOST_PATH || !path.isAbsolute(WORKSPACE_HOST_PATH)) {
+    const info: WorktreeInfo = {
+      containerPath: "",
+      hostPath: "",
+      vsCodeUri: "",
+      devContainerUri: "",
+      available: false,
+      hasDevContainer: false,
+      error: "WORKSPACE_HOST_PATH is not configured on the server",
+    };
+    res.json(info);
+    return;
+  }
+
+  // Get the container path: prefer live in-memory worktree path, fall back to run's repoPath
+  const containerPath = runner.getWorktreePath(req.params.id) || run.repoPath;
+  if (!containerPath) {
+    const info: WorktreeInfo = {
+      containerPath: "",
+      hostPath: "",
+      vsCodeUri: "",
+      devContainerUri: "",
+      available: false,
+      hasDevContainer: false,
+      error: "No worktree path available — run may still be in pending/phase0",
+    };
+    res.json(info);
+    return;
+  }
+
+  // Derive host path by replacing the workspace dir prefix
+  const hostPath = containerPath.startsWith(WORKSPACE_DIR)
+    ? WORKSPACE_HOST_PATH + containerPath.slice(WORKSPACE_DIR.length)
+    : containerPath;
+
+  const available = fs.existsSync(containerPath);
+  const hasDevContainer = available && fs.existsSync(path.join(containerPath, ".devcontainer", "devcontainer.json"));
+
+  const vsCodeUri = `vscode://file/${hostPath}`;
+  const devContainerUri = `vscode://ms-vscode-remote.remote-containers/openFolder?folderUri=${encodeURIComponent(hostPath)}`;
+
+  const info: WorktreeInfo = {
+    containerPath,
+    hostPath,
+    vsCodeUri,
+    devContainerUri,
+    available,
+    hasDevContainer,
+    error: available ? undefined : "Worktree has been cleaned up",
+  };
+  res.json(info);
 });
 
 app.post("/api/runs/:id/retry", async (req, res) => {
@@ -431,6 +518,14 @@ if (fs.existsSync(clientDistPath)) {
   });
 }
 
+
+// Graceful shutdown: stop worktree cleanup timer
+function shutdown() {
+  runner.stopCleanupTimer();
+  process.exit(0);
+}
+process.on("SIGTERM", shutdown);
+process.on("SIGINT", shutdown);
 
 const PORT = process.env.SERVER_PORT ?? 3000;
 server.listen(PORT, () => {

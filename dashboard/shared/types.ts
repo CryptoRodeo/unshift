@@ -108,6 +108,16 @@ export interface JiraComment {
   updated: string;
 }
 
+export interface WorktreeInfo {
+  containerPath: string;
+  hostPath: string;
+  vsCodeUri: string;
+  devContainerUri: string;
+  available: boolean;
+  hasDevContainer: boolean;
+  error?: string;
+}
+
 export interface ProjectSummary {
   issueKey: string;
   summary: string;
@@ -147,7 +157,8 @@ export type WsMessage =
   | { type: "run:skipped"; skipped: { issueKey: string; reason: string }[] }
   | { type: "run:deleted"; runId: string }
   | { type: "run:tokens"; runId: string; tokens: TokenData }
-  | { type: "run:comment"; runId: string; comment: Comment };
+  | { type: "run:comment"; runId: string; comment: Comment }
+  | { type: "run:worktree-changed"; runId: string };
 
 export function formatDuration(ms: number): string {
   const seconds = Math.floor(ms / 1000);
