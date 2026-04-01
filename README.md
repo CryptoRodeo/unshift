@@ -4,7 +4,8 @@ An automation tool that picks up Jira issues with a configurable label (default:
 
 > The dashboard engine uses the [Vercel AI SDK](https://sdk.vercel.ai/) and supports multiple LLM providers (Anthropic, OpenAI, Google). The CLI scripts in `cli/` are an alternative entry point that uses [Claude Code](https://docs.anthropic.com/en/docs/claude-code) directly.
 
-## Dashboard preview
+<details>
+<summary><strong>Dashboard preview</strong></summary>
 
 ### Run list page
 
@@ -25,6 +26,8 @@ An automation tool that picks up Jira issues with a configurable label (default:
 ### Batch run - configure models for specific issues
 
 <a href="batch-run-configure-models.png"><img src="batch-run-configure-models.png" alt="Unshift dashboard — batch run configuration" width="600"></a>
+</details>
+
 
 ### Dashboard features
 
