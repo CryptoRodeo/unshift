@@ -75,7 +75,7 @@ export class UnshiftRunner extends EventEmitter {
             continue;
           }
 
-          if (!isTerminal(run.status) && run.status !== "success") continue;
+          if (!isCompleted(run.status)) continue;
 
           const completedAt = run.completedAt ? new Date(run.completedAt).getTime() : 0;
           if (completedAt > 0 && now - completedAt > ttlMs) {

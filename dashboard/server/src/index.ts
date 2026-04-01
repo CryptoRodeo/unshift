@@ -7,7 +7,7 @@ import { WebSocketServer, WebSocket } from "ws";
 import yaml from "js-yaml";
 import { UnshiftRunner } from "./unshift";
 import { isRunError } from "../../shared/types";
-import type { RunErrorCode, WsMessage, TokenData, WorktreeInfo } from "../../shared/types";
+import type { RunErrorCode, WsMessage, TokenData, WorktreeInfo, JiraIssueDetail, JiraComment } from "../../shared/types";
 import { DEFAULT_MODELS, AVAILABLE_MODELS, getDefaultConfig, type Provider, type ProviderConfig } from "./engine/providers";
 
 function parseProviderConfig(body: Record<string, unknown> | undefined): ProviderConfig | undefined {
@@ -93,8 +93,8 @@ const JIRA_STATUS_TTL_MS = 60_000; // 1 minute
 
 // Jira detail caches (5-minute TTL)
 const JIRA_DETAIL_TTL_MS = 300_000;
-const jiraIssueCache = new Map<string, { data: unknown; fetchedAt: number }>();
-const jiraCommentsCache = new Map<string, { data: unknown; fetchedAt: number }>();
+const jiraIssueCache = new Map<string, { data: JiraIssueDetail; fetchedAt: number }>();
+const jiraCommentsCache = new Map<string, { data: JiraComment[]; fetchedAt: number }>();
 
 // Evict expired entries periodically to prevent unbounded cache growth
 const CACHE_EVICT_INTERVAL_MS = 300_000; // 5 minutes
