@@ -81,7 +81,12 @@ function runsReducer(
       const run = state.get(action.runId);
       if (!run) return state;
       const next = new Map(state);
-      next.set(action.runId, { ...run, context: action.context });
+      next.set(action.runId, {
+        ...run,
+        context: action.context,
+        repoPath: action.context.repoPath ?? run.repoPath,
+        branchName: action.context.branchName ?? run.branchName,
+      });
       return next;
     }
 
