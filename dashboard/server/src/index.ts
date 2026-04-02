@@ -383,7 +383,7 @@ app.get("/api/runs/:id/worktree", (req, res) => {
   const hasDevContainer = available && fs.existsSync(path.join(containerPath, ".devcontainer", "devcontainer.json"));
 
   const vsCodeUri = `vscode://file/${hostPath}`;
-  const devContainerUri = `vscode://ms-vscode-remote.remote-containers/openFolder?folderUri=${encodeURIComponent(hostPath)}`;
+  const devContainerUri = `vscode://ms-vscode-remote.remote-containers/openFolder?folderUri=${encodeURIComponent(`file://${hostPath}`)}`;
 
   const info: WorktreeInfo = {
     containerPath,
