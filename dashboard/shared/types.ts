@@ -11,6 +11,7 @@ export type RunPhase =
   | "pending"
   | "phase0"
   | "phase1"
+  | "awaiting_plan_approval"
   | "phase2"
   | "awaiting_approval"
   | "phase3"

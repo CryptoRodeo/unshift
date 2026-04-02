@@ -26,6 +26,19 @@ An automation tool that picks up Jira issues with a configurable label (default:
 ### Batch run - configure models for specific issues
 
 <a href="batch-run-configure-models.png"><img src="batch-run-configure-models.png" alt="Unshift dashboard — batch run configuration" width="600"></a>
+
+### Review plan steps
+
+<a href="review-plan.png"><img src="review-plan.png" alt="Unshift dashboard — Review plan" width="600"></a>
+
+### Plan approval step
+
+<a href="plan-approval-step.png"><img src="plan-approval-step.png" alt="Unshift dashboard — Plan approval step" width="600"></a>
+
+#### Recreate plan
+
+<a href="recreate-plan.png"><img src="recreate-plan.png" alt="Unshift dashboard — Recreate plan" width="600"></a>
+
 </details>
 
 

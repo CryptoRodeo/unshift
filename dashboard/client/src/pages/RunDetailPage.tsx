@@ -103,7 +103,7 @@ function PhaseTimingBreakdown({ phaseTimestamps }: { phaseTimestamps: Record<str
 export function RunDetailPage() {
   const { runId } = useParams<{ runId: string }>();
   const navigate = useNavigate();
-  const { runs, loading, connected, stopRun, approveRun, rejectRun, retryRun, deleteRun, fetchRepoUrl, fetchRunLogs, fetchRunHistory, startRunForIssue, commentsMap, fetchComments, addComment, progressMap } = useWebSocketContext();
+  const { runs, loading, connected, stopRun, approveRun, rejectRun, approvePlan, rejectPlan, replan, retryRun, deleteRun, fetchRepoUrl, fetchRunLogs, fetchRunHistory, startRunForIssue, commentsMap, fetchComments, addComment, progressMap } = useWebSocketContext();
   const headerCtx = useHeaderContext();
 
   useEffect(() => {
@@ -125,7 +125,7 @@ export function RunDetailPage() {
   const [repoUrl, setRepoUrl] = useState<string | null>(null);
   const [runHistory, setRunHistory] = useState<Run[]>([]);
   const [showHistory, setShowHistory] = useState(false);
-  const [confirmAction, setConfirmAction] = useState<"approve" | "reject" | null>(null);
+  const [confirmAction, setConfirmAction] = useState<"approve" | "reject" | "approve-plan" | "reject-plan" | "replan" | null>(null);
   const [rerunModal, setRerunModal] = useState<"retry" | "rerun" | null>(null);
   const [providers, setProviders] = useState<{ provider: string; defaultModel: string; models: string[] }[]>([]);
   const [modalProvider, setModalProvider] = useState("");
@@ -176,6 +176,32 @@ export function RunDetailPage() {
     await rejectRun(run.id);
   }, [rejectRun, run]);
 
+  const doApprovePlan = useCallback(async () => {
+    if (!run) return;
+    setConfirmAction(null);
+    setApproveError(null);
+    const result = await approvePlan(run.id);
+    if (isRunError(result)) {
+      setApproveError(result.error);
+    }
+  }, [approvePlan, run]);
+
+  const doRejectPlan = useCallback(async () => {
+    if (!run) return;
+    setConfirmAction(null);
+    await rejectPlan(run.id);
+  }, [rejectPlan, run]);
+
+  const doReplan = useCallback(async () => {
+    if (!run) return;
+    setConfirmAction(null);
+    setApproveError(null);
+    const result = await replan(run.id);
+    if (isRunError(result)) {
+      setApproveError(result.error);
+    }
+  }, [replan, run]);
+
   const runLoaded = run !== undefined;
   useEffect(() => {
     if (runId && runLoaded) {
@@ -190,25 +216,46 @@ export function RunDetailPage() {
     }
   }, [run?.issueKey, fetchRunHistory]);
 
-  // Keyboard shortcuts for approval flow: A = approve, R = reject
+  // Keyboard shortcuts for approval flow: A = approve, R = reject; plan approval: A = approve, P = replan, R = reject
   useEffect(() => {
-    if (!run || run.status !== "awaiting_approval" || confirmAction) return;
+    if (!run || confirmAction) return;
+    if (run.status !== "awaiting_approval" && run.status !== "awaiting_plan_approval") return;
     const handler = (e: KeyboardEvent) => {
       // Ignore when typing in an input/textarea
       const tag = (e.target as HTMLElement)?.tagName;
       if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
 
-      if (e.key === "a" || e.key === "A") {
-        e.preventDefault();
-        setConfirmAction("approve");
-      } else if (e.key === "r" || e.key === "R") {
-        e.preventDefault();
-        setConfirmAction("reject");
+      if (run.status === "awaiting_plan_approval") {
+        if (e.key === "a" || e.key === "A") {
+          e.preventDefault();
+          setConfirmAction("approve-plan");
+        } else if (e.key === "p" || e.key === "P") {
+          e.preventDefault();
+          setConfirmAction("replan");
+        } else if (e.key === "r" || e.key === "R") {
+          e.preventDefault();
+          setConfirmAction("reject-plan");
+        }
+      } else {
+        if (e.key === "a" || e.key === "A") {
+          e.preventDefault();
+          setConfirmAction("approve");
+        } else if (e.key === "r" || e.key === "R") {
+          e.preventDefault();
+          setConfirmAction("reject");
+        }
       }
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
   }, [run?.status, confirmAction]);
+
+  // Auto-switch to Plan tab when entering awaiting_plan_approval
+  useEffect(() => {
+    if (run?.status === "awaiting_plan_approval") {
+      setActiveTab(1);
+    }
+  }, [run?.status]);
 
   useEffect(() => {
     if (!run?.repoPath) return;
@@ -393,13 +440,20 @@ export function RunDetailPage() {
               <button className="us-btn us-btn--danger" onClick={() => setConfirmAction("reject")}>Reject</button>
             </>
           )}
-          {isActive && run.status !== "awaiting_approval" && (
+          {run.status === "awaiting_plan_approval" && (
+            <>
+              <button className="us-btn us-btn--primary" onClick={() => setConfirmAction("approve-plan")}>Approve Plan</button>
+              <button className="us-btn us-btn--ghost" onClick={() => setConfirmAction("replan")}>Re-plan</button>
+              <button className="us-btn us-btn--danger" onClick={() => setConfirmAction("reject-plan")}>Reject</button>
+            </>
+          )}
+          {isActive && run.status !== "awaiting_approval" && run.status !== "awaiting_plan_approval" && (
             <button className="us-btn us-btn--danger" onClick={() => stopRun(run.id)}>Stop</button>
           )}
 
           {/* Secondary icon buttons */}
           <div className="us-detail-subheader__secondary">
-            {(run.status === "awaiting_approval" || run.status === "success") && (
+            {(run.status === "awaiting_approval" || run.status === "awaiting_plan_approval" || run.status === "success") && (
               <Tooltip content={editorLoading ? "Loading…" : "Open worktree in VSCode"}>
                 <button
                   className={`us-detail-subheader__icon-btn us-btn--editor${editorLoading ? " us-btn--editor-loading" : ""}`}
@@ -511,6 +565,35 @@ export function RunDetailPage() {
           <section className="us-detail-section">
             <PhaseProgress status={run.status} phaseTimestamps={run.phaseTimestamps} completedAt={run.completedAt} />
           </section>
+
+          {/* Plan approval banner */}
+          {run.status === "awaiting_plan_approval" && (
+            <section className="us-detail-section us-approval-banner us-approval-banner--pulse">
+              <div className="us-approval-banner__content">
+                <div className="us-approval-banner__header">
+                  <ExclamationTriangleIcon className="us-approval-banner__icon" />
+                  <div className="us-approval-banner__text">
+                    <strong>Plan Review Required</strong>
+                    <p>Review the generated plan before implementation begins. You can also update the Jira ticket and re-plan.</p>
+                  </div>
+                </div>
+                <div className="us-approval-banner__actions">
+                  <button className="us-btn us-btn--primary" onClick={() => setConfirmAction("approve-plan")}>
+                    Approve Plan
+                  </button>
+                  <button className="us-btn us-btn--ghost" onClick={() => setConfirmAction("replan")}>
+                    Re-plan
+                  </button>
+                  <button className="us-btn us-btn--danger" onClick={() => setConfirmAction("reject-plan")}>
+                    Reject
+                  </button>
+                  <span className="us-approval-banner__shortcuts">
+                    Press <kbd>A</kbd> to approve · <kbd>P</kbd> to re-plan · <kbd>R</kbd> to reject
+                  </span>
+                </div>
+              </div>
+            </section>
+          )}
 
           {/* Approval banner */}
           {run.status === "awaiting_approval" && (
@@ -751,6 +834,36 @@ export function RunDetailPage() {
           confirmLabel="Reject"
           confirmVariant="danger"
           onConfirm={doReject}
+          onCancel={() => setConfirmAction(null)}
+        />
+      )}
+      {confirmAction === "approve-plan" && (
+        <ConfirmModal
+          title="Approve Plan"
+          message={`This will begin implementation of the plan for ${run.issueKey}.`}
+          confirmLabel="Approve Plan"
+          confirmVariant="primary"
+          onConfirm={doApprovePlan}
+          onCancel={() => setConfirmAction(null)}
+        />
+      )}
+      {confirmAction === "replan" && (
+        <ConfirmModal
+          title="Re-plan"
+          message={`This will re-read the Jira ticket and regenerate the plan. The current plan will be replaced.`}
+          confirmLabel="Re-plan"
+          confirmVariant="primary"
+          onConfirm={doReplan}
+          onCancel={() => setConfirmAction(null)}
+        />
+      )}
+      {confirmAction === "reject-plan" && (
+        <ConfirmModal
+          title="Reject Plan"
+          message={`This will reject the plan for ${run.issueKey}. The run will be terminated.`}
+          confirmLabel="Reject"
+          confirmVariant="danger"
+          onConfirm={doRejectPlan}
           onCancel={() => setConfirmAction(null)}
         />
       )}

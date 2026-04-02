@@ -54,6 +54,10 @@ export class UnshiftEngine extends EventEmitter {
     string,
     { resolve: () => void; reject: (err: Error) => void }
   >();
+  private planApprovalGates = new Map<
+    string,
+    { resolve: (decision: 'approve' | 'replan') => void; reject: (err: Error) => void }
+  >();
   private activeWorktrees = new Map<
     string,
     { mainClone: string; worktree: string }
@@ -284,13 +288,14 @@ export class UnshiftEngine extends EventEmitter {
   async runPhase1(
     issueKey: string,
     repoEntry: RepoEntry,
-    opts: EngineRunOptions
+    opts: EngineRunOptions,
+    existingWorkDir?: string
   ): Promise<{ context: RunContext; prd: PrdEntry[] }> {
     const { model, signal, runId } = opts;
     const ts = new Date().toISOString();
     this.emit("run:phase", runId, "phase1", ts);
 
-    const workDir = await this.createWorktree(runId, repoEntry);
+    const workDir = existingWorkDir ?? await this.createWorktree(runId, repoEntry);
     const prompt = buildPhase1Prompt(issueKey, repoEntry, workDir);
     const tools = planningTools(workDir, this.jira);
 
@@ -427,18 +432,35 @@ export class UnshiftEngine extends EventEmitter {
   }
 
   /**
-   * Full issue lifecycle: phase1 → phase2 → (await approval) → phase3
+   * Full issue lifecycle: phase1 → (plan approval loop) → phase2 → (await approval) → phase3
    */
   async runIssue(
     issueKey: string,
     repoEntry: RepoEntry,
     opts: EngineRunOptions
   ): Promise<void> {
-    const { context, prd } = await this.runPhase1(
+    let { context, prd } = await this.runPhase1(
       issueKey,
       repoEntry,
       opts
     );
+
+    // Plan approval loop: wait for user to approve, replan, or reject
+    while (true) {
+      const planTs = new Date().toISOString();
+      this.emit("run:phase", opts.runId, "awaiting_plan_approval", planTs);
+      const decision = await this.waitForPlanDecision(opts.runId, opts.signal);
+
+      if (decision === 'approve') break;
+
+      // Re-plan: re-run phase1 in the existing worktree
+      ({ context, prd } = await this.runPhase1(
+        issueKey,
+        repoEntry,
+        opts,
+        context.repoPath
+      ));
+    }
 
     await this.runFromPhase2(context, prd, opts);
   }
@@ -484,6 +506,59 @@ export class UnshiftEngine extends EventEmitter {
         }
       }
     });
+  }
+
+  /** Wait for the user to approve or replan the generated plan */
+  waitForPlanDecision(runId: string, signal?: AbortSignal): Promise<'approve' | 'replan'> {
+    return new Promise<'approve' | 'replan'>((resolve, reject) => {
+      const cleanup = signal ? () => signal.removeEventListener("abort", onAbort) : undefined;
+
+      this.planApprovalGates.set(runId, {
+        resolve: (decision) => { cleanup?.(); resolve(decision); },
+        reject: (err) => { cleanup?.(); reject(err); },
+      });
+
+      const onAbort = () => {
+        if (this.planApprovalGates.delete(runId)) {
+          reject(signal!.reason ?? new Error("Aborted"));
+        }
+      };
+
+      if (signal) {
+        if (signal.aborted) {
+          onAbort();
+        } else {
+          signal.addEventListener("abort", onAbort, { once: true });
+        }
+      }
+    });
+  }
+
+  /** Approve the plan, allowing implementation to proceed */
+  approvePlan(runId: string): boolean {
+    const gate = this.planApprovalGates.get(runId);
+    if (!gate) return false;
+    gate.resolve('approve');
+    this.planApprovalGates.delete(runId);
+    return true;
+  }
+
+  /** Request re-planning — phase1 will re-run in the same worktree */
+  replan(runId: string): boolean {
+    const gate = this.planApprovalGates.get(runId);
+    if (!gate) return false;
+    gate.resolve('replan');
+    this.planApprovalGates.delete(runId);
+    return true;
+  }
+
+  /** Reject the plan, causing runIssue to throw */
+  rejectPlan(runId: string): boolean {
+    const gate = this.planApprovalGates.get(runId);
+    if (!gate) return false;
+    gate.reject(new Error("Plan rejected by user"));
+    this.planApprovalGates.delete(runId);
+    return true;
   }
 
   /** Run a single implementation step: execute the phase, emit tokens, re-read and emit PRD. */
