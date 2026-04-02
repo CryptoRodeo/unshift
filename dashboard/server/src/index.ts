@@ -321,6 +321,48 @@ app.post("/api/runs/:id/reject", async (req, res) => {
   }
 });
 
+app.post("/api/runs/:id/approve-plan", async (req, res) => {
+  try {
+    const result = await runner.approvePlanRun(req.params.id);
+    if (isRunError(result)) {
+      res.status(ERROR_CODE_TO_STATUS[result.code]).json(result);
+    } else {
+      res.json(result);
+    }
+  } catch (err) {
+    console.error("Failed to approve plan:", err);
+    res.status(500).json({ error: "Failed to approve plan" });
+  }
+});
+
+app.post("/api/runs/:id/reject-plan", async (req, res) => {
+  try {
+    const result = await runner.rejectPlanRun(req.params.id);
+    if (isRunError(result)) {
+      res.status(ERROR_CODE_TO_STATUS[result.code]).json(result);
+    } else {
+      res.json(result);
+    }
+  } catch (err) {
+    console.error("Failed to reject plan:", err);
+    res.status(500).json({ error: "Failed to reject plan" });
+  }
+});
+
+app.post("/api/runs/:id/replan", async (req, res) => {
+  try {
+    const result = await runner.replanRun(req.params.id);
+    if (isRunError(result)) {
+      res.status(ERROR_CODE_TO_STATUS[result.code]).json(result);
+    } else {
+      res.json(result);
+    }
+  } catch (err) {
+    console.error("Failed to replan:", err);
+    res.status(500).json({ error: "Failed to replan" });
+  }
+});
+
 app.post("/api/runs/:id/cleanup", async (req, res) => {
   const run = runner.getRun(req.params.id);
   if (!run) {
@@ -383,7 +425,7 @@ app.get("/api/runs/:id/worktree", (req, res) => {
   const hasDevContainer = available && fs.existsSync(path.join(containerPath, ".devcontainer", "devcontainer.json"));
 
   const vsCodeUri = `vscode://file/${hostPath}`;
-  const devContainerUri = `vscode://ms-vscode-remote.remote-containers/openFolder?folderUri=${encodeURIComponent(hostPath)}`;
+  const devContainerUri = `vscode://ms-vscode-remote.remote-containers/openFolder?folderUri=${encodeURIComponent(`file://${hostPath}`)}`;
 
   const info: WorktreeInfo = {
     containerPath,

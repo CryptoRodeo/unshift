@@ -14,6 +14,7 @@ const colorMap: Record<RunPhase, LabelColor> = {
   pending: "grey",
   phase0: "blue",
   phase1: "blue",
+  awaiting_plan_approval: "orange",
   phase2: "teal",
   awaiting_approval: "orange",
   phase3: "blue",

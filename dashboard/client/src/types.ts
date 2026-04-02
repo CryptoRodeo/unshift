@@ -27,6 +27,7 @@ export {
 export const PHASE_CONFIG: { key: RunPhase; label: string }[] = [
   { key: "phase0", label: "Pre-flight" },
   { key: "phase1", label: "Planning" },
+  { key: "awaiting_plan_approval", label: "Plan Review" },
   { key: "phase2", label: "Implementation" },
   { key: "awaiting_approval", label: "Approval" },
   { key: "phase3", label: "Delivery" },

@@ -166,7 +166,7 @@ export class UnshiftRunner extends EventEmitter {
       const { execCommand } = await import("./engine/tools.js");
       const result = await execCommand(
         "git",
-        ["diff", `origin/${run.context.defaultBranch}`, "--", ".", ...UnshiftRunner.DIFF_EXCLUDE_PATHS],
+        ["diff", "-M", `origin/${run.context.defaultBranch}`, "--", ".", ...UnshiftRunner.DIFF_EXCLUDE_PATHS],
         { cwd: run.repoPath, timeout: 30_000 }
       );
       if (result.exitCode === 0 && result.stdout) {
@@ -189,7 +189,7 @@ export class UnshiftRunner extends EventEmitter {
     if (run.repoPath && defaultBranch && fs.existsSync(run.repoPath)) {
       const result = await execCommand(
         "git",
-        ["diff", `origin/${defaultBranch}`, "--", ".", ...UnshiftRunner.DIFF_EXCLUDE_PATHS],
+        ["diff", "-M", `origin/${defaultBranch}`, "--", ".", ...UnshiftRunner.DIFF_EXCLUDE_PATHS],
         { cwd: run.repoPath, timeout: 30_000 }
       );
       if (result.exitCode === 0 && result.stdout) {
@@ -204,7 +204,7 @@ export class UnshiftRunner extends EventEmitter {
       if (fs.existsSync(mainClone)) {
         const result = await execCommand(
           "git",
-          ["diff", `origin/${defaultBranch}...${run.branchName}`, "--", ".", ...UnshiftRunner.DIFF_EXCLUDE_PATHS],
+          ["diff", "-M", `origin/${defaultBranch}...${run.branchName}`, "--", ".", ...UnshiftRunner.DIFF_EXCLUDE_PATHS],
           { cwd: mainClone, timeout: 30_000 }
         );
         if (result.exitCode === 0 && result.stdout) {
@@ -399,6 +399,68 @@ export class UnshiftRunner extends EventEmitter {
     return { ok: true };
   }
 
+  async approvePlanRun(id: string, providerConfig?: ProviderConfig): Promise<{ ok: true } | RunError> {
+    const run = this.repository.getRun(id);
+    if (!run) return { error: "Run not found", code: "NOT_FOUND" };
+    if (run.status !== "awaiting_plan_approval") return { error: `Run is not awaiting plan approval (status: ${run.status})`, code: "INVALID_STATE" };
+
+    const approved = this.engine.approvePlan(id);
+    if (!approved) {
+      // Gate lost (e.g. container restart) — resume from phase2 using persisted context and prd
+      if (!run.context) return { error: "No context available to resume from phase 2", code: "INVALID_STATE" };
+      const prd = run.prd ?? [];
+      this.launchWithErrorHandling(id, run.issueKey, providerConfig, async (opts) => {
+        await this.engine.runFromPhase2(run.context!, prd, opts);
+      });
+    }
+
+    return { ok: true };
+  }
+
+  async replanRun(id: string): Promise<{ ok: true } | RunError> {
+    const run = this.repository.getRun(id);
+    if (!run) return { error: "Run not found", code: "NOT_FOUND" };
+    if (run.status !== "awaiting_plan_approval") return { error: `Run is not awaiting plan approval (status: ${run.status})`, code: "INVALID_STATE" };
+
+    const replanned = this.engine.replan(id);
+    if (!replanned) {
+      // Gate lost (e.g. container restart) — re-launch full run from phase1 in existing worktree
+      if (!run.context) return { error: "No context available to re-plan", code: "INVALID_STATE" };
+      this.launchWithErrorHandling(id, run.issueKey, undefined, async (opts) => {
+        const repoEntry = await this.engine.resolveRepo(run.issueKey);
+        await this.engine.runIssue(run.issueKey, repoEntry, opts);
+      });
+    }
+
+    return { ok: true };
+  }
+
+  async rejectPlanRun(id: string): Promise<{ ok: true } | RunError> {
+    const run = this.repository.getRun(id);
+    if (!run) return { error: "Run not found", code: "NOT_FOUND" };
+    if (run.status !== "awaiting_plan_approval") return { error: `Run is not awaiting plan approval (status: ${run.status})`, code: "INVALID_STATE" };
+
+    const completedAt = new Date().toISOString();
+    this.repository.updateRunStatus(run.id, "rejected", completedAt);
+    this.emit("run:complete", run.id, "rejected");
+
+    // Reject the plan approval gate (causes the engine runIssue to throw)
+    this.engine.rejectPlan(id);
+
+    // Also abort the engine run
+    const controller = this.abortControllers.get(id);
+    if (controller) {
+      controller.abort();
+    }
+
+    // Clean up worktree and run state
+    this.engine.cleanupRun(id).catch((e) => {
+      console.warn(`Failed to clean up worktree for run ${id}:`, e);
+    });
+    this.cleanupRun(id, run.issueKey);
+    return { ok: true };
+  }
+
   async rejectRun(id: string): Promise<{ ok: true } | RunError> {
     const run = this.repository.getRun(id);
     if (!run) return { error: "Run not found", code: "NOT_FOUND" };
@@ -500,7 +562,7 @@ export class UnshiftRunner extends EventEmitter {
       const finalStatus = finalRun?.status;
 
       // Keep worktree on disk for awaiting_approval and success so users can open in VSCode
-      const shouldKeepWorktree = finalStatus === "awaiting_approval" || finalStatus === "success";
+      const shouldKeepWorktree = finalStatus === "awaiting_approval" || finalStatus === "awaiting_plan_approval" || finalStatus === "success";
 
       const afterCleanup = () => {
         cleanup();
@@ -526,7 +588,7 @@ export class UnshiftRunner extends EventEmitter {
       this.emit("run:phase", id, phase, ts);
 
       // Persist the diff when entering approval so it survives container restarts
-      if (phase === "awaiting_approval") {
+      if (phase === "awaiting_approval" || phase === "awaiting_plan_approval") {
         this.persistDiff(id).catch((e) =>
           console.warn(`Failed to persist diff on approval for run ${id}:`, e)
         );

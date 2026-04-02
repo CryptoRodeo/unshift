@@ -3,7 +3,7 @@ import { Tooltip } from "@patternfly/react-core";
 import { PHASE_CONFIG, isTerminal, isCompleted, formatDuration } from "../types";
 import type { RunPhase } from "../types";
 
-const phaseOrder: RunPhase[] = ["phase0", "phase1", "phase2", "awaiting_approval", "phase3", "success"];
+const phaseOrder: RunPhase[] = ["phase0", "phase1", "awaiting_plan_approval", "phase2", "awaiting_approval", "phase3", "success"];
 
 type PhaseState = "completed" | "active" | "pending" | "failed";
 

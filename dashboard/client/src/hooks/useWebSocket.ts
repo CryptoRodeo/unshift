@@ -81,7 +81,12 @@ function runsReducer(
       const run = state.get(action.runId);
       if (!run) return state;
       const next = new Map(state);
-      next.set(action.runId, { ...run, context: action.context });
+      next.set(action.runId, {
+        ...run,
+        context: action.context,
+        repoPath: action.context.repoPath ?? run.repoPath,
+        branchName: action.context.branchName ?? run.branchName,
+      });
       return next;
     }
 
@@ -415,6 +420,28 @@ export function useWebSocket() {
     await fetch(`/api/runs/${runId}/reject`, { method: "POST" });
   }, []);
 
+  const approvePlan = useCallback(async (runId: string): Promise<{ ok: true } | RunError> => {
+    const res = await fetch(`/api/runs/${runId}/approve-plan`, { method: "POST" });
+    const data = await res.json();
+    if (!res.ok && !isRunError(data)) {
+      throw new Error(data.error || "Plan approval failed");
+    }
+    return data;
+  }, []);
+
+  const rejectPlan = useCallback(async (runId: string) => {
+    await fetch(`/api/runs/${runId}/reject-plan`, { method: "POST" });
+  }, []);
+
+  const replan = useCallback(async (runId: string): Promise<{ ok: true } | RunError> => {
+    const res = await fetch(`/api/runs/${runId}/replan`, { method: "POST" });
+    const data = await res.json();
+    if (!res.ok && !isRunError(data)) {
+      throw new Error(data.error || "Re-plan failed");
+    }
+    return data;
+  }, []);
+
   const retryRun = useCallback(async (runId: string, providerConfig?: { provider?: string; model?: string }) => {
     const res = await fetch(`/api/runs/${runId}/retry`, {
       method: "POST",
@@ -460,6 +487,9 @@ export function useWebSocket() {
     stopRun,
     approveRun,
     rejectRun,
+    approvePlan,
+    rejectPlan,
+    replan,
     retryRun,
     deleteRun,
     fetchRepoUrl,

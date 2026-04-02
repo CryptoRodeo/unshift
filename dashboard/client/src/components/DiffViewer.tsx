@@ -6,6 +6,8 @@ import { useState, useEffect, useCallback, useMemo } from "react";
 
 interface DiffFile {
   filename: string;
+  status: 'added' | 'deleted' | 'renamed' | 'modified';
+  oldFilename?: string;
   hunks: DiffLine[][];
 }
 
@@ -22,6 +24,23 @@ function parseDiff(raw: string): DiffFile[] {
   for (const chunk of chunks) {
     const lines = chunk.split("\n");
     let filename = "";
+    let status: DiffFile['status'] = 'modified';
+    let oldFilename: string | undefined;
+
+    // Scan header lines (before the first @@) for git metadata
+    const headerEndIdx = lines.findIndex((l) => l.startsWith("@@"));
+    const headerLines = headerEndIdx >= 0 ? lines.slice(0, headerEndIdx) : lines;
+
+    for (const line of headerLines) {
+      if (line.startsWith("new file mode")) {
+        status = 'added';
+      } else if (line.startsWith("deleted file mode")) {
+        status = 'deleted';
+      } else if (line.startsWith("rename from ")) {
+        oldFilename = line.slice(12);
+        status = 'renamed';
+      }
+    }
 
     // Extract filename from +++ b/... line
     for (const line of lines) {
@@ -32,7 +51,8 @@ function parseDiff(raw: string): DiffFile[] {
       if (line.startsWith("+++ /dev/null")) {
         // File was deleted — use --- a/... instead
         const minusLine = lines.find((l) => l.startsWith("--- a/"));
-        filename = minusLine ? minusLine.slice(6) + " (deleted)" : "(deleted)";
+        filename = minusLine ? minusLine.slice(6) : "(deleted)";
+        status = 'deleted';
         break;
       }
     }
@@ -63,9 +83,7 @@ function parseDiff(raw: string): DiffFile[] {
     }
     if (currentHunk.length > 0) hunks.push(currentHunk);
 
-    if (hunks.length > 0) {
-      files.push({ filename, hunks });
-    }
+    files.push({ filename, status, oldFilename, hunks });
   }
 
   return files;
@@ -90,6 +108,20 @@ function DiffFileSection({ file }: { file: DiffFile }) {
     return { adds, dels };
   }, [file]);
 
+  const displayName = file.status === 'renamed' && file.oldFilename
+    ? <><span className="us-diff__old-filename">{file.oldFilename}</span>{' → '}{file.filename}</>
+    : file.filename;
+
+  const badge = file.status === 'added' ? (
+    <span className="us-diff__badge us-diff__badge--added">New</span>
+  ) : file.status === 'deleted' ? (
+    <span className="us-diff__badge us-diff__badge--deleted">Deleted</span>
+  ) : file.status === 'renamed' ? (
+    <span className="us-diff__badge us-diff__badge--renamed">Renamed</span>
+  ) : null;
+
+  const hasHunkContent = file.hunks.length > 0;
+
   return (
     <div className="us-diff__file">
       <button
@@ -106,7 +138,8 @@ function DiffFileSection({ file }: { file: DiffFile }) {
         >
           <path d="M6.22 3.22a.75.75 0 011.06 0l4.25 4.25a.75.75 0 010 1.06l-4.25 4.25a.75.75 0 01-1.06-1.06L9.94 8 6.22 4.28a.75.75 0 010-1.06z" />
         </svg>
-        <span className="us-diff__filename">{file.filename}</span>
+        <span className="us-diff__filename">{displayName}</span>
+        {badge}
         <span className="us-diff__stats">
           {stats.adds > 0 && <span className="us-diff__stat-add">+{stats.adds}</span>}
           {stats.dels > 0 && <span className="us-diff__stat-del">-{stats.dels}</span>}
@@ -114,15 +147,23 @@ function DiffFileSection({ file }: { file: DiffFile }) {
       </button>
       {expanded && (
         <pre className="us-diff__code">
-          {file.hunks.map((hunk, hi) =>
-            hunk.map((line, li) => (
-              <div
-                key={`${hi}-${li}`}
-                className={`us-diff__line us-diff__line--${line.type}`}
-              >
-                {line.content}
-              </div>
-            ))
+          {hasHunkContent ? (
+            file.hunks.map((hunk, hi) =>
+              hunk.map((line, li) => (
+                <div
+                  key={`${hi}-${li}`}
+                  className={`us-diff__line us-diff__line--${line.type}`}
+                >
+                  {line.content}
+                </div>
+              ))
+            )
+          ) : (
+            <div className="us-diff__line us-diff__line--context us-diff__empty-placeholder">
+              {file.status === 'deleted' ? 'File deleted' :
+               file.status === 'added' ? 'Empty file' :
+               'No changes'}
+            </div>
           )}
         </pre>
       )}
@@ -146,7 +187,10 @@ export function DiffViewer({ runId }: DiffViewerProps) {
 
   const fetchDiff = useCallback(() => {
     return fetch(`/api/runs/${runId}/diff`)
-      .then((res) => res.json() as Promise<{ diff: string | null }>)
+      .then((res) => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return res.json() as Promise<{ diff: string | null }>;
+      })
       .then((data) => {
         setDiff(data.diff);
         setError(false);
@@ -174,14 +218,46 @@ export function DiffViewer({ runId }: DiffViewerProps) {
     return parseDiff(diff);
   }, [diff]);
 
+  const summary = useMemo(() => {
+    let totalAdds = 0;
+    let totalDels = 0;
+    const counts: Record<DiffFile['status'], number> = { modified: 0, added: 0, deleted: 0, renamed: 0 };
+    for (const file of files) {
+      counts[file.status]++;
+      for (const hunk of file.hunks) {
+        for (const line of hunk) {
+          if (line.type === 'add') totalAdds++;
+          else if (line.type === 'del') totalDels++;
+        }
+      }
+    }
+    return { totalAdds, totalDels, counts };
+  }, [files]);
+
+  const statusBreakdown = useMemo(() => {
+    const parts: string[] = [];
+    if (summary.counts.modified > 0) parts.push(`${summary.counts.modified} modified`);
+    if (summary.counts.added > 0) parts.push(`${summary.counts.added} added`);
+    if (summary.counts.deleted > 0) parts.push(`${summary.counts.deleted} deleted`);
+    if (summary.counts.renamed > 0) parts.push(`${summary.counts.renamed} renamed`);
+    return parts.join(', ');
+  }, [summary]);
+
   return (
     <div className="us-diff">
       <div className="us-diff__header">
         <span className="us-diff__summary">
           {files.length > 0 && (
-            <span className="us-diff__file-count">
-              {files.length} file{files.length !== 1 ? "s" : ""} changed
-            </span>
+            <>
+              <span className="us-diff__file-count">
+                {files.length} file{files.length !== 1 ? "s" : ""} changed
+              </span>
+              <span className="us-diff__additions">+{summary.totalAdds}</span>
+              <span className="us-diff__deletions">-{summary.totalDels}</span>
+              {statusBreakdown && (
+                <span className="us-diff__breakdown">({statusBreakdown})</span>
+              )}
+            </>
           )}
         </span>
         <button
